@@ -36,6 +36,20 @@ vibetracks:
   marker:
     property: vibe-track
     value: feature
+  # Area memory: the shared tagging vocabulary. Humans and dispatch agents
+  # reuse these before inventing new ones; new themes get added here with a
+  # one-line description.
+  areas:
+    writeback: Reverse-pass edits that mutate source files
+    round-trip: Forward/backward projection equivalence
+    workspace: Multi-file indexing and resolution
+    evaluator: Held-out correctness measurement
+    contracts: Interface envelopes and invariants
+    blockview: Block View rendering surface
+    ui: Gesture and interaction wiring
+    product: Naming, policy, and scope decisions
+    history: Prototype preservation and archaeology
+    resolution: Alias and identity resolution
   properties:
     id: vibe-id
     status: vibe-status

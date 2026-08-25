@@ -1,0 +1,40 @@
+filters:
+  and:
+    - 'note["vibe-track"] == "feature"'
+    - 'file.inFolder("features")'
+
+views:
+  - type: vibetracks-graph
+    name: Graph
+  - type: vibetracks-kanban
+    name: Kanban
+  - type: vibetracks-focus
+    name: Focus
+  - type: table
+    name: Plain data
+    order:
+      - file.name
+      - vibe-id
+      - vibe-status
+      - vibe-depends-on
+      - vibe-areas
+
+vibetracks:
+  version: 1
+  id: vibe-tracks
+  title: Vibe Tracks
+  description: ""
+  vaultRoot: .
+  source: features
+  idPrefix: VT
+  statuses: [backlog, ready, running, waiting, review, frontier, done, archived]
+  # Area memory — the shared vocabulary humans and dispatch agents tag work with.
+  # Grow it as themes emerge; keep each description to one line, e.g.:
+  #   areas:
+  #     backend: Server, model, and storage work
+  areas:
+    model: Descriptor parsing, note reading, project assembly
+    writes: Fenced atomic note mutations and scaffolding
+    renderer: The browser panel — views, styling, polling
+    agent: Dispatcher protocol, skills, and install surface
+    obsidian: Vault-host integration and live-buffer safety
