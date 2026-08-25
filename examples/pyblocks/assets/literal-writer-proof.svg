@@ -1,0 +1,20 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 920 430" role="img" aria-labelledby="title desc">
+  <title id="title">Literal writer proof loop</title>
+  <desc id="desc">A source literal becomes a semantic edit, guarded patch, fresh projection, and verified result.</desc>
+  <rect width="920" height="430" rx="30" fill="#f6f2e8"/>
+  <text x="48" y="62" fill="#236e64" font-family="system-ui" font-size="18" font-weight="700" letter-spacing="3">ROUND-TRIP PROOF</text>
+  <g font-family="system-ui" fill="#192724">
+    <rect x="48" y="105" width="180" height="160" rx="16" fill="#fffdf8" stroke="#d7d2c7"/>
+    <text x="68" y="138" font-size="14" font-weight="700">SOURCE</text><text x="68" y="180" font-size="28" font-family="monospace">speed=2</text><text x="68" y="223" font-size="13" fill="#697571">revision a17c</text>
+    <rect x="276" y="105" width="180" height="160" rx="16" fill="#dceee8" stroke="#236e64"/>
+    <text x="296" y="138" font-size="14" font-weight="700">COMMAND</text><text x="296" y="177" font-size="18">Set literal → 3</text><text x="296" y="217" font-size="13" fill="#4a655f">owned span only</text>
+    <rect x="504" y="105" width="180" height="160" rx="16" fill="#fffdf8" stroke="#d7d2c7"/>
+    <text x="524" y="138" font-size="14" font-weight="700">FRESH GET</text><text x="524" y="180" font-size="28" font-family="monospace">speed=3</text><text x="524" y="223" font-size="13" fill="#697571">reparse + project</text>
+    <rect x="732" y="105" width="140" height="160" rx="16" fill="#e0f2e8" stroke="#2e7958"/>
+    <text x="752" y="138" font-size="14" font-weight="700">PROOF</text><text x="752" y="184" font-size="32">✓</text><text x="752" y="223" font-size="13" fill="#2e7958">semantic + locality</text>
+    <path d="M228 185H266M456 185H494M684 185H722" stroke="#236e64" stroke-width="4"/>
+    <path d="M258 175L270 185L258 195M486 175L498 185L486 195M714 175L726 185L714 195" fill="none" stroke="#236e64" stroke-width="4"/>
+    <rect x="48" y="309" width="824" height="72" rx="14" fill="#192724"/>
+    <text x="70" y="341" fill="#dceee8" font-size="14" font-weight="700">V1 BOUNDARY</text><text x="70" y="365" fill="#ffffff" font-size="15">Existing literal only · stale revisions refuse · all unrelated bytes remain identical</text>
+  </g>
+</svg>

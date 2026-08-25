@@ -1,0 +1,186 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Vibe Tracks V0 · Implementation gallery</title>
+  <style>
+    :root { --ink:#172320; --muted:#61706b; --paper:#f3f0e8; --panel:#fffdf8; --teal:#0a766c; --teal2:#cce9df; --coral:#d76848; --yellow:#f1c95b; --line:#d7d4ca; --navy:#243c45; }
+    * { box-sizing:border-box; }
+    body { margin:0; color:var(--ink); background:var(--paper); font:15px/1.55 Inter,ui-sans-serif,system-ui,-apple-system,sans-serif; }
+    a { color:var(--teal); }
+    .shell { width:min(1180px,calc(100% - 36px)); margin:auto; }
+    header { padding:68px 0 48px; background:linear-gradient(130deg,#102b2b,#184b48 58%,#9b513b); color:white; overflow:hidden; }
+    .eyebrow { text-transform:uppercase; letter-spacing:.15em; font-size:12px; font-weight:800; color:#aee5d7; }
+    h1 { max-width:820px; margin:12px 0 15px; font:700 clamp(42px,7vw,78px)/.98 Georgia,serif; letter-spacing:-.04em; }
+    header p { max-width:730px; margin:0; font-size:19px; color:#d8e7e2; }
+    .proofs { display:flex; flex-wrap:wrap; gap:10px; margin-top:28px; }
+    .proofs span { padding:8px 12px; border:1px solid #ffffff38; border-radius:999px; background:#ffffff12; font-size:13px; }
+    main { padding:44px 0 80px; }
+    section { margin:0 0 48px; }
+    h2 { margin:0 0 8px; font:700 31px/1.1 Georgia,serif; }
+    .lead { max-width:780px; color:var(--muted); font-size:17px; }
+    .decision { display:grid; grid-template-columns:1.1fr .9fr; gap:18px; margin-top:24px; }
+    .card { border:1px solid var(--line); border-radius:18px; background:var(--panel); box-shadow:0 8px 28px #253c3510; }
+    .decision .card { padding:25px; }
+    .decision b { display:block; margin-bottom:7px; color:var(--teal); font-size:20px; }
+    .arch { padding:26px; margin-top:22px; }
+    .arch svg { width:100%; height:auto; display:block; }
+    .tabs { display:flex; gap:7px; padding:8px; border-bottom:1px solid var(--line); }
+    button { border:0; border-radius:10px; padding:10px 14px; background:transparent; color:var(--muted); font-weight:750; cursor:pointer; }
+    button.active { color:white; background:var(--teal); }
+    .demo { overflow:hidden; }
+    .demo-body { min-height:380px; padding:25px; background:#f8f6f0; }
+    .view { display:none; }
+    .view.active { display:block; }
+    .graph { position:relative; height:320px; min-width:680px; }
+    .node { position:absolute; width:176px; padding:12px; border:1px solid var(--line); border-left:4px solid var(--teal); border-radius:12px; background:white; box-shadow:0 7px 18px #243c4512; }
+    .node strong { display:block; font-size:13px; }
+    .node small { color:var(--muted); }
+    .node.review { border-left-color:var(--coral); }
+    .node.running { border-left-color:#4e76ae; }
+    .node.waiting { border-left-color:var(--yellow); }
+    .connections { position:absolute; inset:0; width:100%; height:100%; pointer-events:none; }
+    .kanban { display:grid; grid-template-columns:repeat(4,1fr); gap:12px; }
+    .column { min-height:280px; padding:12px; border:1px solid var(--line); border-radius:13px; background:#eeece5; }
+    .column h3 { margin:0 0 10px; font-size:12px; letter-spacing:.1em; color:var(--muted); }
+    .ticket { margin:8px 0; padding:11px; border-radius:10px; background:white; box-shadow:0 2px 8px #0000000d; font-size:13px; }
+    .focus { display:grid; grid-template-columns:1.2fr .8fr; gap:14px; }
+    .focus-lane { padding:18px; border:1px solid var(--line); border-radius:14px; background:white; }
+    .focus-card { margin-top:10px; padding:15px; border-left:4px solid var(--coral); border-radius:10px; background:#fff8f3; }
+    .focus-card.quiet { border-color:#4e76ae; background:#f4f7fb; }
+    .matrix { display:grid; grid-template-columns:repeat(3,1fr); gap:14px; margin-top:22px; }
+    .matrix .card { padding:20px; }
+    .matrix h3 { margin:0 0 4px; font-size:16px; }
+    .matrix p { margin:0; color:var(--muted); }
+    .review { display:grid; grid-template-columns:.85fr 1.15fr; gap:18px; margin-top:22px; }
+    .review .card { padding:22px; }
+    .report { min-height:340px; background:linear-gradient(145deg,#0f2d31,#183f42); color:white; position:relative; overflow:hidden; }
+    .report:after { content:""; position:absolute; width:190px; height:190px; right:-55px; top:-45px; border-radius:50%; background:#d7684870; }
+    .report .metric { display:flex; gap:12px; margin:26px 0; }
+    .report .metric span { flex:1; padding:16px; border-radius:12px; background:#ffffff12; }
+    .report strong { display:block; font-size:26px; }
+    .check { display:flex; gap:9px; align-items:flex-start; margin:12px 0; }
+    .check i { width:21px; height:21px; flex:0 0 auto; border-radius:50%; display:grid; place-items:center; background:var(--teal2); color:var(--teal); font-style:normal; font-weight:900; }
+    .boundary { border-left:5px solid var(--yellow); padding:18px 22px; background:#fffbeb; border-radius:0 13px 13px 0; }
+    pre { overflow:auto; padding:18px; border-radius:13px; background:#172320; color:#dbf0e9; }
+    footer { color:var(--muted); padding-top:20px; border-top:1px solid var(--line); }
+    @media(max-width:760px) { .decision,.review,.focus { grid-template-columns:1fr; } .matrix { grid-template-columns:1fr; } .demo-body { overflow:auto; } .kanban { min-width:680px; } }
+  </style>
+</head>
+<body>
+  <header>
+    <div class="shell">
+      <div class="eyebrow">Vibe Tracks · working V0 · 25 August 2026</div>
+      <h1>The work is the files. The app is the lens.</h1>
+      <p>A file-first feature workspace with dependency, workflow, and attention views over the same durable Markdown conversations.</p>
+      <div class="proofs"><span>9 example feature files</span><span>3 synchronized views</span><span>revision-fenced writes</span><span>7 tests passing</span><span>zero database</span></div>
+    </div>
+  </header>
+
+  <main class="shell">
+    <section>
+      <div class="eyebrow">The format decision</div>
+      <h2>One model, two extensions, no split brain</h2>
+      <p class="lead">A Base is a query and view description, not the project database. Markdown notes remain the canonical feature identities and conversations.</p>
+      <div class="decision">
+        <article class="card"><b>Inside an Obsidian vault: <code>.base</code></b>Use Obsidian's real format. Vibe Tracks understands its filters and declares custom Graph, Kanban, and Focus views, while a native table remains as fallback.</article>
+        <article class="card"><b>Outside a vault: <code>.vibetrack</code></b>Use the same YAML shape, optionally with a <code>vibetracks:</code> host block. The parser and feature schema do not fork.</article>
+      </div>
+      <div class="card arch">
+        <svg viewBox="0 0 1060 250" role="img" aria-label="File-first Vibe Tracks architecture">
+          <defs><marker id="m" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="6" markerHeight="6" orient="auto"><path d="M0 0L10 5L0 10Z" fill="#82908b"/></marker></defs>
+          <g fill="none" stroke="#82908b" stroke-width="2" marker-end="url(#m)"><path d="M210 70H325"/><path d="M210 180H325"/><path d="M515 124H625"/><path d="M810 124H930"/><path d="M725 184V224H460V197"/></g>
+          <g font-family="Inter,system-ui" text-anchor="middle">
+            <rect x="30" y="30" width="180" height="80" rx="16" fill="#e3f0eb" stroke="#0a766c"/><text x="120" y="63" font-weight="700" fill="#172320">Project.base</text><text x="120" y="86" font-size="13" fill="#61706b">filters + views</text>
+            <rect x="30" y="140" width="180" height="80" rx="16" fill="#fff" stroke="#d7d4ca"/><text x="120" y="173" font-weight="700" fill="#172320">Feature notes</text><text x="120" y="196" font-size="13" fill="#61706b">frontmatter + prose</text>
+            <rect x="325" y="76" width="190" height="96" rx="16" fill="#243c45"/><text x="420" y="116" font-weight="700" fill="white">Live snapshot</text><text x="420" y="140" font-size="13" fill="#d4e5df">resolve · normalize · hash</text>
+            <rect x="625" y="76" width="185" height="96" rx="16" fill="#fff" stroke="#d7d4ca"/><text x="717" y="111" font-weight="700" fill="#172320">Graph · Kanban</text><text x="717" y="134" font-weight="700" fill="#172320">Focus · Detail</text><text x="717" y="155" font-size="13" fill="#61706b">same identities</text>
+            <rect x="930" y="85" width="105" height="78" rx="16" fill="#fff5ed" stroke="#d76848"/><text x="982" y="116" font-weight="700" fill="#172320">Human</text><text x="982" y="139" font-size="13" fill="#61706b">review</text>
+            <rect x="350" y="203" width="220" height="39" rx="12" fill="#fff9df" stroke="#f1c95b"/><text x="460" y="228" font-size="13" font-weight="700" fill="#172320">revision check → atomic edit</text>
+          </g>
+        </svg>
+      </div>
+    </section>
+
+    <section>
+      <div class="eyebrow">Three projections</div>
+      <h2>Switch the question, not the underlying task</h2>
+      <p class="lead">Graph asks “what unlocks what?”, Kanban asks “where is everything?”, and Focus asks “what needs me now?” Click the tabs.</p>
+      <div class="card demo">
+        <div class="tabs" role="tablist">
+          <button class="active" data-view="graph">Graph</button><button data-view="kanban">Kanban</button><button data-view="focus">Focus</button>
+        </div>
+        <div class="demo-body">
+          <div class="view active" id="graph">
+            <div class="graph">
+              <svg class="connections" viewBox="0 0 800 320"><g fill="none" stroke="#aeb8b4" stroke-width="2"><path d="M185 70C240 70 240 115 295 115"/><path d="M470 115C520 115 520 64 575 64"/><path d="M470 115C520 115 520 224 575 224"/><path d="M185 250C240 250 240 188 295 188"/></g></svg>
+              <div class="node" style="left:8px;top:28px"><strong>VT-001 · Edit envelope</strong><small>Done</small></div>
+              <div class="node review" style="left:295px;top:73px"><strong>VT-002 · Literal writer</strong><small>Review · blocks 2</small></div>
+              <div class="node" style="left:575px;top:22px"><strong>VT-003 · Stable IDs</strong><small>Ready</small></div>
+              <div class="node waiting" style="left:575px;top:182px"><strong>VT-004 · UI gesture</strong><small>Waiting</small></div>
+              <div class="node running" style="left:8px;top:208px"><strong>VT-005 · Workspace index</strong><small>Running</small></div>
+              <div class="node" style="left:295px;top:174px"><strong>VT-006 · Alias fixtures</strong><small>Waiting</small></div>
+            </div>
+          </div>
+          <div class="view" id="kanban"><div class="kanban"><div class="column"><h3>READY · 2</h3><div class="ticket">VT-003 · Stable identities</div><div class="ticket">VT-007 · Held-out evaluator</div></div><div class="column"><h3>RUNNING · 1</h3><div class="ticket">VT-005 · Workspace imports</div></div><div class="column"><h3>REVIEW · 1</h3><div class="ticket">VT-002 · Literal writer</div></div><div class="column"><h3>WAITING · 2</h3><div class="ticket">VT-004 · UI gesture</div><div class="ticket">VT-006 · Alias fixtures</div></div></div></div>
+          <div class="view" id="focus"><div class="focus"><div class="focus-lane"><div class="eyebrow">Needs you · 2</div><div class="focus-card"><strong>Review the literal writer</strong><br><small>Two downstream features are waiting for this decision.</small></div><div class="focus-card"><strong>Choose draft naming policy</strong><br><small>A frontier decision; safe to defer.</small></div></div><div class="focus-lane"><div class="eyebrow">Working quietly · 3</div><div class="focus-card quiet"><strong>Index workspace imports</strong><br><small>Running without input.</small></div><div class="focus-card quiet"><strong>Alias fixtures</strong><br><small>Waiting on an explicit dependency.</small></div></div></div></div>
+        </div>
+      </div>
+    </section>
+
+    <section>
+      <div class="eyebrow">Human review boundary</div>
+      <h2>The task card links to the work, not just its status</h2>
+      <div class="review">
+        <div class="card">
+          <h3>VT-002 · Implement literal writer</h3>
+          <p>Each feature note can carry its conversation, dependencies, areas, evidence, agent runs, preview media, and a self-contained review packet.</p>
+          <div class="check"><i>✓</i><span><b>Open the durable Markdown source</b><br><small>In Obsidian when configured, raw file otherwise.</small></span></div>
+          <div class="check"><i>✓</i><span><b>Inspect media and evidence in place</b><br><small>No archaeology across agent threads.</small></span></div>
+          <div class="check"><i>✓</i><span><b>Act on the reviewed revision</b><br><small>Stale status changes receive a conflict instead of overwriting newer work.</small></span></div>
+        </div>
+        <div class="card report">
+          <div class="eyebrow">Example review packet</div><h3>Literal writer · safe slice</h3>
+          <div class="metric"><span><strong>14</strong>tests</span><span><strong>2</strong>supported edits</span><span><strong>0</strong>format drift</span></div>
+          <p><b>Reviewer decision:</b> approve the constrained literal writer before extending the edit vocabulary.</p>
+          <small>This bundled report is intentionally marked as demonstration evidence; it does not claim the Pyblocks writer already exists.</small>
+        </div>
+      </div>
+    </section>
+
+    <section>
+      <div class="eyebrow">Implementation evidence</div>
+      <h2>Small enough to audit</h2>
+      <div class="matrix">
+        <article class="card"><h3>File model</h3><p>Recursive Markdown discovery, Base filter extraction, property mapping, wikilink dependency resolution, area/status normalization, and safe relative media paths.</p></article>
+        <article class="card"><h3>Live service</h3><p>Fresh snapshot per request, local static UI, safe media endpoint, and one narrow status mutation with optimistic concurrency and atomic replace.</p></article>
+        <article class="card"><h3>Review surface</h3><p>Inbox-like conversation rail, Graph/Kanban/Focus, search and area filters, archived toggle, details, iframe review reports, evidence, and run links.</p></article>
+      </div>
+      <pre><code>python3 -m unittest discover -s tests -v
+# 7 tests: model, format parity, resolution, traversal,
+# atomic updates, stale revisions, and live HTTP API
+
+python3 -m vibetracks examples/pyblocks/Project.base --inspect
+# Pyblocks development · 9 features · revision …</code></pre>
+    </section>
+
+    <section class="boundary">
+      <h3>Honest V0 boundary</h3>
+      <p>Vibe Tracks does not yet launch agents, infer dependencies, ingest transcripts, create notes, deliver feedback, or write through Obsidian's live editor buffer. Do not mutate a note that is open and unsaved in Obsidian from the standalone app; the future custom-view wrapper should use Obsidian's frontmatter API. This first slice establishes the stable coordination surface those capabilities can safely build on.</p>
+    </section>
+
+    <footer>
+      <p><b>Try it:</b> <code>python3 -m vibetracks examples/pyblocks/Project.base --open-browser</code></p>
+      <p><a href="../README.md">README</a> · <a href="../examples/pyblocks/Project.base">Example Base</a> · <a href="../vibetracks/model.py">File model</a> · <a href="../tests/test_model.py">Tests</a></p>
+    </footer>
+  </main>
+  <script>
+    const buttons = document.querySelectorAll('[data-view]');
+    buttons.forEach(button => button.addEventListener('click', () => {
+      buttons.forEach(item => item.classList.toggle('active', item === button));
+      document.querySelectorAll('.view').forEach(view => view.classList.toggle('active', view.id === button.dataset.view));
+    }));
+  </script>
+</body>
+</html>

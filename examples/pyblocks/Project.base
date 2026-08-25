@@ -1,0 +1,50 @@
+filters:
+  and:
+    - note["vibe-track"] == "feature"
+    - file.inFolder("features")
+
+views:
+  - type: vibetracks-graph
+    name: Graph
+    statusProperty: note.vibe-status
+    dependencyProperty: note.vibe-depends-on
+    areaProperty: note.vibe-areas
+  - type: vibetracks-kanban
+    name: Kanban
+    statusProperty: note.vibe-status
+  - type: vibetracks-focus
+    name: Focus
+    statusProperty: note.vibe-status
+    reviewPacketProperty: note.vibe-review-packet
+  - type: table
+    name: Plain data
+    order:
+      - file.name
+      - vibe-id
+      - vibe-status
+      - vibe-depends-on
+      - vibe-areas
+
+vibetracks:
+  version: 1
+  id: pyblocks-demo
+  title: Pyblocks development
+  description: A real file-backed Vibe Tracks sample. Graph, Kanban, and Focus read the same Markdown feature conversations.
+  vaultRoot: .
+  source: features
+  statuses: [backlog, ready, running, waiting, review, frontier, done, archived]
+  marker:
+    property: vibe-track
+    value: feature
+  properties:
+    id: vibe-id
+    status: vibe-status
+    description: vibe-description
+    dependsOn: vibe-depends-on
+    areas: vibe-areas
+    priority: vibe-priority
+    archived: vibe-archived
+    reviewPacket: vibe-review-packet
+    preview: vibe-preview
+    evidence: vibe-evidence
+    runs: vibe-runs

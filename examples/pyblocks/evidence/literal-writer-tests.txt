@@ -1,0 +1,12 @@
+LITERAL WRITER REVIEW EVIDENCE (DEMO)
+
+This is deliberately example data for the Vibe Tracks implementation.
+It does not claim that Pyblocks currently ships a source writer.
+
+Expected review matrix
+  success: existing integer literal     proposed
+  success: existing string literal      proposed
+  no-op: already requested value        proposed
+  refuse: stale base revision           proposed
+  refuse: expression-shaped target      proposed
+  locality: bytes outside owned span    proposed

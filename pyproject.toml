@@ -1,0 +1,16 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "vibetracks"
+version = "0.1.0"
+description = "File-first feature tracking with Graph, Kanban, and Focus views."
+requires-python = ">=3.11"
+dependencies = ["PyYAML>=6.0"]
+
+[project.scripts]
+vibetracks = "vibetracks.cli:main"
+
+[tool.setuptools.package-data]
+vibetracks = ["static/*"]
