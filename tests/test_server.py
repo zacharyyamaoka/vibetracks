@@ -73,6 +73,87 @@ class ServerTests(unittest.TestCase):
             urlopen(self.base + "/api/media?path=../outside.txt")
         self.assertEqual(caught.exception.code, 400)
 
+    def json_post(self, path: str, payload: dict, content_type: str = "application/json") -> dict:
+        request = Request(
+            self.base + path,
+            method="POST",
+            headers={"Content-Type": content_type},
+            data=json.dumps(payload).encode(),
+        )
+        with urlopen(request) as response:
+            return json.load(response)
+
+    def test_known_revision_short_circuits_polling(self) -> None:
+        revision = self.json_get("/api/project")["revision"]
+        cheap = self.json_get(f"/api/project?known={revision}")
+        self.assertEqual(cheap, {"revision": revision, "unchanged": True})
+        full = self.json_get("/api/project?known=stale")
+        self.assertIn("items", full)
+
+    def test_dependencies_and_comment_endpoints(self) -> None:
+        (self.root / "features" / "Second.md").write_text(
+            "---\nvibe-id: F-2\nvibe-status: ready\n---\n# Second\n",
+            encoding="utf-8",
+        )
+        item = next(
+            entry
+            for entry in self.json_get("/api/project")["items"]
+            if entry["id"] == "F-2"
+        )
+        updated = self.json_post(
+            "/api/features/F-2/dependencies",
+            {"dependsOn": ["F-1"], "expectedRevision": item["revision"]},
+        )["item"]
+        self.assertEqual(updated["dependencies"], ["F-1"])
+
+        commented = self.json_post(
+            "/api/features/F-2/comment",
+            {"text": "Please add a screenshot.", "expectedRevision": updated["revision"]},
+        )["item"]
+        self.assertIn("Please add a screenshot.", commented["body"])
+        self.assertIn("[!quote]", commented["body"])
+
+    def test_post_requires_json_content_type(self) -> None:
+        item = self.json_get("/api/project")["items"][0]
+        with self.assertRaises(HTTPError) as caught:
+            self.json_post(
+                "/api/features/F-1/status",
+                {"status": "done", "expectedRevision": item["revision"]},
+                content_type="text/plain",
+            )
+        self.assertEqual(caught.exception.code, 415)
+
+    def test_media_svg_gets_csp_and_nosniff(self) -> None:
+        (self.root / "assets").mkdir()
+        (self.root / "assets" / "proof.svg").write_text(
+            "<svg xmlns='http://www.w3.org/2000/svg'/>", encoding="utf-8"
+        )
+        with urlopen(self.base + "/api/media?path=assets/proof.svg") as response:
+            self.assertIn("default-src 'none'", response.headers.get("Content-Security-Policy", ""))
+            self.assertEqual(response.headers.get("X-Content-Type-Options"), "nosniff")
+
+    def test_rebound_hostname_is_forbidden(self) -> None:
+        request = Request(self.base + "/api/project", headers={"Host": "evil.example:8777"})
+        with self.assertRaises(HTTPError) as caught:
+            urlopen(request)
+        self.assertEqual(caught.exception.code, 403)
+
+    def test_malformed_note_shows_as_problem_not_500(self) -> None:
+        (self.root / "features" / "Broken.md").write_text(
+            "---\nx: [unclosed\n---\n# Broken\n", encoding="utf-8"
+        )
+        project = self.json_get("/api/project")
+        self.assertEqual(len(project["problems"]), 1)
+        self.assertIn("Broken.md", project["problems"][0]["path"])
+
+    def test_unknown_feature_is_404(self) -> None:
+        with self.assertRaises(HTTPError) as caught:
+            self.json_post(
+                "/api/features/NOPE/status",
+                {"status": "done", "expectedRevision": "0" * 16},
+            )
+        self.assertEqual(caught.exception.code, 404)
+
 
 if __name__ == "__main__":
     unittest.main()
