@@ -1,90 +1,151 @@
 # Vibe Tracks
 
-Vibe Tracks renders a folder of ordinary Markdown feature conversations as three interchangeable views:
+File-first feature tracking for humans and AI agents working in parallel.
 
-- **Graph** — causal dependencies and hidden-boundary cues.
-- **Kanban** — workflow state over the same feature identities.
-- **Focus** — reviews, frontier decisions, and work ready to dispatch.
+Ordinary Markdown notes are the database — one note per feature, frontmatter
+for trackable state, body for the durable conversation. Vibe Tracks renders
+that folder as three interchangeable lenses:
 
-The files are the backend. Closing the renderer leaves the complete project state readable and editable by humans, Obsidian, scripts, Claude, Codex, or another future dispatcher.
+- **Graph** — what unlocks what (dependency topology).
+- **Kanban** — where is everything (state sweep).
+- **Focus** — what needs the human now (reviews, frontier decisions, ready work).
 
-## Run the included project
+Closing the renderer loses nothing: the complete project state stays readable
+and editable by humans, Obsidian, scripts, Claude, Codex, or any future
+dispatcher. The panel is the shared control surface where a human and a
+dispatch agent coordinate: the agent lays out features and dependencies, the
+human rewires edges, flips statuses, and drops feedback — all through the same
+files.
+
+## Quick start
 
 ```bash
-cd /home/bam/vibetracks
-python3 -m vibetracks examples/pyblocks/Project.base --open-browser
+git clone https://github.com/zacharyyamaoka/vibetracks.git
+cd vibetracks
+bash agent/install.sh          # CLI + /vibetracks skill for Claude Code & Codex
 ```
 
-The server defaults to <http://127.0.0.1:8777>. It rereads the descriptor and Markdown notes on every snapshot. State changes from the UI atomically edit only `vibe-status` and require the revision the browser actually reviewed.
+```bash
+vibetracks serve examples/pyblocks/Project.base   # try the included example
+```
 
-The standalone writer coordinates its own disk edits, but it is not yet connected to Obsidian's live editor buffer. Do not apply a standalone status change to a note that is actively open and unsaved in Obsidian; the future custom-view plugin should route that mutation through Obsidian's `processFrontMatter` API.
+```bash
+cd ~/your/repo && vibetracks init && vibetracks serve   # track your own repo
+```
+
+Or, with zero installation: `python3 -m vibetracks …` from this checkout.
+
+## Working with an agent
+
+Type `/vibetracks` in Claude Code or Codex. The agent installs itself as the
+project's **dispatcher**: it finds (or scaffolds) the nearest track, serves the
+panel, hands you the URL, and from then on turns whatever context you paste
+into feature notes with honest dependencies — executing ready work, finishing
+each piece into `review` with a media-rich HTML review packet, and watching the
+files for your feedback. The full protocol is [`vibetracks/AGENT.md`](vibetracks/AGENT.md)
+(printed by `vibetracks agent`).
+
+Concepts stay separate by design: the **feature** is the stable identity;
+worker **attempts**, **review packets/evidence**, **human feedback**, and the
+current projected **status** all hang off the feature note. Agents are
+temporary; the files are not.
+
+## CLI
+
+```text
+vibetracks serve [descriptor] [--port N] [--host H]   # browser panel (default command)
+vibetracks init [path] [--title T] [--base|--vibetrack]
+vibetracks new "Title" [--area A]… [--depends-on X]… [--status S] [--description D] [--priority P] [--body M]
+vibetracks status <id> <status>
+vibetracks comment <id> "text" [--author L]
+vibetracks inspect [descriptor] [--json]
+vibetracks agent
+```
+
+Descriptor discovery: current folder → ancestors (stopping at the repo
+boundary) → one level down. The default port walks forward when busy so
+parallel sessions coexist.
 
 ## `.base` or `.vibetrack`?
 
-Use a real `.base` file when the project lives in an Obsidian vault. Vibe Tracks reads ordinary Base `filters` and `views`, while `vibetracks-graph`, `vibetracks-kanban`, and `vibetracks-focus` are custom view types a later Obsidian plugin can register. A plain table view remains a native fallback.
-
-Use `.vibetrack` outside Obsidian. It accepts the same YAML shape and may add the `vibetracks:` host block. There is one parser and one feature-note schema, not two databases.
+One schema, two host-facing extensions. Inside an Obsidian vault use a real
+`.base` file — Vibe Tracks reads ordinary Base `filters`/`views`, and
+`vibetracks-graph|kanban|focus` are custom view types a future Obsidian
+plugin can register, with a native table view as fallback. Outside a vault,
+`.vibetrack` accepts the same YAML plus the `vibetracks:` host block. One
+parser, one feature-note schema, never two databases.
 
 ```yaml
 filters:
   and:
-    - note["vibe-track"] == "feature"
-    - file.inFolder("features")
-
-views:
-  - type: vibetracks-graph
-    name: Graph
-  - type: vibetracks-kanban
-    name: Kanban
-  - type: vibetracks-focus
-    name: Focus
+    - 'note["vibe-track"] == "feature"'
+    - 'file.inFolder("features")'
 
 vibetracks:
   title: My project
-  vaultRoot: .
   source: features
-  obsidianVault: My Vault
+  idPrefix: VT
+  statuses: [backlog, ready, running, waiting, review, frontier, done, archived]
+  areas:                # project memory: the shared tagging vocabulary
+    backend: Server, model, and storage work
+  obsidianVault: My Vault   # enables obsidian:// note links
 ```
 
-Feature notes use normal YAML and Markdown:
+Feature notes are plain Markdown ([full anatomy](vibetracks/AGENT.md)):
 
 ```markdown
 ---
 vibe-track: feature
 vibe-id: VT-042
 vibe-status: review
-vibe-areas: [backend, evaluator]
+vibe-areas: [backend]
 vibe-depends-on: ["[[VT-017 - Workspace index]]"]
-vibe-review-packet: ../reports/VT-042.html
+vibe-review-packet: ../reports/VT-042-review.html
 ---
 
 # Close the first round trip
 
-Human-authored intent, agent summaries, decisions, and durable links live here.
+Human intent, agent summaries, decisions, and feedback callouts live here.
 ```
 
-`obsidianVault` enables standard `obsidian://open` links using each note's path relative to `vaultRoot`.
+## Safety model
 
-## Current implementation boundary
-
-Shipped in V0:
-
-- Base-compatible `.base` and `.vibetrack` loading;
-- recursive Markdown discovery and frontmatter normalization;
-- explicit dependency resolution with unresolved and hidden-boundary cues;
-- area/search/archive filtering;
-- Graph, Kanban, Focus, feature-conversation, media, evidence, and review-report views;
-- polling-based file refresh;
-- revision-fenced, atomic status edits;
-- configurable Obsidian note links.
-
-Not yet implemented: agent launching, transcript ingestion, background idea curation, automatic dependency inference, feedback delivery, file watching/SSE, drag/drop, note creation, or an Obsidian plugin wrapper.
+- **Files are the source of truth**; the server re-derives every response from
+  disk and holds no state.
+- **Three narrow writes** (status, dependencies, feedback comment), each
+  revision-fenced: the client sends the note revision it reviewed, the server
+  rechecks it immediately before an atomic replace, and stale writes get HTTP
+  409 instead of silently clobbering newer work. Only the intended span
+  changes — untouched frontmatter and body keep their exact formatting.
+  API details: [`docs/api.md`](docs/api.md).
+- **Boundary:** disk writes cannot see a live editor's unsaved buffer. Don't
+  mutate a note that is open and dirty in Obsidian; a future embedded Base
+  view should write through Obsidian's `processFrontMatter`.
+- Media serving is confined to the project root; embedded HTML review packets
+  render in a sandboxed iframe under a restrictive CSP with scripts disabled.
 
 ## Verify
 
 ```bash
 python3 -m unittest discover -s tests -v
-python3 -m vibetracks examples/pyblocks/Project.base --inspect
 ```
 
-The implementation gallery will live at [`docs/implementation-gallery.html`](docs/implementation-gallery.html).
+```bash
+python3 -m vibetracks inspect examples/pyblocks/Project.base
+```
+
+## Design explorations
+
+- [Track-layout prototypes](docs/track-layout-prototypes-2026-08-25.html) —
+  five browser-verified ways to make a dependency DAG read as parallel work
+  tracks. The provisional splice is derived, borderless corridors at rest plus
+  selected-lineage focus; this is design evidence, not a production UI change.
+
+## Status
+
+V0.2. Implemented: descriptor loading, recursive note discovery, dependency
+resolution, all three views + feature rail + detail panel, area catalog
+memory, review-packet embedding, polling with cheap unchanged checks, fenced
+writes, scaffolding, the dispatcher CLI verbs, and the `/vibetracks` agent
+skill. Not yet: file watching/SSE, drag-and-drop, automatic dependency
+inference, transcript ingestion, or the Obsidian plugin wrapper.
