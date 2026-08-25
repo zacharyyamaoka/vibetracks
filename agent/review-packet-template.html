@@ -1,0 +1,53 @@
+<!doctype html>
+<!--
+  Review packet template. Copy into reports/<id>-review.html and fill in.
+  Rules: fully self-contained — inline styles, images embedded as data: URIs
+  (relative paths will NOT resolve inside the panel's iframe, and the packet
+  must also read cleanly when opened straight from disk). NO <script> — the
+  panel iframes packets with scripts disabled. Lead with what changed; end
+  with the questions.
+-->
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>VT-000 · Review</title>
+<style>
+  body { max-width: 760px; margin: 0 auto; padding: 32px 20px 60px;
+         color: #1c1c1a; background: #faf9f6;
+         font: 15px/1.6 system-ui, -apple-system, "Segoe UI", sans-serif; }
+  h1, h2 { font-family: Georgia, "Times New Roman", serif; font-weight: 500; }
+  h1 { font-size: 26px; margin: 0 0 4px; }
+  h2 { font-size: 18px; margin: 32px 0 8px; border-bottom: 1px solid #ddd9d0;
+       padding-bottom: 4px; }
+  .meta { color: #6f6d66; font-size: 13px; margin-bottom: 24px; }
+  figure { margin: 16px 0; }
+  figure img, figure svg { max-width: 100%; border: 1px solid #ddd9d0; }
+  figcaption { color: #6f6d66; font-size: 12.5px; margin-top: 6px; }
+  pre { background: #f1efe9; border: 1px solid #ddd9d0; padding: 12px;
+        overflow-x: auto; font-size: 12.5px; }
+  .ask { border-left: 3px solid #1c1c1a; padding: 8px 14px; background: #f1efe9; }
+</style>
+</head>
+<body>
+  <h1>VT-000 · Feature title</h1>
+  <p class="meta">Attempt agent:run-id · date · status → review</p>
+
+  <h2>What changed</h2>
+  <p>Two or three sentences. The single most important thing first.</p>
+
+  <h2>See it</h2>
+  <figure>
+    <img src="data:image/png;base64,…" alt="Before/after or key screenshot" />
+    <figcaption>What the reader should notice.</figcaption>
+  </figure>
+
+  <h2>Evidence</h2>
+  <pre>test output, measurements, before/after numbers</pre>
+
+  <h2>Questions for you</h2>
+  <div class="ask">
+    <p>The specific decisions needed. If none: "None — approve or request changes."</p>
+  </div>
+</body>
+</html>
