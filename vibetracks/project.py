@@ -53,6 +53,7 @@ class TrackItem:
     media: list[dict[str, str]] = field(default_factory=list)
     revision: str = ""
     updated: str = ""
+    touched: str = ""
     obsidian_uri: str | None = None
     raw_dependencies: list[str] = field(default_factory=list, repr=False)
 
@@ -155,6 +156,7 @@ class TrackProject:
             "areaCatalog": self.area_catalog(),
             "views": self.views,
             "revision": self.revision,
+            "now": datetime.now().astimezone().isoformat(timespec="milliseconds"),
             "obsidianVault": self.obsidian_vault,
             "problems": self.problems,
             "items": [item.to_dict() for item in self.items],
@@ -186,12 +188,18 @@ def _item_from_file(
     obsidian_uri = None
     if config.obsidian_vault:
         obsidian_uri = f"obsidian://open?vault={quote(config.obsidian_vault)}&file={quote(relative)}"
+    # Two different questions, deliberately kept apart:
+    #   `updated` is what the note *claims* (frontmatter wins if present),
+    #   `touched` is when the file actually changed on disk.
+    # A stale `running` status is only detectable because the second one
+    # cannot be written by the agent that is claiming to be busy.
+    # Millisecond precision on purpose: `touched` is compared against a
+    # "last seen" marker, and truncating to whole seconds loses every change
+    # that lands inside the same second as the comparison — which is exactly
+    # the change most worth flagging as new.
+    touched = datetime.fromtimestamp(path.stat().st_mtime).astimezone().isoformat(timespec="milliseconds")
     updated_value = frontmatter.get(properties["updated"])
-    updated = (
-        str(updated_value)
-        if updated_value
-        else datetime.fromtimestamp(path.stat().st_mtime).astimezone().isoformat(timespec="seconds")
-    )
+    updated = str(updated_value) if updated_value else touched
     item = TrackItem(
         id=str(frontmatter.get(properties["id"]) or slugify(path.stem)).strip(),
         title=title,
@@ -211,6 +219,7 @@ def _item_from_file(
         media=media_refs(body, path, root),
         revision=note_revision(content),
         updated=updated,
+        touched=touched,
         obsidian_uri=obsidian_uri,
     )
     return item, frontmatter

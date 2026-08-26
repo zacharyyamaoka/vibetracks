@@ -2,8 +2,9 @@
 
 `vibetracks` alone serves the nearest track. Subcommands cover the dispatcher
 verbs: `init` a track anywhere, `new` a feature, `status` / `comment` a note,
-`inspect` the projection (optionally as JSON for agents), and `agent` to print
-the dispatcher briefing.
+`inspect` the projection (optionally as JSON for agents), `track` to list the
+lanes or brief one per-track agent, and `agent` to print the dispatcher
+briefing.
 
 Backwards compatible: `vibetracks path/to/Project.base --open-browser` still
 works — a first argument that is not a subcommand is treated as `serve`.
@@ -20,9 +21,10 @@ from .edits import append_feature_comment, create_feature, update_feature_status
 from .errors import VibeTracksError
 from .project import TrackProject, load_project
 from .scaffold import find_descriptors, init_project
-from .server import serve
+from .server import probe_panel, serve
+from .tracks import lane_table, track_briefing
 
-SUBCOMMANDS = {"serve", "init", "new", "status", "comment", "inspect", "agent"}
+SUBCOMMANDS = {"serve", "init", "new", "status", "comment", "inspect", "track", "agent"}
 
 
 def discover_descriptor(start: Path) -> Path:
@@ -129,6 +131,12 @@ def build_parser() -> argparse.ArgumentParser:
     inspect_parser.add_argument("descriptor", nargs="?")
     inspect_parser.add_argument("--json", action="store_true", help="Full snapshot as JSON (for agents)")
 
+    track_parser = commands.add_parser(
+        "track", help="List the tracks, or brief one per-track agent on its lane")
+    track_parser.add_argument("area", nargs="?", help="Area name; omit to list every track")
+    track_parser.add_argument("--descriptor")
+    track_parser.add_argument("--panel", help="Panel URL (default: probe for a running one)")
+
     commands.add_parser("agent", help="Print the dispatcher briefing (AGENT.md)")
     return parser
 
@@ -179,6 +187,14 @@ def _run(args: argparse.Namespace) -> None:
     elif args.command == "inspect":
         descriptor = _resolve_descriptor(args.descriptor)
         _print_inspect(load_project(descriptor), as_json=args.json)
+    elif args.command == "track":
+        descriptor = _resolve_descriptor(args.descriptor)
+        project = load_project(descriptor)
+        panel = args.panel or probe_panel(descriptor)
+        if args.area:
+            print(track_briefing(project, args.area, panel))
+        else:
+            print(lane_table(project, panel))
     elif args.command == "agent":
         briefing = Path(__file__).resolve().parent / "AGENT.md"
         print(briefing.read_text(encoding="utf-8"))

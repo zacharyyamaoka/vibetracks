@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "vibetracks"
-version = "0.2.0"
+version = "0.3.0"
 description = "File-first feature tracking: Markdown notes rendered as Graph, Kanban, and Focus views, with a dispatcher protocol for AI agents."
 readme = "README.md"
 requires-python = ">=3.11"

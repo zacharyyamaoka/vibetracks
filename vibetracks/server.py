@@ -7,6 +7,7 @@ atomic (see `edits`). The API is documented in docs/api.md.
 
 from __future__ import annotations
 
+from datetime import datetime
 import errno
 from functools import partial
 from http import HTTPStatus
@@ -16,6 +17,7 @@ import mimetypes
 from pathlib import Path
 import re
 from threading import Timer
+from collections.abc import Iterable
 from typing import Any
 from urllib.parse import parse_qs, unquote, urlparse
 import webbrowser
@@ -151,7 +153,14 @@ class VibeTracksHandler(SimpleHTTPRequestHandler):
                 known = parse_qs(parsed.query).get("known", [""])[0]
                 project = self.application.project()
                 if known and known == project.revision:
-                    self._json({"revision": project.revision, "unchanged": True})
+                    # `now` rides along even on the cheap unchanged reply so the
+                    # panel keeps its clock-skew correction fresh and can age a
+                    # stale `running` claim honestly between real snapshots.
+                    self._json({
+                        "revision": project.revision,
+                        "unchanged": True,
+                        "now": datetime.now().astimezone().isoformat(timespec="milliseconds"),
+                    })
                 else:
                     self._json(project.to_dict())
             except VibeTracksError as exc:
@@ -247,6 +256,38 @@ def _bind(host: str, port: int, handler: Any, port_is_explicit: bool) -> Threadi
     raise VibeTracksError(
         f"No free port in {attempts[0]}–{attempts[-1]} on {host}"
     ) from last_error
+
+
+def probe_panel(
+    descriptor: Path,
+    host: str = "127.0.0.1",
+    ports: Iterable[int] = range(8777, 8800),
+    timeout: float = 0.12,
+) -> str | None:
+    """Find an already-running panel for this descriptor, if there is one.
+
+    The CLI asks so it can hand a per-track agent a live link instead of a
+    guess. A closed port is the common case, so the timeout is short and every
+    connection error is simply "not here".
+    """
+    from http.client import HTTPConnection
+
+    target = str(Path(descriptor).resolve())
+    for port in ports:
+        connection = HTTPConnection(host, port, timeout=timeout)
+        try:
+            connection.request("GET", "/api/health")
+            response = connection.getresponse()
+            if response.status != 200:
+                continue
+            payload = json.loads(response.read())
+            if str(Path(payload.get("descriptor", "")).resolve()) == target:
+                return f"http://{host}:{port}/"
+        except Exception:
+            continue  # closed, or something else is listening — either way, not ours
+        finally:
+            connection.close()
+    return None
 
 
 def serve(

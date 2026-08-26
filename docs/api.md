@@ -16,8 +16,10 @@ internal failures as a JSON `500`.
 Full project snapshot.
 
 Query parameter `known=<revision>`: when the caller already holds the current
-project revision, the server replies `{"revision": "<same>", "unchanged": true}`
-instead of the full payload. Clients poll cheaply with this.
+project revision, the server replies
+`{"revision": "<same>", "unchanged": true, "now": "<server clock>"}` instead of
+the full payload. Clients poll cheaply with this; `now` still rides along so a
+panel can keep ageing what it already holds.
 
 ```jsonc
 {
@@ -34,6 +36,7 @@ instead of the full payload. Clients poll cheaply with this.
   ],
   "views": [ {"type": "vibetracks-graph", "name": "Graph"} ],
   "revision": "16-hex project revision",
+  "now": "2026-08-25T18:20:41-07:00",    // the server's clock, for ageing `touched`
   "obsidianVault": null,                 // or the vault name for obsidian:// links
   "problems": [                          // notes that could not be parsed (skipped, never fatal)
     {"path": "features/Broken.md", "error": "Invalid YAML frontmatter: …"}
@@ -58,7 +61,8 @@ instead of the full payload. Clients poll cheaply with this.
       "runs": ["codex:literal-writer/attempt-003"],
       "media": [ {"path": "assets/….svg", "kind": "image", "label": "….svg"} ],
       "revision": "16-hex note revision",
-      "updated": "2026-08-25T12:00:00-07:00",
+      "updated": "2026-08-25T12:00:00-07:00",  // declared `vibe-updated`, else the file's mtime
+      "touched": "2026-08-25T12:00:00.412-07:00",  // always the file's mtime, to the ms — a claim cannot forge it
       "obsidian_uri": null
     }
   ]

@@ -5,36 +5,39 @@
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <meta name="color-scheme" content="light" />
   <title>Vibe Tracks</title>
-  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Crect width='16' height='16' fill='%23f9f7f1'/%3E%3Cpath d='M3 4h2l3 8 3-8h2l-4 10H7z' fill='%231c1c1a'/%3E%3C/svg%3E" />
-  <link rel="stylesheet" href="/styles.css" />
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Crect width='16' height='16' rx='4' fill='%236658d3'/%3E%3Cpath d='M4 4v8M4 6h4a3 3 0 013 3v3M4 10h3' fill='none' stroke='white' stroke-width='1.5' stroke-linecap='round'/%3E%3C/svg%3E" />
+  <link rel="stylesheet" href="/styles.css?v=liveness-1" />
 </head>
 <body>
   <div class="app-shell">
     <header class="topbar">
-      <div class="brand">
-        <span class="brand-word">Vibe Tracks</span>
-        <span class="brand-sub" id="descriptor-label">Loading project…</span>
+      <div class="board-identity">
+        <span class="brand-mark" aria-hidden="true">
+          <svg viewBox="0 0 20 20" fill="none">
+            <path d="M5 4v12M5 7h5a4 4 0 0 1 4 4v5M5 13h4" />
+          </svg>
+        </span>
+        <span class="product-name">vibetracks</span>
+        <span class="identity-divider" aria-hidden="true">/</span>
+        <h1 class="board-name" id="project-title">Loading project…</h1>
+        <span class="context-pill" id="descriptor-label">project</span>
       </div>
       <nav class="view-switcher" aria-label="Project view">
         <button data-view="graph" class="active">Graph</button>
         <button data-view="kanban">Kanban</button>
         <button data-view="focus">Focus</button>
       </nav>
-      <div class="sync-state"><span class="sync-mark" aria-hidden="true">●</span><span id="sync-label">reading files</span></div>
+      <div class="topbar-right">
+        <div class="board-pulse" id="board-pulse" aria-label="Board liveness"></div>
+        <div class="sync-state"><span class="sync-mark" aria-hidden="true"></span><span id="sync-label">Reading files</span></div>
+      </div>
     </header>
 
-    <section class="project-head">
-      <div class="project-intro">
-        <p class="eyebrow">File-first feature system</p>
-        <h1 id="project-title">Vibe Tracks</h1>
-        <p id="project-description" class="project-description"></p>
-      </div>
-      <div class="project-metrics" id="project-metrics"></div>
-    </section>
-
-    <section class="filters">
-      <label class="search"><span aria-hidden="true">⌕</span><input id="search" type="search" placeholder="Search features, areas, and ids" /></label>
+    <section class="filters" aria-label="Feature filters">
+      <label class="search"><span aria-hidden="true">⌕</span><input id="search" type="search" aria-label="Search features" placeholder="Search features, areas, and ids" /></label>
       <div class="area-filters" id="area-filters"></div>
+      <div class="project-metrics" id="project-metrics" aria-label="Project summary"></div>
+      <p id="project-description" class="project-description"></p>
       <label class="archive-toggle"><input id="show-archived" type="checkbox" /> Show archive</label>
     </section>
 
@@ -48,6 +51,6 @@
     </main>
   </div>
   <div class="toast" id="toast" role="status"></div>
-  <script src="/app.js" defer></script>
+  <script src="/app.js?v=liveness-1" defer></script>
 </body>
 </html>

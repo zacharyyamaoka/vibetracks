@@ -10,6 +10,15 @@ that folder as three interchangeable lenses:
 - **Kanban** — where is everything (state sweep).
 - **Focus** — what needs the human now (reviews, frontier decisions, ready work).
 
+Every view is time-aware. The panel cannot watch an agent's process, so it
+watches the one thing it can: when each note last changed on disk. Cards carry
+their age, a `running` claim that has gone quiet for 15 minutes is drawn as
+**stale**, a board where nothing claims to run and nothing has changed says
+*"nothing is reporting work"*, and anything touched since you last marked the
+board seen is flagged as new. A board that renders an hour-old claim exactly
+like a live one is indistinguishable from a static document; this one tells
+you which it is.
+
 Closing the renderer loses nothing: the complete project state stays readable
 and editable by humans, Obsidian, scripts, Claude, Codex, or any future
 dispatcher. The panel is the shared control surface where a human and a
@@ -59,12 +68,33 @@ vibetracks new "Title" [--area A]… [--depends-on X]… [--status S] [--descrip
 vibetracks status <id> <status>
 vibetracks comment <id> "text" [--author L]
 vibetracks inspect [descriptor] [--json]
+vibetracks track [area] [--panel URL]                 # list lanes, or brief one per-track agent
 vibetracks agent
 ```
 
 Descriptor discovery: current folder → ancestors (stopping at the repo
 boundary) → one level down. The default port walks forward when busy so
 parallel sessions coexist.
+
+## Tracks
+
+A **track** is one lane of the graph: the features carrying one area tag. It is
+a projection of the same notes, not a second entity, so nothing has to be kept
+in sync.
+
+```bash
+vibetracks track                 # which lanes exist, and where the pressure is
+vibetracks track whiteboard      # a paste-ready brief for one per-track agent
+```
+
+The brief names the lane's features, which of them wait on *other* lanes, and a
+panel link scoped to it (`#kanban/whiteboard` — every view is deep-linkable).
+That is the seam between two workflows that look like rivals and are not: one
+pinned agent per track gives you liveness you can see directly — a spinner, a
+crash, a usage limit — and someone to talk to; the notes give durability those
+sessions do not have, surviving compaction, a closed tab, and the end of the
+session. Point several pinned agents at one board and the board is what they
+share.
 
 ## `.base` or `.vibetrack`?
 
@@ -134,6 +164,19 @@ python3 -m unittest discover -s tests -v
 python3 -m vibetracks inspect examples/pyblocks/Project.base
 ```
 
+The liveness chrome is interaction-checked against a real panel. Serve a track
+that contains a deliberately stale `running` claim, then:
+
+```bash
+uv run --isolated --with playwright python tests/browser_liveness.py http://127.0.0.1:8811/
+```
+
+## Interface
+
+- [Modern UI implementation gallery](docs/modern-ui-gallery.html) — the
+  browser-verified SystemSketch-aligned shell across Graph, Kanban, Focus, and
+  a 390 px mobile viewport, with the design-token mapping and test evidence.
+
 ## Design explorations
 
 - [Track-layout prototypes](docs/track-layout-prototypes-2026-08-25.html) —
@@ -143,9 +186,16 @@ python3 -m vibetracks inspect examples/pyblocks/Project.base
 
 ## Status
 
-V0.2. Implemented: descriptor loading, recursive note discovery, dependency
+V0.3. Implemented: descriptor loading, recursive note discovery, dependency
 resolution, all three views + feature rail + detail panel, area catalog
 memory, review-packet embedding, polling with cheap unchanged checks, fenced
-writes, scaffolding, the dispatcher CLI verbs, and the `/vibetracks` agent
-skill. Not yet: file watching/SSE, drag-and-drop, automatic dependency
-inference, transcript ingestion, or the Obsidian plugin wrapper.
+writes, scaffolding, the dispatcher CLI verbs, per-track briefings,
+deep-linkable views, the liveness chrome (ages, stale claims, new-since-you-
+looked), and the `/vibetracks` agent skill. Not yet: file watching/SSE,
+drag-and-drop, automatic dependency inference, transcript ingestion, or the
+Obsidian plugin wrapper.
+
+Known limit, stated plainly: the panel infers liveness from file mtimes, which
+is a proxy. It can prove that nobody is reporting; it cannot prove that
+somebody is working. A per-track agent that never claims its work is still
+invisible — the panel now just says so out loud instead of looking empty.

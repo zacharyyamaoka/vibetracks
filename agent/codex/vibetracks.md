@@ -32,5 +32,13 @@ Then:
 4. Between actions re-read the files: the human rewires dependencies and adds
    `[!quote] 👦 Feedback` callouts through the same files, and their changes
    win. Answer inside notes with collapsed `[!ai]-` callouts.
+5. Claim before you work. The panel ages every claim from the note's mtime: a
+   `running` note unchanged for 15 minutes is drawn as stale, and a board with
+   nothing running and nothing changing says "nothing is reporting work". Set
+   `running` before starting, heartbeat with `vibetracks comment <id> "…"`,
+   and never leave a `running` claim behind.
+6. For parallel work, `vibetracks track` lists the lanes and
+   `vibetracks track <area>` prints a paste-ready brief for one agent that
+   owns that lane — including a panel link scoped to it.
 
 $ARGUMENTS

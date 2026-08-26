@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from datetime import datetime
 from functools import partial
 from http.server import ThreadingHTTPServer
 import json
@@ -86,7 +87,12 @@ class ServerTests(unittest.TestCase):
     def test_known_revision_short_circuits_polling(self) -> None:
         revision = self.json_get("/api/project")["revision"]
         cheap = self.json_get(f"/api/project?known={revision}")
-        self.assertEqual(cheap, {"revision": revision, "unchanged": True})
+        self.assertTrue(cheap["unchanged"])
+        self.assertEqual(cheap["revision"], revision)
+        self.assertNotIn("items", cheap)
+        # The cheap reply still carries the server clock: the panel ages a
+        # `running` claim between snapshots, so its skew must stay fresh.
+        self.assertIsInstance(datetime.fromisoformat(cheap["now"]), datetime)
         full = self.json_get("/api/project?known=stale")
         self.assertIn("items", full)
 

@@ -40,6 +40,29 @@ from the checkout directly.
    Feedback` callouts through the same files. Their changes win. Reply inside
    the note with a collapsed `[!ai]-` callout.
 
+## Claim your work, or the panel is a lie
+
+The panel cannot see your process. Its only independent signal is when each
+note last changed on disk, and it renders that honestly: ages on every card, a
+**stale** badge on a `running` note that has not changed in 15 minutes, and
+*"nothing is reporting work"* across the header when no note claims to run and
+nothing has moved. So:
+
+- set `running` **before** you start, not when you finish;
+- touch the note as you go (`vibetracks comment <id> "…"`) — that is the
+  heartbeat;
+- never walk away leaving a `running` claim behind.
+
+Unclaimed work and no work look identical from the outside.
+
+## Parallel tracks
+
+`vibetracks track` lists the lanes (features grouped by area tag).
+`vibetracks track <area>` prints a paste-ready brief for one agent that owns
+that lane, including a panel link scoped to it. When the user wants one pinned
+session per track, hand them those briefs — the notes are what the sessions
+share, and what survives their compaction.
+
 ## House rules (this machine)
 
 - Notes inside an Obsidian vault that may be open live: route edits through

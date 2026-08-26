@@ -4,6 +4,12 @@
    disk remain the database, this page is a lens plus three narrow,
    revision-fenced writes (status, dependencies, comment). */
 
+/* A `running` note whose file has not changed in this many minutes is a
+   claim nobody is backing up any more — the panel says so rather than
+   rendering it identically to work that is genuinely in flight. */
+const STALE_RUNNING_MINUTES = 15;
+const VIEWS = new Set(["graph", "kanban", "focus"]);
+
 const state = {
   project: null,
   view: localStorage.getItem("vibetracks.view") || "graph",
@@ -14,6 +20,11 @@ const state = {
   showArchived: false,
   busy: false,
   feedbackDrafts: {},
+  /* Liveness. The panel cannot watch an agent; it can only watch the files
+     the agent leaves behind. These three make that watching visible. */
+  freshOnly: false,      // filter down to "changed since I last looked"
+  lastSeen: undefined,   // epoch ms, resolved from localStorage on first load
+  clockSkewMs: 0,        // browser clock − server clock, so ages use file time
 };
 
 const $ = (selector) => document.querySelector(selector);
@@ -44,6 +55,84 @@ function mediaUrl(path) {
   return `/api/media?path=${encodeURIComponent(path)}`;
 }
 
+/* ---------- liveness: ages, staleness, and what is new ---------- */
+
+/* Ages are measured against the machine that owns the files. The snapshot
+   carries the server's clock; the difference is held as a skew so ages keep
+   ticking between polls instead of freezing at snapshot time. */
+function noteServerClock(iso) {
+  const serverNow = Date.parse(iso);
+  if (Number.isFinite(serverNow)) state.clockSkewMs = Date.now() - serverNow;
+}
+
+function ageMs(iso) {
+  const at = Date.parse(iso);
+  if (!Number.isFinite(at)) return null;
+  return Math.max(0, Date.now() - state.clockSkewMs - at);
+}
+
+function ageMinutes(iso) {
+  const ms = ageMs(iso);
+  return ms === null ? null : Math.floor(ms / 60000);
+}
+
+/* Compact form for cards — "3m", "2h", "4d". */
+function shortAge(iso) {
+  const minutes = ageMinutes(iso);
+  if (minutes === null) return "";
+  if (minutes < 1) return "now";
+  if (minutes < 60) return `${minutes}m`;
+  const hours = Math.floor(minutes / 60);
+  if (hours < 24) return `${hours}h`;
+  return `${Math.floor(hours / 24)}d`;
+}
+
+/* Sentence form for the header pulse. */
+function longAge(iso) {
+  const minutes = ageMinutes(iso);
+  if (minutes === null) return "unknown";
+  if (minutes < 1) return "seconds ago";
+  if (minutes < 60) return `${minutes} min ago`;
+  const hours = Math.floor(minutes / 60);
+  if (hours < 24) return `${hours}h ago`;
+  return `${Math.floor(hours / 24)}d ago`;
+}
+
+/* `touched` is the file's mtime — the one timestamp the agent claiming to be
+   busy cannot write by hand. Prefer it; fall back to the declared value. */
+function itemTime(item) {
+  return item.touched || item.updated;
+}
+
+function seenKey() {
+  return `vibetracks.lastSeen.${state.project?.id || "project"}`;
+}
+
+function isFresh(item) {
+  if (!state.lastSeen) return false; // first visit: nothing is "new" yet
+  const at = Date.parse(itemTime(item));
+  return Number.isFinite(at) && at > state.lastSeen;
+}
+
+/* Minutes of silence behind a `running` claim, or 0 when the claim is fresh
+   (or the item is not claiming to run at all). */
+function staleRunningMinutes(item) {
+  if (item.status !== "running") return 0;
+  const minutes = ageMinutes(itemTime(item));
+  return minutes !== null && minutes >= STALE_RUNNING_MINUTES ? minutes : 0;
+}
+
+function markBoardSeen() {
+  state.lastSeen = Date.now() - state.clockSkewMs;
+  try {
+    localStorage.setItem(seenKey(), String(state.lastSeen));
+  } catch (error) {
+    /* private-mode storage failure must not break the board */
+  }
+  state.freshOnly = false;
+  render();
+}
+
 function statusGlyph(status) {
   const glyphs = {
     backlog: "·",
@@ -58,8 +147,21 @@ function statusGlyph(status) {
   return glyphs[status] || "·";
 }
 
-function statusMark(status) {
-  return `<span class="status-line st-${esc(status)}">${statusGlyph(status)} ${esc(status)}</span>`;
+/* The status line carries three facts, not one: the claim, how old the claim
+   is, and whether it changed since you last marked the board seen. */
+function statusMark(item) {
+  const stale = staleRunningMinutes(item);
+  const staleTag = stale
+    ? `<span class="stale-tag" title="Status says running, but this note has not changed in ${stale} minutes.">stale</span>`
+    : "";
+  const freshTag = isFresh(item)
+    ? `<span class="fresh-dot" title="Changed since you last marked the board seen."></span>`
+    : "";
+  const age = shortAge(itemTime(item));
+  const ageTag = age
+    ? `<span class="age" title="Note file last changed ${esc(itemTime(item))}">${esc(age)}</span>`
+    : "";
+  return `<span class="status-row"><span class="status-line st-${esc(item.status)}${stale ? " stale" : ""}">${statusGlyph(item.status)} ${esc(item.status)}</span>${staleTag}${ageTag}${freshTag}</span>`;
 }
 
 function priorityRank(priority) {
@@ -89,6 +191,7 @@ function filteredItems() {
   const query = state.query.trim().toLowerCase();
   return state.project.items.filter((item) => {
     if (!state.showArchived && item.archived) return false;
+    if (state.freshOnly && !isFresh(item)) return false;
     if (state.area !== "all" && !item.areas.includes(state.area)) return false;
     if (query) {
       const haystack = `${item.id} ${item.title} ${item.description} ${item.areas.join(" ")}`.toLowerCase();
@@ -139,11 +242,17 @@ async function loadProject(force = false) {
     if (!response.ok) throw new Error(payload.error || `HTTP ${response.status}`);
     if (sequence < appliedSequence) return; // a newer response already landed
     appliedSequence = sequence;
+    if (payload.now) noteServerClock(payload.now);
     if (payload.unchanged) {
       setSync("files current");
+      renderPulse(); // ages keep moving even when nothing changed
       return;
     }
     state.project = payload;
+    if (state.lastSeen === undefined) {
+      const stored = Number(localStorage.getItem(seenKey()));
+      state.lastSeen = Number.isFinite(stored) && stored > 0 ? stored : 0;
+    }
     ensureSelection();
     renderUnlessTyping();
     setSync("files current");
@@ -157,26 +266,80 @@ async function loadProject(force = false) {
 
 /* ---------- header, filters, feature rail ---------- */
 
+/* The trust line. A board that renders a 45-minute-old claim exactly like a
+   live one cannot be told apart from a static document, so this says out
+   loud when the files stopped moving, when a `running` claim has gone quiet,
+   and how much changed since the last time you looked. */
+function renderPulse() {
+  const host = $("#board-pulse");
+  if (!host || !state.project) return;
+  const items = state.project.items.filter((item) => !item.archived);
+  const times = items
+    .map((item) => Date.parse(itemTime(item)))
+    .filter((value) => Number.isFinite(value));
+  const newest = times.length ? new Date(Math.max(...times)).toISOString() : null;
+  const running = items.filter((item) => item.status === "running");
+  const stale = running.filter((item) => staleRunningMinutes(item));
+  const fresh = items.filter(isFresh);
+  const quietMinutes = newest === null ? null : ageMinutes(newest);
+  const cold = quietMinutes !== null && quietMinutes >= STALE_RUNNING_MINUTES;
+
+  const parts = [];
+  if (newest === null) {
+    parts.push(`<span class="pulse-item">no feature notes yet</span>`);
+  } else {
+    parts.push(
+      `<span class="pulse-item${cold ? " cold" : " warm"}" title="Newest change across every feature note in this track.">`
+      + `<span class="pulse-dot" aria-hidden="true"></span>files changed ${esc(longAge(newest))}</span>`);
+  }
+  if (stale.length) {
+    parts.push(
+      `<button class="pulse-item alarm" data-pulse="stale" title="These notes say running but have not changed in ${STALE_RUNNING_MINUTES}+ minutes. Nobody is reporting on them.">`
+      + `${stale.length} stale running</button>`);
+  } else if (!running.length && cold) {
+    parts.push(
+      `<span class="pulse-item alarm" title="No note claims to be running and none has changed recently. Whatever the agents are doing, they are not writing it here.">`
+      + `nothing is reporting work</span>`);
+  }
+  if (fresh.length) {
+    parts.push(
+      `<button class="pulse-item news${state.freshOnly ? " active" : ""}" data-pulse="fresh" title="Filter the board down to notes that changed since you last marked it seen.">`
+      + `${fresh.length} new since you looked</button>`);
+    parts.push(`<button class="pulse-item quiet" data-pulse="seen" title="Clear the new markers and start a fresh window.">mark seen</button>`);
+  }
+  host.innerHTML = parts.join("");
+}
+
 function renderHeader() {
   const project = state.project;
   document.title = `${project.title} — Vibe Tracks`;
-  $("#descriptor-label").textContent = project.descriptor;
+  const descriptorName = project.descriptor.split(/[\\/]/).pop() || project.descriptor;
+  $("#descriptor-label").textContent = descriptorName;
+  $("#descriptor-label").title = project.descriptor;
   $("#project-title").textContent = project.title;
+  $("#project-title").title = project.description || project.title;
   $("#project-description").textContent = project.description;
   const activeItems = project.items.filter((item) => !item.archived);
   const runningItems = activeItems.filter((item) => item.status === "running");
   const needsYouItems = activeItems.filter(
     (item) => item.status === "review" || item.status === "frontier");
+  const staleRunning = runningItems.filter((item) => staleRunningMinutes(item)).length;
   const metrics = [
-    [activeItems.length, "active"],
-    [runningItems.length, "running"],
-    [needsYouItems.length, "need you"],
+    [activeItems.length, "active", ""],
+    [runningItems.length, staleRunning ? `running · ${staleRunning} stale` : "running",
+      staleRunning ? " warn" : ""],
+    [needsYouItems.length, "need you", ""],
   ];
   $("#project-metrics").innerHTML = metrics
-    .map(([value, label]) => `<div class="metric"><b>${value}</b><span>${label}</span></div>`)
+    .map(([value, label, extra]) =>
+      `<div class="metric${extra}"><b>${value}</b><span>${esc(label)}</span></div>`)
     .join("");
+  renderPulse();
   document.querySelectorAll("[data-view]").forEach((button) => {
-    button.classList.toggle("active", button.dataset.view === state.view);
+    const isActive = button.dataset.view === state.view;
+    button.classList.toggle("active", isActive);
+    if (isActive) button.setAttribute("aria-current", "page");
+    else button.removeAttribute("aria-current");
   });
 }
 
@@ -200,11 +363,16 @@ function renderFeatureRail(items) {
     $("#feature-list").innerHTML = `<div class="empty"><div><b>No matching features.</b><p>Change the area or search filter.</p></div></div>`;
     return;
   }
-  $("#feature-list").innerHTML = items.map((item) => `
-    <button class="feature-row${item.id === state.selectedId ? " selected" : ""}" data-feature="${esc(item.id)}">
+  $("#feature-list").innerHTML = items.map((item) => {
+    const stale = staleRunningMinutes(item);
+    const age = shortAge(itemTime(item));
+    const suffix = stale ? `${age} · stale` : age;
+    return `
+    <button class="feature-row${item.id === state.selectedId ? " selected" : ""}${isFresh(item) ? " fresh" : ""}" data-feature="${esc(item.id)}">
       <span class="row-glyph st-${esc(item.status)}" aria-hidden="true">${statusGlyph(item.status)}</span>
-      <span class="row-text"><b>${esc(item.title)}</b><small>${esc(item.id)} · ${esc(item.status)}</small></span>
-    </button>`).join("");
+      <span class="row-text"><b>${esc(item.title)}</b><small>${esc(item.id)} · ${esc(item.status)}${suffix ? ` · ${esc(suffix)}` : ""}</small></span>
+    </button>`;
+  }).join("");
 }
 
 /* ---------- shared view pieces ---------- */
@@ -216,7 +384,7 @@ function viewHeading(title, description) {
 function cardMarkup(item, className, extra = "") {
   const selected = item.id === state.selectedId ? " selected" : "";
   return `<button class="${className}${selected}" data-feature="${esc(item.id)}">
-    ${statusMark(item.status)}
+    ${statusMark(item)}
     <b>${esc(item.id)} · ${esc(item.title)}</b>
     <small>${esc(item.description || "No summary yet.")}</small>${extra}
   </button>`;
@@ -317,7 +485,7 @@ function renderGraph(items) {
       ? `<span class="hidden-edge">+ ${hiddenCount} hidden prerequisite${hiddenCount === 1 ? "" : "s"}</span>`
       : "";
     return `<button class="graph-node${item.id === state.selectedId ? " selected" : ""}" data-feature="${esc(item.id)}" style="left:${position.x}px;top:${position.y}px">
-      ${statusMark(item.status)}
+      ${statusMark(item)}
       <b>${esc(item.id)} · ${esc(item.title)}</b>
       <small>${esc(item.description || "No summary yet.")}</small>
       ${areasLine}${hiddenCue}
@@ -588,7 +756,11 @@ function feedbackSectionMarkup(item) {
 }
 
 function footerMetaMarkup(item) {
-  return `<p class="detail-meta">${esc(item.path)}<br />revision ${esc(item.revision)} · updated ${esc(item.updated)}</p>`;
+  const stale = staleRunningMinutes(item);
+  const staleNote = stale
+    ? ` · <span class="stale-tag">running claim is ${stale} min stale</span>`
+    : "";
+  return `<p class="detail-meta">${esc(item.path)}<br />revision ${esc(item.revision)} · file changed ${esc(longAge(itemTime(item)))}${staleNote}</p>`;
 }
 
 function renderDetail() {
@@ -596,6 +768,7 @@ function renderDetail() {
   if (!item) {
     detail.innerHTML = `<div class="empty"><div><b>Select a feature.</b><p>Its context, relations, and review packet open here.</p></div></div>`;
     detail.classList.remove("open");
+    syncDetailAccessibility();
     return;
   }
   const sections = [
@@ -614,7 +787,16 @@ function renderDetail() {
   ].filter(Boolean);
   detail.innerHTML = `<div class="detail-inner">${sections.join("")}</div>`;
   detail.classList.toggle("open", state.detailOpen);
+  syncDetailAccessibility();
 }
+
+function syncDetailAccessibility() {
+  const hiddenOverlay = window.matchMedia("(max-width: 1180px)").matches && !state.detailOpen;
+  detail.toggleAttribute("inert", hiddenOverlay);
+  detail.setAttribute("aria-hidden", String(hiddenOverlay));
+}
+
+window.addEventListener("resize", syncDetailAccessibility);
 
 /* ---------- writes (all revision-fenced against docs/api.md) ---------- */
 
@@ -754,6 +936,47 @@ function render() {
   renderDetail();
 }
 
+/* ---------- deep links ---------- */
+
+/* `#kanban` or `#graph/whiteboard` — a view, optionally scoped to one area.
+   This is what `vibetracks track <area>` hands a per-track agent, and what
+   makes a board state pasteable into a note or a chat. */
+let applyingHash = false;
+
+function applyHash() {
+  const raw = (location.hash || "").replace(/^#/, "");
+  if (!raw) return false;
+  const [rawView, rawArea] = raw.split("/");
+  let changed = false;
+  const view = decodeURIComponent(rawView || "").toLowerCase();
+  if (VIEWS.has(view) && view !== state.view) {
+    state.view = view;
+    localStorage.setItem("vibetracks.view", view);
+    changed = true;
+  }
+  // A link with no area segment means "this view, unfiltered" — otherwise
+  // `#kanban` would silently inherit whatever area was left selected and the
+  // link would not describe the board it opens.
+  const area = rawArea ? decodeURIComponent(rawArea) : "all";
+  if (area !== state.area) {
+    state.area = area;
+    changed = true;
+  }
+  return changed;
+}
+
+function writeHash() {
+  applyingHash = true;
+  const suffix = state.area && state.area !== "all" ? `/${encodeURIComponent(state.area)}` : "";
+  location.hash = `${state.view}${suffix}`;
+  setTimeout(() => { applyingHash = false; }, 0);
+}
+
+window.addEventListener("hashchange", () => {
+  if (applyingHash) return;
+  if (applyHash()) render();
+});
+
 /* ---------- events ---------- */
 
 document.addEventListener("click", (event) => {
@@ -761,7 +984,19 @@ document.addEventListener("click", (event) => {
   if (viewButton) {
     state.view = viewButton.dataset.view;
     localStorage.setItem("vibetracks.view", state.view);
+    writeHash();
     render();
+    return;
+  }
+  const pulseButton = event.target.closest("[data-pulse]");
+  if (pulseButton) {
+    const action = pulseButton.dataset.pulse;
+    if (action === "seen") markBoardSeen();
+    else if (action === "fresh") { state.freshOnly = !state.freshOnly; render(); }
+    else if (action === "stale") {
+      const first = state.project.items.find((item) => staleRunningMinutes(item));
+      if (first) { state.selectedId = first.id; state.detailOpen = true; render(); }
+    }
     return;
   }
   const removeButton = event.target.closest("[data-remove-dependency]");
@@ -779,6 +1014,7 @@ document.addEventListener("click", (event) => {
   const areaButton = event.target.closest("[data-area]");
   if (areaButton) {
     state.area = areaButton.dataset.area;
+    writeHash();
     render();
     return;
   }
@@ -797,7 +1033,7 @@ document.addEventListener("click", (event) => {
   }
   if (event.target.closest("#close-detail")) {
     state.detailOpen = false;
-    detail.classList.remove("open");
+    renderDetail();
   }
 });
 
@@ -825,5 +1061,10 @@ $("#show-archived").addEventListener("change", (event) => {
 
 /* ---------- boot: full load once, then cheap 3 s polling ---------- */
 
+applyHash();
 loadProject(true);
 setInterval(() => loadProject(false), 3000);
+/* Ages are the whole point of the pulse, so it re-renders on its own clock
+   rather than waiting for a file to change. Only the pulse repaints — a full
+   re-render on a timer would fight the graph's scroll position. */
+setInterval(renderPulse, 20000);
