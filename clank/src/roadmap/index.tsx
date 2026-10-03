@@ -1,25 +1,40 @@
-// STUB — owned by the roadmap session after the skeleton commit; keep these signatures.
-//
-// The roadmap is one widget inside the dashboard (docs/dashboard/VARIANTS.md, "Roadmap widget slot"): every variant
-// places <RoadmapWidget> at L2 under its KPI view, as a quiet collapsed "Roadmap" section (closed = density 'calm',
-// expanded = 'full'). Its state lives in the URL hash under `rm` (JSON) and is controlled by the variant; its view
-// options live on the dashboard's settings page (ROADMAP_SETTINGS_SECTION), never in a toolbar.
-// The shell reads this folder from Dashboard.tsx (runtime) and shared/types.ts (types only, erased), and the shared
-// settings code is generic over sections, so the real widget may import ../shared without making a module cycle.
+// The roadmap: one widget inside the dashboard (docs/dashboard/VARIANTS.md, "Roadmap widget slot"; Zach: "the roadmap
+// is just like one widget that is part of the dashboard, which is more about layout"). Every variant places
+// <RoadmapWidget> at L2 under its KPI view, as a quiet collapsed "Roadmap" section: closed it is density 'calm', ONE
+// calm answer (summary.ts) and a thin per-lane strip; expanded it is density 'full', the lens bar, the swimlane board and
+// the focus card. Its state lives in the URL hash under `rm` (JSON) and is controlled by the variant (state.ts); its
+// view options live on the dashboard's settings page (ROADMAP_SETTINGS_SECTION), never in a toolbar.
+// It reads one bam-roadmap/1 document per track (GET /roadmap/doc, vibetracks/roadmap/api.py) and adapts it to the
+// board's model (docModel.ts). Ported from the kinsim dashboard's roadmap (clank-kinsim src/roadmap @ 69e91af).
+// WHY no React Flow: the kinsim board's layout engine (graph.ts) draws its own SVG and needs none, and this package has
+// no @xyflow dependency (package.json belongs to the dashboard lane).
 
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type { JSX } from 'react'
-import type { SettingsSection } from '@clank/api'
+import type { PluginBackend } from '@clank/api'
+import { ApiError } from '../shared/api'
+import { type Art, artFor } from './art'
+import type { RoadmapDoc } from './doc'
+import { cardLine, modelFromDoc, parseRoadmapDoc } from './docModel'
+import { FocusPanel } from './FocusPanel'
+import { KEYS_HINT, LENS_CAPTION, Legend, LensBar, RoadmapBoard } from './RoadmapBoard'
+import { edgeStyle, type RoadmapSettings } from './settings'
+import { type RoadView, type RoadmapWidgetState, resolveView } from './state'
+import { SHOWN, calmSentence, calmSummary } from './summary'
+import './roadmap.css'
 
-/** The widget's controlled state, kept by the variant in the URL hash under `rm`. */
-export interface RoadmapWidgetState {
-  lens?: string
-  orient?: string
-  card?: string
-  sel?: string | null
+export { ROADMAP_SETTINGS_SECTION, defaultRoadmapSettings, type RoadmapSettings } from './settings'
+export type { RoadmapWidgetState } from './state'
+
+/** What useRoadmap hands the dashboard as `doc` (opaque to it): the track's document and where its art lives. */
+export interface RoadmapData {
+  track: string
+  document: RoadmapDoc
+  /** `${backend.baseUrl}/roadmap/art`; one image is `${artBase}/<name>.png`. */
+  artBase: string
+  /** The art file names the backend serves (GET /roadmap/art). */
+  artNames: ReadonlySet<string>
 }
-
-/** The roadmap's view options (the settings page's Roadmap section). Empty until the roadmap session adds items. */
-export type RoadmapSettings = Record<string, boolean | number | string>
 
 export interface RoadmapWidgetProps {
   /** The track whose roadmap to show (`kinsim`, `rig`, ...). */
@@ -41,26 +56,206 @@ export interface RoadmapDocState {
   doc: unknown | null
   loading: boolean
   error: string | null
-  /** Forces a server-side re-projection; the dashboard's own reload calls it so one refresh covers the page. */
-  reload: () => void
 }
 
-const noReload = (): void => {}
+const isRoadmapData = (value: unknown): value is RoadmapData =>
+  Boolean(value) && typeof value === 'object' && 'document' in (value as object) && 'artNames' in (value as object)
 
-export function RoadmapWidget(_props: RoadmapWidgetProps): JSX.Element {
+export function RoadmapWidget(props: RoadmapWidgetProps): JSX.Element {
+  const data = isRoadmapData(props.doc) && props.doc.track === props.track ? props.doc : null
+  const built = useMemo(() => {
+    if (!data) return null
+    try {
+      return { model: modelFromDoc(data.document), summary: calmSummary(data.document), error: null }
+    } catch (error) {
+      return { model: null, summary: null, error: error instanceof Error ? error.message : String(error) }
+    }
+  }, [data])
+  if (!data || !built) {
+    // WHY calm and not an error: a track whose loop writes no roadmap yet is a normal state (the backend's 404).
+    return <p className="vt-faint vt-small" data-testid="vt-roadmap-none">No roadmap for this track yet.</p>
+  }
+  if (built.error !== null || !built.model || !built.summary) {
+    return <p className="vt-small vt-tone-risk" role="alert" data-testid="vt-roadmap-error">The roadmap could not be drawn: {built.error}</p>
+  }
+  if (props.density === 'calm') return <CalmAnswer data={data} summary={built.summary} onOpenRung={props.onOpenRung} onOpenEvidence={props.onOpenEvidence} />
+  return <FullRoadmap {...props} data={data} model={built.model} />
+}
+
+/** The collapsed section: one sentence and a thin strip, nothing else (feedback_calm_ui_progressive_disclosure). Rung
+ * ids open their latest run (onOpenRung); a triage id opens where the question is written, when the document links it. */
+function CalmAnswer({ data, summary, onOpenRung, onOpenEvidence }: {
+  data: RoadmapData
+  summary: ReturnType<typeof calmSummary>
+  onOpenRung: (rungId: string) => void
+  onOpenEvidence: (ref: { path: string; line?: number }) => void
+}) {
+  const rungLink = (id: string) => (
+    <button key={id} type="button" className="vt-btn vt-rm-textlink" data-testid={`vt-roadmap-calm-rung-${id}`} title={`${id}: open its latest run`} onClick={() => onOpenRung(id)}>{id}</button>
+  )
+  const join = (items: JSX.Element[]) => items.flatMap((item, i) => (i ? [', ', item] : [item]))
+  const more = (n: number) => (n > 0 ? <span className="vt-faint"> +{n}</span> : null)
+  const sources = new Map(data.document.rungs.flatMap((rung) => rung.blockers.map((blocker) => [blocker.id, blocker.source] as const)))
+  const nextShown = summary.next.slice(0, SHOWN.next)
+  const needsShown = summary.needs.slice(0, SHOWN.needs)
   return (
-    <p className="vt-faint vt-small" data-testid="vt-roadmap-stub">
-      Roadmap widget pending (roadmap session)
-    </p>
+    <div className="vt-rm-calm" data-testid="vt-roadmap-calm">
+      {/* The sentence's words are calmSentence's, so the tested string and the rendered one cannot drift apart. */}
+      <p className="vt-rm-answer" data-testid="vt-roadmap-answer" data-sentence={calmSentence(summary)}>
+        <span className="vt-num">{summary.proven} of {summary.total} proven</span>
+        <span className="vt-faint"> · </span>
+        <span className="vt-num" title="the loop says green; its evidence does not prove it">{summary.claimed} claimed</span>
+        {summary.stale ? <><span className="vt-faint"> · </span><span className="vt-num vt-tone-stale">{summary.stale} stale</span></> : null}
+        {nextShown.length ? <><span className="vt-faint"> · </span>next: {join(nextShown.map(rungLink))}{more(summary.next.length - SHOWN.next)}</> : null}
+        {needsShown.length ? (
+          <>
+            <span className="vt-faint"> · </span>
+            <span className="vt-tone-warn">needs you: {join(needsShown.map((need) => {
+              const source = sources.get(need.id)
+              return (
+                <span key={need.id}>
+                  {source?.abs
+                    ? <button type="button" className="vt-btn vt-rm-textlink" title={need.title} onClick={() => onOpenEvidence(source.line ? { path: source.abs!, line: source.line } : { path: source.abs! })}>{need.id}</button>
+                    : <span title={need.title}>{need.id}</span>}
+                  {' '}(blocks {join(need.blocks.map(rungLink))})
+                </span>
+              )
+            }))}</span>
+            {more(summary.needs.length - SHOWN.needs)}
+          </>
+        ) : null}
+      </p>
+      <div className="vt-rm-strip" role="img" aria-label={summary.lanes.map((lane) => `${lane.title}: ${lane.proven} of ${lane.total} proven, ${lane.claimed} claimed`).join('; ')} data-testid="vt-roadmap-strip">
+        {summary.lanes.map((lane) => (
+          <span key={lane.axis} className="vt-rm-strip-lane" style={{ flexGrow: Math.max(1, lane.total) }} title={`${lane.title} · ${lane.proven} of ${lane.total} proven · ${lane.claimed} claimed`}>
+            <i className="vt-rm-strip-proven" style={{ width: `${lane.total ? (100 * lane.proven) / lane.total : 0}%` }} />
+            <i className="vt-rm-strip-claimed" style={{ width: `${lane.total ? (100 * lane.claimed) / lane.total : 0}%` }} />
+          </span>
+        ))}
+      </div>
+    </div>
   )
 }
 
-/** Loads one track's roadmap document through the plugin backend (the `/roadmap` mount, backend/mounts.py). */
-export function useRoadmap(_backend: unknown, _track: string): RoadmapDocState {
-  return { doc: null, loading: false, error: null, reload: noReload }
+function FullRoadmap({ state, onState, onOpenRung, onOpenEvidence, settings, data, model }: RoadmapWidgetProps & { data: RoadmapData; model: ReturnType<typeof modelFromDoc> }) {
+  const view = resolveView(state, (id) => model.byId.has(id), model.hasWaves)
+  // Every change goes out through onState, merged over the state as given, so keys the variant keeps survive.
+  const onView = useCallback((next: Partial<RoadView>) => onState({ ...state, ...next }), [onState, state])
+  const art = useMemo(() => {
+    const cache = new Map<string, Art>()
+    return (id: string) => {
+      if (!cache.has(id)) cache.set(id, artFor(model.byId.get(id)!, data.artNames))
+      return cache.get(id)!
+    }
+  }, [model, data.artNames])
+  const cards = useRef(new Map<string, HTMLElement>())
+  const sel = view.sel
+  // WHY a re-render when the selected rung's card attaches (Codex B12/C06): the board mounts its cards in the same
+  // commit as the focus panel, so the panel's one grow can find no card, and a ref landing in a map tells nobody. Only
+  // a NEW element for the selected rung counts: card refs are inline callbacks that fire on every render, and
+  // re-rendering on each would never stop.
+  const [, cardArrived] = useState(0)
+  const selected = useRef(sel)
+  selected.current = sel
+  const announced = useRef<HTMLElement | null>(null)
+  const cardRef = useCallback((id: string, element: HTMLElement | null) => {
+    if (!element) {
+      cards.current.delete(id)
+      return
+    }
+    cards.current.set(id, element)
+    if (id === selected.current && element !== announced.current) {
+      announced.current = element
+      cardArrived((count) => count + 1)
+    }
+  }, [])
+  // WHY Proof first on every fresh pick (Zach: "when it says it's done I want to see proof"); a hop inside the panel keeps its tab.
+  const pick = (id: string | null) => onView({ sel: id, trail: [], tab: 'proof' })
+
+  return (
+    <section className="vt-rm-full" data-testid="vt-roadmap">
+      <div className="vt-rm-toprow">
+        <LensBar view={view} onView={onView} hasWaves={model.hasWaves} />
+        <Legend />
+      </div>
+      <p className="vt-faint vt-rm-xs">{LENS_CAPTION[view.lens]}{KEYS_HINT}</p>
+      <div className="vt-rm-stage" style={{ minHeight: sel ? 640 : undefined }}>
+        <RoadmapBoard
+          model={model}
+          view={view}
+          edges={edgeStyle(settings)}
+          onPick={pick}
+          onStep={(id) => onView({ sel: id, trail: [] })}
+          art={art}
+          artBase={data.artBase}
+          cardLine={cardLine}
+          cardRef={cardRef}
+        />
+        {sel ? (
+          <FocusPanel
+            model={model}
+            view={view}
+            onView={onView}
+            art={art}
+            artNames={data.artNames}
+            artBase={data.artBase}
+            // The card the panel grows out of, looked up when the panel lays out (Codex A12/B12).
+            anchorFor={() => cards.current.get(sel) ?? null}
+            onOpenEvidence={onOpenEvidence}
+            onOpenRung={onOpenRung}
+          />
+        ) : null}
+      </div>
+    </section>
+  )
 }
 
-/** The Roadmap section of the dashboard's settings page, in Clank's SettingsSection shape. */
-export const ROADMAP_SETTINGS_SECTION: SettingsSection = { id: 'roadmap', title: 'Roadmap', items: [] }
+/** GET one JSON body through the plugin proxy; a non-2xx answer throws ApiError with the body's `error`. */
+async function fetchJson(backend: PluginBackend, path: string, signal: AbortSignal): Promise<unknown> {
+  const response = await backend.fetch(path, { signal })
+  const text = await response.text()
+  let body: unknown = null
+  try {
+    body = text ? JSON.parse(text) : null
+  } catch {
+    body = text
+  }
+  if (!response.ok) {
+    const message = body && typeof body === 'object' && 'error' in body ? String((body as { error: unknown }).error) : `HTTP ${response.status}`
+    throw new ApiError(message, response.status)
+  }
+  return body
+}
 
-export const defaultRoadmapSettings: RoadmapSettings = {}
+/** Loads one track's roadmap document through the plugin backend (the `/roadmap` mount, backend/mounts.py). */
+export function useRoadmap(backend: PluginBackend, track: string): RoadmapDocState {
+  const [state, setState] = useState<{ track: string; doc: RoadmapData | null; loading: boolean; error: string | null }>({ track, doc: null, loading: true, error: null })
+  const ticket = useRef(0)
+
+  useEffect(() => {
+    const mine = ++ticket.current
+    const controller = new AbortController()
+    setState({ track, doc: null, loading: true, error: null })
+    const artBase = `${backend.baseUrl}/roadmap/art`
+    // WHY art never fails the roadmap: a missing art dir only means icons instead of renders.
+    const art = fetchJson(backend, '/roadmap/art', controller.signal).then(
+      (body) => new Set(Array.isArray((body as { entries?: unknown } | null)?.entries) ? ((body as { entries: unknown[] }).entries.filter((name): name is string => typeof name === 'string')) : []),
+      () => new Set<string>(),
+    )
+    fetchJson(backend, `/roadmap/doc?track=${encodeURIComponent(track)}`, controller.signal)
+      .then(async (body) => ({ document: parseRoadmapDoc(body), artNames: await art }))
+      .then(
+        ({ document, artNames }) => mine === ticket.current && setState({ track, doc: { track, document, artBase, artNames }, loading: false, error: null }),
+        (error: unknown) => {
+          if (mine !== ticket.current || controller.signal.aborted) return
+          // WHY a 404 is not an error: the track's loop has not written a roadmap yet, and the widget says so calmly.
+          if (error instanceof ApiError && error.status === 404) setState({ track, doc: null, loading: false, error: null })
+          else setState({ track, doc: null, loading: false, error: error instanceof Error ? error.message : String(error) })
+        },
+      )
+    return () => controller.abort()
+  }, [backend, track])
+
+  // A track switch shows nothing of the previous track's roadmap while the new one loads.
+  return state.track === track ? { doc: state.doc, loading: state.loading, error: state.error } : { doc: null, loading: true, error: null }
+}
