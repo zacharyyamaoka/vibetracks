@@ -1,0 +1,294 @@
+{
+ "schema": "bam-citation-corpus/1",
+ "rule": "Split on runs of ASCII whitespace [ \\t\\n\\v\\f\\r] only. Strip leading ([{\"'`< and trailing )]}.,;:\"'`> characters. Quotes are delimiters matched across tokens: a token's stripped front quotes open (push, left to right); its stripped back quotes, read left to right (innermost first), each close the most recent matching open quote, else they are stray; a token that is only punctuation, while a quote is open, closes with its quotes instead of opening. A token cites a file only when no quote was open before it, none is open after it, and none of its quotes was stray. The rest must start with / and fullmatch /[A-Za-z0-9._~+@%=/-]+? then .SUFFIX, then optionally :LINE or :LINE:COL with ASCII digits. A /./ or /../ segment rejects it. Text suffixes (served by /api/evidence): log txt md py json jsonl toml yaml yml cfg ini xml. Image suffixes (page links only): png webp jpg jpeg. A path cited twice keeps its first spelling. Quotes never span two texts.",
+ "cases": [
+  {
+   "text": "rows in /a/runs.jsonl",
+   "cited": [
+    "/a/runs.jsonl"
+   ],
+   "lines": {},
+   "images": [],
+   "why": ".jsonl is itself, never cut to .json"
+  },
+  {
+   "text": "an archive /a/b.json.gz",
+   "cited": [],
+   "lines": {},
+   "images": [],
+   "why": "a known suffix must end the path"
+  },
+  {
+   "text": "see /a/x.py:188",
+   "cited": [
+    "/a/x.py"
+   ],
+   "lines": {
+    "/a/x.py": 188
+   },
+   "images": [],
+   "why": ":LINE is a line reference, not the path"
+  },
+  {
+   "text": "see /a/x.py:12:3.",
+   "cited": [
+    "/a/x.py"
+   ],
+   "lines": {
+    "/a/x.py": 12
+   },
+   "images": [],
+   "why": ":LINE:COL too, before a sentence's end"
+  },
+  {
+   "text": "https://example.test/?next=/a/secret.json",
+   "cited": [],
+   "lines": {},
+   "images": [],
+   "why": "a path must be a whole token (Codex A10)"
+  },
+  {
+   "text": "logs (/a/log.txt), then",
+   "cited": [
+    "/a/log.txt"
+   ],
+   "lines": {},
+   "images": [],
+   "why": "wrapping punctuation is stripped"
+  },
+  {
+   "text": "relative tests/test_x.py",
+   "cited": [],
+   "lines": {},
+   "images": [],
+   "why": "must start with /"
+  },
+  {
+   "text": "/a/../b.txt and /a/./c.txt",
+   "cited": [],
+   "lines": {},
+   "images": [],
+   "why": "a . or .. segment is never cited"
+  },
+  {
+   "text": "[`/a/q.yaml`] <'/a/r.md'>",
+   "cited": [
+    "/a/q.yaml",
+    "/a/r.md"
+   ],
+   "lines": {},
+   "images": [],
+   "why": "balanced wrappers, stripped repeatedly"
+  },
+  {
+   "text": "/a/x.py:",
+   "cited": [
+    "/a/x.py"
+   ],
+   "lines": {},
+   "images": [],
+   "why": "a bare trailing colon is punctuation"
+  },
+  {
+   "text": "/a/x.py:L12 /a/y.log:1:2:3",
+   "cited": [],
+   "lines": {},
+   "images": [],
+   "why": "anything else after the suffix: no match"
+  },
+  {
+   "text": "/a/dir with space/z.log",
+   "cited": [],
+   "lines": {},
+   "images": [],
+   "why": "a path with a space is uncitable"
+  },
+  {
+   "text": "\"/safe/proof.txt copy.log\"",
+   "cited": [],
+   "lines": {},
+   "images": [],
+   "why": "Codex B03: an unclosed quote means the quoted name runs past the token"
+  },
+  {
+   "text": "'/a/open.log and /a/close.log'",
+   "cited": [],
+   "lines": {},
+   "images": [],
+   "why": "both ends of a quoted span are unbalanced tokens"
+  },
+  {
+   "text": "'/a/one.log' \"/a/two.log\" (\"/a/three.log\")",
+   "cited": [
+    "/a/one.log",
+    "/a/two.log",
+    "/a/three.log"
+   ],
+   "lines": {},
+   "images": [],
+   "why": "balanced quotes are fine"
+  },
+  {
+   "text": "'/a/mixed.log\"",
+   "cited": [],
+   "lines": {},
+   "images": [],
+   "why": "a quote must close with the same quote"
+  },
+  {
+   "text": "\ufeff/a/x.py",
+   "cited": [],
+   "lines": {},
+   "images": [],
+   "why": "Codex B13: a BOM is not a boundary (JS \\s would split it, Python would not)"
+  },
+  {
+   "text": "/a/x.py\u001cend",
+   "cited": [],
+   "lines": {},
+   "images": [],
+   "why": "Codex B13: U+001C is not a boundary (Python str.split would split it)"
+  },
+  {
+   "text": "/a/x.py\u00a0next",
+   "cited": [],
+   "lines": {},
+   "images": [],
+   "why": "NBSP is not a boundary, and not a path character"
+  },
+  {
+   "text": "tab\t/a/t.log\nnewline /a/n.log\r\n",
+   "cited": [
+    "/a/t.log",
+    "/a/n.log"
+   ],
+   "lines": {},
+   "images": [],
+   "why": "ASCII whitespace is the only boundary"
+  },
+  {
+   "text": "/a/x.log,/b/y.log",
+   "cited": [],
+   "lines": {},
+   "images": [],
+   "why": "a comma is not a path character"
+  },
+  {
+   "text": "/a/\u00dc.log /a/x\u0663.log:\u0661",
+   "cited": [],
+   "lines": {},
+   "images": [],
+   "why": "path characters and line digits are ASCII only"
+  },
+  {
+   "text": "/a/X.LOG",
+   "cited": [],
+   "lines": {},
+   "images": [],
+   "why": "suffixes are lowercase"
+  },
+  {
+   "text": "/a/x.txt.log",
+   "cited": [
+    "/a/x.txt.log"
+   ],
+   "lines": {},
+   "images": [],
+   "why": "the last suffix decides"
+  },
+  {
+   "text": "/a/junit.xml",
+   "cited": [
+    "/a/junit.xml"
+   ],
+   "lines": {},
+   "images": [],
+   "why": "a JUnit report is a citable text file"
+  },
+  {
+   "text": "/a/still.png and /a/clip.webp",
+   "cited": [],
+   "lines": {},
+   "images": [
+    "/a/still.png",
+    "/a/clip.webp"
+   ],
+   "why": "images are page links, never served by /api/evidence"
+  },
+  {
+   "text": "/a/x.log /a/x.log:5",
+   "cited": [
+    "/a/x.log"
+   ],
+   "lines": {},
+   "images": [],
+   "why": "a repeated path is one citation; the first spelling wins"
+  },
+  {
+   "text": "-> 328 passed (/r/close/ev1_bam_eval_acceptance.txt); CUR 'pytest -m acceptance tests/acceptance/test_loop_tools_acceptance.py' -> 10 passed",
+   "cited": [
+    "/r/close/ev1_bam_eval_acceptance.txt"
+   ],
+   "lines": {},
+   "images": [],
+   "why": "the real loop shape: a quoted command beside a parenthesised log"
+  },
+  {
+   "text": "\"/safe/name.txt /safe/proof.txt copy.log\"",
+   "cited": [],
+   "lines": {},
+   "images": [],
+   "why": "Codex C02: a path in the middle of a quoted name is part of it"
+  },
+  {
+   "text": "'pytest -q /a/inside.py -x' -> passed (/a/outside.log)",
+   "cited": [
+    "/a/outside.log"
+   ],
+   "lines": {},
+   "images": [],
+   "why": "a quoted command's arguments are not citations; the log after it is"
+  },
+  {
+   "text": "\"unclosed /a/after.log",
+   "cited": [],
+   "lines": {},
+   "images": [],
+   "why": "an unclosed quote runs to the end of the text"
+  },
+  {
+   "text": "it's /a/apostrophe.log",
+   "cited": [
+    "/a/apostrophe.log"
+   ],
+   "lines": {},
+   "images": [],
+   "why": "a quote inside a word is not a wrapper"
+  },
+  {
+   "text": "\"name' /safe/proof.txt copy.log\"",
+   "cited": [],
+   "lines": {},
+   "images": [],
+   "why": "Codex D01: a mismatched quote does not close the span"
+  },
+  {
+   "text": "\"name \" /safe/outside.log",
+   "cited": [
+    "/safe/outside.log"
+   ],
+   "lines": {},
+   "images": [],
+   "why": "Codex D01: a quote-only token closes the open quote"
+  },
+  {
+   "text": "('/a/nested.log')",
+   "cited": [
+    "/a/nested.log"
+   ],
+   "lines": {},
+   "images": [],
+   "why": "brackets around a quoted path"
+  }
+ ]
+}
