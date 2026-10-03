@@ -1,0 +1,66 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Roadmap into Vibe Tracks</title>
+<style>
+:root{--bg:#fafaf9;--ink:#18181b;--muted:#71717a;--line:#e4e4e7;--panel:#fff;--chip:#f4f4f5}
+@media (prefers-color-scheme: dark){:root:not([data-theme="light"]){--bg:#111113;--ink:#ececee;--muted:#a1a1aa;--line:#2e2e33;--panel:#18181b;--chip:#26262b}}
+:root[data-theme="dark"]{--bg:#111113;--ink:#ececee;--muted:#a1a1aa;--line:#2e2e33;--panel:#18181b;--chip:#26262b}
+body{margin:0;background:var(--bg);color:var(--ink);font:15px/1.55 Inter,ui-sans-serif,system-ui,sans-serif}
+main{max-width:1060px;margin:0 auto;padding:28px 16px 64px}
+h1{font-size:26px;line-height:1.25;margin:0 0 8px}h2{font-size:18px;margin:34px 0 10px}
+.lead{font-size:16.5px;max-width:80ch}.muted{color:var(--muted)}
+code{font:12.5px ui-monospace,SFMono-Regular,Menlo,monospace;background:var(--chip);padding:1px 5px;border-radius:5px;overflow-wrap:anywhere}
+.wrap{overflow-x:auto;border:1px solid var(--line);border-radius:12px}
+table{width:100%;border-collapse:collapse;font-size:13.5px;background:var(--panel)}
+th,td{text-align:left;vertical-align:top;padding:8px 10px;border-bottom:1px solid var(--line)}
+th{font-size:11.5px;text-transform:uppercase;letter-spacing:.04em;color:var(--muted)}
+ol li,ul li{margin:6px 0}
+.card{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:12px 16px;margin:10px 0}
+</style>
+</head>
+<body><main>
+<h1>The roadmap moves into Vibe Tracks as its evidence layer and a second viewer in the shared Clank plugin</h1>
+<p class="lead">Vibe Tracks becomes the home of everything about managing agents and projects. The roadmap's format (<code>bam-roadmap/1</code>, status derived from evidence) goes to <code>vibetracks/roadmap/</code>; its board, focus card and proof go into the <code>vibetracks</code> Clank plugin as a second viewer beside the Dashboard session's KPI dashboard. Nothing moves until two barriers clear: the format passes Codex, and the plugin skeleton lands.</p>
+
+<h2>Who owns what (agreed with the Dashboard session)</h2>
+<div class="wrap"><table>
+<tr><th>Lane</th><th>Worktree · branch</th><th>Write set</th></tr>
+<tr><td><b>Roadmap</b> (this session)</td><td><code>/home/bam/vibetracks-roadmap</code> · <code>claude/vibetracks-roadmap</code></td><td><code>vibetracks/roadmap/</code>, <code>clank/src/roadmap/</code> (after the skeleton), <code>docs/roadmap/</code></td></tr>
+<tr><td><b>Dashboard</b> (Dashboard view UI/UX session)</td><td><code>/home/bam/vibetracks-dashboard</code> · <code>claude/vibetracks-dashboard</code></td><td><code>vibetracks/dashboard/</code>, <code>clank/</code> (plugin package <code>vibetracks</code>: skeleton, backend, viewer list), <code>workspace/</code>, <code>vibetracks.plugins.json</code>, <code>stable-preview.json</code>, <code>docs/dashboard/</code></td></tr>
+<tr><td><b>Nobody</b></td><td><code>/home/bam/vibetracks</code> · <code>main</code></td><td>Its 24 uncommitted VT-008 files (Aug 25, owner unknown) stay untouched; both lanes branch from its last commit <code>8490224</code>.</td></tr>
+</table></div>
+
+<h2>What moves where</h2>
+<div class="wrap"><table>
+<tr><th>Element</th><th>Today</th><th>In Vibe Tracks</th><th>What must survive</th></tr>
+<tr><td>Evidence-derived status</td><td>bam_ws <code>src/dev/bam_roadmap</code> (bam-roadmap/1: typed <i>done_when</i> criteria, evidence strength record/log/claim, one evaluator, validator)</td><td><code>vibetracks/roadmap/</code> (model, evaluate, validate, schema), CLI <code>vibetracks roadmap project|validate|show</code></td><td>Stdlib-only runtime; a loop cannot lift a rung above its evidence; <code>done</code> stays Zach's word, matching Vibe Tracks' own rule</td></tr>
+<tr><td>Loop adapters</td><td><code>bam_roadmap/kinsim.py</code>, <code>rig.py</code> (projectors)</td><td><code>vibetracks/roadmap/adapters/{kinsim,rig}.py</code>, source paths from config</td><td>Loops stay where they are (bam_ws); adapters only read them. Source-path config shared with the dashboard later, not one schema now</td></tr>
+<tr><td>Vibe Tracks' own features</td><td>Graph lens over Markdown notes</td><td>a third adapter: features → roadmap document (areas or tracks as lanes, <code>vibe-depends-on</code> as edges)</td><td>The notes stay the database; the panel's three fenced writes are untouched</td></tr>
+<tr><td>Citation rule</td><td>bam_ws dashboard <code>cited_tokens()</code> + <code>citation_corpus.json</code> (35 cases), mirrored in the page and bam_roadmap</td><td><code>vibetracks/roadmap/citations.py</code> + the corpus, canonical here</td><td>Every implementation runs the same corpus; the kinsim copy stays pinned if kinsim lands</td></tr>
+<tr><td>Layout engine</td><td>clank-kinsim <code>src/roadmap/graph.ts</code> (lanes + Sugiyama; Ladder, Depth, Now·Next·Later, Waves ordered by dependency)</td><td><code>clank/src/roadmap/graph.ts</code></td><td>Depth strictly layered; Waves ordered inside a wave; lane sub-rows</td></tr>
+<tr><td>Board, focus card, proof, lineage, back/forward</td><td>clank-kinsim <code>RoadmapBoard</code>, <code>FocusPanel</code>, <code>navigation.ts</code>, <code>art.tsx</code></td><td><code>clank/src/roadmap/*</code>, registered with one line in the plugin's viewer list</td><td>Proof first on a click; mouse back/forward; drag-to-pan; the Codex-hardened history and proof rules (r1–r7)</td></tr>
+<tr><td>Proof derivation</td><td><code>proof.ts</code> scrapes proof from the kinsim API's free text</td><td>the viewer reads the bam-roadmap document: status, criteria, evidence links typed by the format</td><td>The step the format was built for; scraping retires</td></tr>
+<tr><td>React Flow renderer</td><td>behind the bottom-right switch</td><td>same, still behind the switch</td><td>The lens board stays the default</td></tr>
+<tr><td>Evidence + art routes</td><td>kinsim API <code>/api/evidence</code>, <code>/api/art</code></td><td>handlers in <code>vibetracks/roadmap/api.py</code>, mounted by the plugin backend (one append-only line, the Dashboard lane's file)</td><td>Serve only cited files; symlink-safe; true line numbers</td></tr>
+<tr><td>Design language</td><td>lens bar + legend + cards on the first screen</td><td>calm, progressive disclosure (<code>feedback_calm_ui_progressive_disclosure</code>; reference "The Table" in <code>bam_ws/reports/dashboard-calm-proposals-2026-10-03.html</code>)</td><td>First screen = one calm answer (what is next, what needs Zach); the graph one deliberate click deeper</td></tr>
+<tr><td>unchanged (stock seam)</td><td>The loops' data (<code>~/.local/share/bam_curriculum</code>, curriculum.json, the rig loop) and the kinsim dashboard's other tabs</td><td>read only</td><td>No loop is edited by this move</td></tr>
+</table></div>
+
+<h2>Order</h2>
+<ol>
+<li><b>Now:</b> this plan, on <code>claude/vibetracks-roadmap</code>. Vibe Tracks' Aug 25 track-layout prototypes (<code>docs/track-layout-prototypes-2026-08-25.html</code>) are read as prior art before the viewer is ported.</li>
+<li><b>After the format passes Codex</b> (its round-2 fixes are running in bam_ws): move <code>bam_roadmap</code> into <code>vibetracks/roadmap/</code> with its tests and the corpus; adapters for kinsim, rig and Vibe Tracks' own features. No barrier with the Dashboard lane.</li>
+<li><b>After the Dashboard lane's skeleton commit</b> (it will send the sha): port the viewer into <code>clank/src/roadmap/</code>, reading roadmap documents; one-line registration.</li>
+<li><b>Calm pass</b> on the viewer's first screen.</li>
+<li><b>Proof:</b> real-app journeys on a Vibe Tracks lane, then a Codex audit; then queue merge-ready into Vibe Tracks main once VT-008's owner is known.</li>
+</ol>
+
+<h2>Needs Zach (silence keeps the default)</h2>
+<div class="card"><b>1. Where the Clank plugin lives.</b> Your instruction puts everything in the Vibe Tracks repo; Clank's own rule puts a tool's plugin in its own <code>clank-&lt;tool&gt;</code> repo. <b>Default:</b> inside Vibe Tracks for now (both lanes agree); splitting it out later is a move, not a rewrite.</div>
+<div class="card"><b>2. The three kinsim candidates</b> (lens board <code>c065f0f</code>, React Flow <code>e97d6c0</code>, API <code>81c5f131</code>, queued into the kinsim loop branch). Landing now keeps the kinsim dashboard's roadmap working today but makes a second home to migrate. <b>Default:</b> they stay unlanded (the integrator's wave-4 packet asks you).</div>
+<div class="card"><b>3. Vibe Tracks main's uncommitted VT-008 work</b> (per-track agents, answerable packets; 24 files, Aug 25). <b>Default:</b> untouched until you say whose it is.</div>
+<div class="card"><b>4. The format's name.</b> <code>bam-roadmap/1</code> could become <code>vibetracks-roadmap/1</code> once it lives here. <b>Default:</b> keep the id until it lands, so the audits and reports stay findable.</div>
+</main></body></html>
