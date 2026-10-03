@@ -24,6 +24,6 @@ The module must be importable from the repo root (Clank runs the backend with ``
 from __future__ import annotations
 
 MOUNTS: list[tuple[str, str]] = [
-    # roadmap session appends ('/roadmap', 'vibetracks.roadmap.api:handle') here
+    ("/roadmap", "vibetracks.roadmap.api:handle"),
     ('/needs', 'vibetracks.dashboard.needs:handle'),
 ]

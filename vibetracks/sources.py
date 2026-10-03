@@ -94,6 +94,8 @@ DEFAULT_SOURCES: dict[str, str] = {
     "run_media_root": "/home/bam/bam_ws/src/core/mdp/agent/actor/trajectory_generation/traj_integration_tests/out",
     "reports_media_dir": "/home/bam/bam_ws/reports/media",
     "dashboard_data_home": "~/.local/share/vibetracks/dashboard",
+    "roadmap_docs_dir": "~/.local/share/vibetracks/roadmap",
+    "roadmap_art_dir": "~/.local/share/vibetracks/roadmap/art",
 }
 
 
