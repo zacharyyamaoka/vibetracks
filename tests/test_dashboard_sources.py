@@ -40,7 +40,9 @@ class SourcesTest(unittest.TestCase):
 
     def test_defaults_when_the_file_is_missing(self) -> None:
         loaded = self.load()
-        self.assertEqual(set(loaded), KEYS)
+        # WHY: the key set is append-only by agreement with the roadmap session, so pin the
+        # dashboard's own keys as a subset, never the exact set (their appends must not break this).
+        self.assertLessEqual(KEYS, set(loaded))
         self.assertEqual(loaded["kinsim_home"], os.path.join(HOME, ".local/share/bam_curriculum"))
         self.assertEqual(loaded["dashboard_data_home"], os.path.join(HOME, ".local/share/vibetracks/dashboard"))
         self.assertEqual(loaded["run_media_root"],
