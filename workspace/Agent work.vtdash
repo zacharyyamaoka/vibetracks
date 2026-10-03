@@ -1,0 +1,5 @@
+{
+  "schema": "vibetracks-dashboard-file/1",
+  "title": "Agent work",
+  "data_home": "~/.local/share/vibetracks/dashboard"
+}

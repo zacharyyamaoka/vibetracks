@@ -1,0 +1,530 @@
+/* Vibe Tracks dashboard: the calm design language of "The Table" (round 2), rooted in .vt-dash.
+   Rules (clank-workbench CLAUDE.md §1.5): every selector starts at .vt-dash, everything sits in @layer base, no
+   Tailwind import, no token values of Clank's own (--background etc. are only read).
+   WHY these greys and not Clank's neutral oklch ramp: Zach liked The Table's warm Notion greys (#37352f text,
+   #787774 secondary, #ededec hairlines); the page background still follows Clank's --background so it sits in the
+   shell, and dark mode follows Clank's .dark class.
+   WHY colour only on .vt-tone-warn/-risk/-stale: "colour only for exceptions" (BRIEF, research principle 11). ok and
+   muted read grey; the one accent is for data ink (series lines, the selected cursor), never for status. */
+
+@layer base {
+  .vt-dash {
+    --vt-bg: var(--background, #fff);
+    --vt-fg: #37352f;
+    --vt-grey: #787774;
+    --vt-faint: #9b9a97;
+    --vt-line: #ededec;
+    --vt-hover: #f7f7f5;
+    --vt-press: #efefed;
+    --vt-accent: #2383e2;
+    --vt-accent-soft: rgba(35, 131, 226, 0.1);
+    --vt-band: rgba(55, 53, 47, 0.06);
+    --vt-warn: #b35c00;
+    --vt-warn-dot: #d9730d;
+    --vt-risk: #c4302b;
+    --vt-risk-dot: #e03e3e;
+    --vt-stale: #5f7a94;
+    --vt-stale-dot: #8aa4bd;
+    --vt-ok-dot: #c8c7c4;
+    --vt-font: system-ui, -apple-system, 'Segoe UI', Inter, sans-serif;
+    --vt-mono: ui-monospace, SFMono-Regular, Menlo, monospace;
+
+    position: relative;
+    height: 100%;
+    min-width: 0;
+    overflow: hidden;
+    background: var(--vt-bg);
+    color: var(--vt-fg);
+    font-family: var(--vt-font);
+    font-size: 14px;
+    line-height: 1.5;
+    letter-spacing: 0;
+    -webkit-font-smoothing: antialiased;
+  }
+  .dark .vt-dash {
+    --vt-fg: #e6e6e4;
+    --vt-grey: #a3a29f;
+    --vt-faint: #7d7c79;
+    --vt-line: #2f2f2f;
+    --vt-hover: #262626;
+    --vt-press: #2e2e2e;
+    --vt-accent: #529cca;
+    --vt-accent-soft: rgba(82, 156, 202, 0.16);
+    --vt-band: rgba(255, 255, 255, 0.06);
+    --vt-warn: #e0a560;
+    --vt-warn-dot: #d9730d;
+    --vt-risk: #e57373;
+    --vt-risk-dot: #e03e3e;
+    --vt-stale: #8fa9c2;
+    --vt-stale-dot: #6d8aa6;
+    --vt-ok-dot: #5a5a58;
+  }
+  .vt-dash *,
+  .vt-dash *::before,
+  .vt-dash *::after {
+    box-sizing: border-box;
+  }
+  .vt-dash h1,
+  .vt-dash h2,
+  .vt-dash h3,
+  .vt-dash p,
+  .vt-dash ul,
+  .vt-dash ol,
+  .vt-dash li {
+    margin: 0;
+    padding: 0;
+    list-style: none;
+    font-family: inherit;
+  }
+  .vt-dash button.vt-btn,
+  .vt-dash .vt-btn {
+    all: unset;
+    box-sizing: border-box;
+    cursor: pointer;
+    font: inherit;
+    color: inherit;
+  }
+  .vt-dash .vt-btn:focus-visible,
+  .vt-dash a:focus-visible,
+  .vt-dash [tabindex]:focus-visible {
+    outline: 2px solid var(--vt-accent);
+    outline-offset: 2px;
+    border-radius: 3px;
+  }
+  .vt-dash a {
+    color: inherit;
+    text-decoration: underline;
+    text-decoration-color: var(--vt-line);
+    text-underline-offset: 2px;
+  }
+  .vt-dash a:hover {
+    text-decoration-color: var(--vt-grey);
+  }
+
+  /* The scroll container under the frame, so the switcher can sit fixed in the frame's corner. */
+  .vt-dash .vt-scroll {
+    height: calc(100% - var(--vt-header-h));
+    overflow: auto;
+  }
+
+  /* ---- the dashboard header: the shell's own slim row; only the settings gear sits in it, at the right end.
+     WHY a row and not a gear floating over the page: a floating button would cover whatever a variant draws in its
+     top-right corner (B's tabs, C's third pane). */
+  .vt-dash {
+    --vt-header-h: 30px;
+  }
+  .vt-dash .vt-dash-header {
+    height: var(--vt-header-h);
+    display: flex;
+    align-items: center;
+    justify-content: flex-end;
+    padding: 0 10px;
+  }
+  .vt-dash .vt-dash-header .vt-gear {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 24px;
+    height: 24px;
+    border-radius: 5px;
+    color: var(--vt-faint);
+  }
+  .vt-dash .vt-dash-header .vt-gear:hover {
+    background: var(--vt-hover);
+    color: var(--vt-fg);
+  }
+  .vt-dash .vt-dash-header .vt-gear[aria-pressed='true'] {
+    background: var(--vt-press);
+    color: var(--vt-fg);
+  }
+
+  /* ---- the settings page (SettingsView) */
+  .vt-dash .vt-page.vt-settings {
+    padding-top: 12px;
+    max-width: 760px;
+  }
+  .vt-dash .vt-settings-section {
+    margin-top: 32px;
+  }
+  .vt-dash .vt-settings-section > .vt-h3 {
+    padding-bottom: 8px;
+    border-bottom: 1px solid var(--vt-line);
+  }
+  .vt-dash .vt-settings-empty {
+    padding-top: 10px;
+  }
+  .vt-dash .vt-settings-row {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 24px;
+    padding: 12px 0;
+    border-bottom: 1px solid var(--vt-line);
+  }
+  .vt-dash .vt-settings-text {
+    min-width: 0;
+  }
+  .vt-dash .vt-settings-title {
+    font-weight: 500;
+  }
+  .vt-dash .vt-settings-control {
+    flex: none;
+    padding-top: 2px;
+  }
+  .vt-dash .vt-settings-control select,
+  .vt-dash .vt-settings-control input[type='number'],
+  .vt-dash .vt-settings-control input[type='text'] {
+    font: inherit;
+    font-size: 13px;
+    color: var(--vt-fg);
+    background: var(--vt-bg);
+    border: 1px solid var(--vt-line);
+    border-radius: 5px;
+    padding: 3px 6px;
+  }
+  .vt-dash .vt-settings-control input[type='checkbox'] {
+    width: 15px;
+    height: 15px;
+    margin: 3px 0 0;
+    accent-color: var(--vt-accent);
+  }
+
+  /* ---- typography */
+  .vt-dash .vt-page {
+    padding: 36px 48px 72px;
+    max-width: 1280px;
+  }
+  .vt-dash .vt-h1 {
+    font-size: 32px;
+    line-height: 1.2;
+    font-weight: 700;
+  }
+  .vt-dash .vt-h2 {
+    font-size: 20px;
+    line-height: 1.3;
+    font-weight: 650;
+  }
+  .vt-dash .vt-h3 {
+    font-size: 15px;
+    line-height: 1.35;
+    font-weight: 600;
+  }
+  .vt-dash .vt-sub {
+    margin-top: 6px;
+    color: var(--vt-grey);
+  }
+  .vt-dash .vt-muted {
+    color: var(--vt-grey);
+  }
+  .vt-dash .vt-faint {
+    color: var(--vt-faint);
+  }
+  .vt-dash .vt-small {
+    font-size: 12.5px;
+  }
+  .vt-dash .vt-num {
+    font-variant-numeric: tabular-nums;
+  }
+  .vt-dash .vt-strong {
+    font-weight: 600;
+  }
+  .vt-dash .vt-mono {
+    font-family: var(--vt-mono);
+    font-size: 12px;
+  }
+  .vt-dash .vt-label {
+    font-size: 12.5px;
+    color: var(--vt-faint);
+  }
+
+  /* ---- the database table (The Table): header row, group rows, hairline rows */
+  .vt-dash .vt-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-variant-numeric: tabular-nums;
+  }
+  .vt-dash .vt-table th {
+    font-size: 12.5px;
+    font-weight: 400;
+    color: var(--vt-faint);
+    text-align: left;
+    padding: 0 14px 8px 4px;
+    border-bottom: 1px solid var(--vt-line);
+    white-space: nowrap;
+  }
+  .vt-dash .vt-table td {
+    padding: 10px 14px 10px 4px;
+    border-bottom: 1px solid var(--vt-line);
+    vertical-align: middle;
+  }
+  .vt-dash .vt-table tr.vt-row-link {
+    cursor: pointer;
+  }
+  .vt-dash .vt-table tr.vt-row-link:hover td {
+    background: var(--vt-hover);
+  }
+  .vt-dash .vt-table tr.vt-group td {
+    font-size: 12.5px;
+    color: var(--vt-faint);
+    padding: 22px 4px 6px;
+  }
+  .vt-dash .vt-table .vt-latest {
+    font-weight: 600;
+  }
+  .vt-dash .vt-gap {
+    color: var(--vt-faint);
+  }
+
+  /* ---- status word: a dot plus a word */
+  .vt-dash .vt-status {
+    display: inline-flex;
+    align-items: baseline;
+    gap: 7px;
+    white-space: nowrap;
+  }
+  .vt-dash .vt-status .vt-dot {
+    display: inline-block;
+    width: 7px;
+    height: 7px;
+    border-radius: 50%;
+    flex: none;
+    transform: translateY(-1px);
+    background: var(--vt-ok-dot);
+  }
+  .vt-dash .vt-status-stack {
+    display: inline-flex;
+    flex-direction: column;
+    line-height: 1.35;
+  }
+  .vt-dash .vt-status-stack small {
+    font-size: 12.5px;
+    color: var(--vt-faint);
+    padding-left: 14px;
+  }
+  .vt-dash .vt-tone-warn {
+    color: var(--vt-warn);
+  }
+  .vt-dash .vt-tone-warn .vt-dot {
+    background: var(--vt-warn-dot);
+  }
+  .vt-dash .vt-tone-risk {
+    color: var(--vt-risk);
+  }
+  .vt-dash .vt-tone-risk .vt-dot {
+    background: var(--vt-risk-dot);
+  }
+  .vt-dash .vt-tone-stale {
+    color: var(--vt-stale);
+  }
+  .vt-dash .vt-tone-stale .vt-dot {
+    background: var(--vt-stale-dot);
+  }
+  .vt-dash .vt-status.vt-tone-warn .vt-word,
+  .vt-dash .vt-status.vt-tone-risk .vt-word {
+    font-weight: 600;
+  }
+
+  /* ---- breadcrumb */
+  .vt-dash .vt-crumbs {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: baseline;
+    gap: 6px;
+    font-size: 13px;
+    color: var(--vt-faint);
+    margin-bottom: 14px;
+  }
+  .vt-dash .vt-crumbs .vt-btn {
+    color: var(--vt-grey);
+    border-radius: 4px;
+    padding: 1px 4px;
+    margin: 0 -4px;
+  }
+  .vt-dash .vt-crumbs .vt-btn:hover {
+    background: var(--vt-press);
+    color: var(--vt-fg);
+  }
+  .vt-dash .vt-crumbs .vt-crumb-here {
+    color: var(--vt-fg);
+  }
+
+  /* ---- charts */
+  .vt-dash svg.vt-spark {
+    display: block;
+    overflow: visible;
+    flex: none;
+  }
+  .vt-dash .vt-chart {
+    position: relative;
+    width: 100%;
+    min-width: 0;
+  }
+  .vt-dash .vt-chart svg {
+    display: block;
+    overflow: visible;
+  }
+  .vt-dash .vt-chart text {
+    font-family: var(--vt-font);
+    font-size: 11px;
+    fill: var(--vt-faint);
+  }
+  .vt-dash .vt-chart .vt-chart-col {
+    cursor: pointer;
+  }
+  .vt-dash .vt-chart .vt-chart-col:hover .vt-chart-hit {
+    fill: var(--vt-hover);
+  }
+  .vt-dash .vt-chart .vt-chart-readout {
+    margin-top: 4px;
+    min-height: 20px;
+    font-size: 12.5px;
+    color: var(--vt-grey);
+  }
+
+  /* ---- evidence */
+  .vt-dash .vt-evidence > li {
+    border-bottom: 1px solid var(--vt-line);
+    padding: 10px 0;
+  }
+  .vt-dash .vt-evidence > li:first-child {
+    border-top: 1px solid var(--vt-line);
+  }
+  .vt-dash .vt-ev-head {
+    display: flex;
+    align-items: baseline;
+    gap: 10px;
+    flex-wrap: wrap;
+  }
+  .vt-dash .vt-ev-kind {
+    font-size: 12px;
+    color: var(--vt-faint);
+    min-width: 44px;
+  }
+  .vt-dash .vt-ev-title {
+    font-weight: 600;
+  }
+  .vt-dash .vt-ev-metrics {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 2px 16px;
+    margin: 4px 0 0 54px;
+    font-size: 12.5px;
+    color: var(--vt-grey);
+    font-variant-numeric: tabular-nums;
+  }
+  .vt-dash .vt-ev-metrics b {
+    color: var(--vt-fg);
+    font-weight: 500;
+  }
+  .vt-dash .vt-ev-note {
+    margin: 4px 0 0 54px;
+    font-size: 12.5px;
+    color: var(--vt-faint);
+  }
+  .vt-dash .vt-ev-media {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+    margin: 6px 0 0 54px;
+  }
+  .vt-dash .vt-chip-btn {
+    all: unset;
+    box-sizing: border-box;
+    cursor: pointer;
+    font-size: 12.5px;
+    color: var(--vt-grey);
+    padding: 2px 8px;
+    border-radius: 4px;
+    border: 1px solid var(--vt-line);
+  }
+  .vt-dash .vt-chip-btn:hover {
+    background: var(--vt-hover);
+    color: var(--vt-fg);
+  }
+  .vt-dash .vt-chip-btn[aria-pressed='true'] {
+    background: var(--vt-press);
+    color: var(--vt-fg);
+  }
+  .vt-dash .vt-media-view {
+    margin: 10px 0 4px 54px;
+  }
+  .vt-dash .vt-media-view video {
+    display: block;
+    width: 100%;
+    max-width: 720px;
+    max-height: 420px;
+    background: #000;
+    border-radius: 4px;
+  }
+  .vt-dash .vt-media-view iframe {
+    display: block;
+    width: 100%;
+    height: 560px;
+    border: 1px solid var(--vt-line);
+    border-radius: 4px;
+    background: #fff;
+  }
+  .vt-dash .vt-media-view pre {
+    max-height: 420px;
+    overflow: auto;
+    white-space: pre-wrap;
+    font-family: var(--vt-mono);
+    font-size: 12px;
+    padding: 12px;
+    background: var(--vt-hover);
+    border-radius: 4px;
+  }
+  .vt-dash .vt-media-bar {
+    display: flex;
+    gap: 12px;
+    align-items: baseline;
+    font-size: 12.5px;
+    color: var(--vt-faint);
+    margin-bottom: 6px;
+  }
+
+  /* ---- the temporary variant switcher (bottom-right, Zach's prototype-switch rule) */
+  .vt-dash .vt-switcher {
+    position: absolute;
+    right: 14px;
+    bottom: 14px;
+    z-index: 20;
+    display: inline-flex;
+    align-items: center;
+    gap: 2px;
+    padding: 3px;
+    border-radius: 8px;
+    background: var(--vt-bg);
+    box-shadow: 0 0 0 1px var(--vt-line), 0 6px 18px rgba(15, 15, 15, 0.06);
+    font-size: 12.5px;
+    color: var(--vt-grey);
+  }
+  .vt-dash .vt-switcher .vt-btn {
+    padding: 3px 9px;
+    border-radius: 5px;
+    white-space: nowrap;
+  }
+  .vt-dash .vt-switcher .vt-btn:hover {
+    background: var(--vt-hover);
+    color: var(--vt-fg);
+  }
+  .vt-dash .vt-switcher .vt-btn[aria-pressed='true'] {
+    background: var(--vt-press);
+    color: var(--vt-fg);
+    font-weight: 600;
+  }
+  .vt-dash .vt-switcher .vt-switch-label {
+    padding: 0 6px 0 8px;
+    color: var(--vt-faint);
+  }
+
+  /* ---- states */
+  .vt-dash .vt-empty {
+    padding: 48px;
+    color: var(--vt-grey);
+  }
+  .vt-dash .vt-error {
+    margin: 16px 48px;
+    color: var(--vt-risk);
+  }
+}

@@ -1,0 +1,34 @@
+{
+  "name": "clank-vibetracks",
+  "private": true,
+  "type": "module",
+  "description": "Vibe Tracks dashboard as a Clank plugin: a viewer for .vtdash files that shows agent loops at three levels of resolution (tracks, KPIs over iterations, per-iteration evidence), with a read-only stdlib backend serving the projection and its media.",
+  "scripts": {
+    "typecheck": "/home/bam/clank-workbench/node_modules/.bin/tsc -p tsconfig.json",
+    "test:backend": "python3 -m unittest discover -s backend -p 'test_*.py'"
+  },
+  "clank": {
+    "id": "vibetracks",
+    "apiVersion": 1,
+    "entry": "./src/plugin.tsx",
+    "tailwindSources": [
+      "./src"
+    ],
+    "backend": {
+      "command": [
+        "python3",
+        "{pluginDir}/backend/server.py",
+        "--port",
+        "{port}",
+        "--workspace",
+        "{workspace}"
+      ],
+      "cwd": "{workspace}",
+      "env": {
+        "PYTHONPATH": "{pluginDir}/.."
+      },
+      "health": "/health",
+      "startTimeoutMs": 15000
+    }
+  }
+}

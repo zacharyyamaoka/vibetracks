@@ -1,0 +1,39 @@
+{
+  // Copied from /home/bam/clank-rigs/tsconfig.json (clank-workbench CLAUDE.md §1.4): type-checks this package
+  // against Clank's `@clank/api` WITHOUT installing Clank here. Run: `npm run typecheck`, which is Clank's own tsc,
+  // because this repo installs no typescript of its own.
+  "compilerOptions": {
+    "target": "ES2022",
+    "useDefineForClassFields": true,
+    "lib": ["ES2022", "DOM", "DOM.Iterable"],
+    "allowJs": false,
+    "skipLibCheck": true,
+    "esModuleInterop": true,
+    "allowSyntheticDefaultImports": true,
+    "strict": true,
+    "noUnusedLocals": true,
+    "forceConsistentCasingInFileNames": true,
+    "module": "ESNext",
+    "moduleResolution": "Bundler",
+    "resolveJsonModule": true,
+    "isolatedModules": true,
+    "noEmit": true,
+    "jsx": "react-jsx",
+    // WHY no `@/*` entry: `@/` is Clank-internal and Clank's build refuses it from a plugin file,
+    // so an `@/` import here must fail at type-check first, not in Clank's build.
+    // WHY React's types come from Clank: one copy of them in the program (two fail under tsc), and Clank's
+    // build dedupes react/react-dom to its own copies at runtime anyway (scripts/clank_plugins.ts DEDUPE).
+    "paths": {
+      "@clank/api": ["/home/bam/clank-workbench/packages/clank-api/src"],
+      "@clank/api/*": ["/home/bam/clank-workbench/packages/clank-api/src/*"],
+      "react": ["/home/bam/clank-workbench/node_modules/@types/react"],
+      "react/*": ["/home/bam/clank-workbench/node_modules/@types/react/*"],
+      "react-dom": ["/home/bam/clank-workbench/node_modules/@types/react-dom"],
+      "react-dom/*": ["/home/bam/clank-workbench/node_modules/@types/react-dom/*"],
+      // WHY Clank's lucide: Clank's build dedupes lucide-react to its own copy.
+      "lucide-react": ["/home/bam/clank-workbench/node_modules/lucide-react"]
+    }
+  },
+  "include": ["src"],
+  "exclude": ["node_modules"]
+}
