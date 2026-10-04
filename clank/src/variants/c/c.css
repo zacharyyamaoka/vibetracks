@@ -1,0 +1,480 @@
+/* Variant C · Three panes. Rooted in .vt-dash .vt-c, inside @layer base (VARIANT-KIT.md).
+   WHY hairline pane dividers and no pane boxes: the calm Table language (BRIEF "hairlines at most"); the three panes
+   read as columns of one page, not as three cards.
+   WHY the accent only on the selected row of the pane the keyboard is in: Finder/Mail convention (active selection
+   tinted, inactive selection grey), and the one accent is reserved for selection and data ink, never status. */
+
+@layer base {
+  .vt-dash .vt-c {
+    display: flex;
+    flex-direction: column;
+    height: 100%;
+    min-height: 0;
+    outline: none;
+  }
+
+  /* ---- the glance line */
+  .vt-dash .vt-c .vt-c-glance {
+    flex: none;
+    display: flex;
+    align-items: baseline;
+    gap: 14px;
+    padding: 0 20px 10px;
+    border-bottom: 1px solid var(--vt-line);
+    font-size: 13px;
+    color: var(--vt-grey);
+    white-space: nowrap;
+    min-width: 0;
+  }
+  .vt-dash .vt-c .vt-c-title {
+    font-weight: 600;
+    color: var(--vt-fg);
+  }
+  .vt-dash .vt-c button.vt-c-title:hover {
+    text-decoration: underline;
+    text-decoration-color: var(--vt-line);
+  }
+  .vt-dash .vt-c .vt-c-glance-text {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  .vt-dash .vt-c .vt-c-glance-end {
+    margin-left: auto;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  .vt-dash .vt-c .vt-c-glance .vt-tone-warn,
+  .vt-dash .vt-c .vt-c-glance .vt-tone-risk {
+    font-weight: 600;
+  }
+
+  /* ---- the three panes */
+  .vt-dash .vt-c .vt-c-panes {
+    flex: 1;
+    min-height: 0;
+    display: grid;
+    grid-template-columns: minmax(176px, 204px) minmax(420px, 1.3fr) minmax(360px, 1fr);
+  }
+  .vt-dash .vt-c .vt-c-pane {
+    min-width: 0;
+    min-height: 0;
+    overflow-x: hidden;
+    overflow-y: auto;
+    padding: 16px 18px 72px;
+    border-right: 1px solid var(--vt-line);
+    scrollbar-width: thin;
+  }
+  .vt-dash .vt-c .vt-c-pane-1 {
+    padding: 10px 8px 72px;
+  }
+  .vt-dash .vt-c .vt-c-pane-3 {
+    border-right: 0;
+  }
+
+  /* ---- pane 1: tracks */
+  .vt-dash .vt-c .vt-c-subgroup {
+    font-size: 12px;
+    color: var(--vt-faint);
+    padding: 12px 10px 4px 22px;
+    line-height: 1.35;
+  }
+  .vt-dash .vt-c .vt-c-track {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    width: 100%;
+    padding: 9px 10px 10px 12px;
+    margin-bottom: 2px;
+    border-radius: 6px;
+    border-left: 2px solid transparent;
+  }
+  .vt-dash .vt-c .vt-c-track.vt-c-child {
+    padding-left: 22px;
+  }
+  .vt-dash .vt-c .vt-c-track:hover {
+    background: var(--vt-hover);
+  }
+  .vt-dash .vt-c .vt-c-track.vt-c-sel {
+    background: var(--vt-press);
+  }
+  .vt-dash .vt-c .vt-c-track.vt-c-active {
+    border-left-color: var(--vt-accent);
+    border-top-left-radius: 0;
+    border-bottom-left-radius: 0;
+  }
+  .vt-dash .vt-c .vt-c-track-title {
+    font-weight: 600;
+    line-height: 1.3;
+  }
+  .vt-dash .vt-c .vt-c-track-line {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    min-width: 0;
+    font-size: 12.5px;
+  }
+  .vt-dash .vt-c .vt-c-track-line .vt-status {
+    font-size: 12.5px;
+  }
+  .vt-dash .vt-c .vt-c-track-star {
+    font-size: 13px;
+    margin-top: 2px;
+  }
+  .vt-dash .vt-c .vt-c-ellipsis {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  /* ---- pane 2: the track's KPI table */
+  .vt-dash .vt-c .vt-c-state {
+    margin-top: 6px;
+  }
+  .vt-dash .vt-c .vt-c-needs {
+    margin-top: 14px;
+  }
+  .vt-dash .vt-c .vt-c-disclosure {
+    display: inline-flex;
+    align-items: baseline;
+    gap: 2px;
+    font-size: 13px;
+    padding: 2px 6px 2px 2px;
+    margin-left: -2px;
+    border-radius: 4px;
+  }
+  .vt-dash .vt-c .vt-c-disclosure:hover {
+    background: var(--vt-hover);
+  }
+  .vt-dash .vt-c .vt-c-caret {
+    display: inline-block;
+    width: 14px;
+    color: var(--vt-faint);
+    font-size: 11px;
+  }
+  .vt-dash .vt-c .vt-c-questions {
+    margin: 6px 0 0 16px;
+  }
+  .vt-dash .vt-c .vt-c-questions li {
+    display: flex;
+    flex-direction: column;
+    padding: 6px 0;
+    border-bottom: 1px solid var(--vt-line);
+    font-size: 13px;
+  }
+  .vt-dash .vt-c .vt-c-kpis {
+    margin-top: 18px;
+    table-layout: fixed;
+  }
+  .vt-dash .vt-c .vt-c-kpis td {
+    overflow-wrap: break-word;
+  }
+  .vt-dash .vt-c .vt-c-nodata {
+    display: block;
+    width: 56px;
+    border-top: 1px dashed var(--vt-faint);
+    opacity: 0.6;
+  }
+  .vt-dash .vt-c .vt-c-kpis th {
+    white-space: normal;
+    vertical-align: bottom;
+    line-height: 1.3;
+  }
+  .vt-dash .vt-c .vt-c-kpis th:first-child,
+  .vt-dash .vt-c .vt-c-kpis td:first-child {
+    padding-left: 8px;
+  }
+  .vt-dash .vt-c .vt-c-kpis td {
+    padding-top: 7px;
+    padding-bottom: 7px;
+    padding-right: 10px;
+    font-size: 13px;
+    line-height: 1.35;
+  }
+  .vt-dash .vt-c .vt-c-kpis th {
+    padding-right: 10px;
+  }
+  .vt-dash .vt-c .vt-c-kpis th.vt-c-at {
+    color: var(--vt-fg);
+    font-weight: 600;
+  }
+  .vt-dash .vt-c .vt-c-kpis tr.vt-group td {
+    padding: 16px 8px 4px;
+    font-size: 12px;
+  }
+  .vt-dash .vt-c .vt-c-kpis tr.vt-c-sel td {
+    background: var(--vt-press);
+  }
+  .vt-dash .vt-c .vt-c-kpis tr.vt-c-sel.vt-c-active td:first-child {
+    box-shadow: inset 2px 0 0 var(--vt-accent);
+  }
+  .vt-dash .vt-c .vt-chart-col:focus {
+    outline: none;
+  }
+  .vt-dash .vt-c .vt-c-sub {
+    display: block;
+    font-size: 11.5px;
+    color: var(--vt-faint);
+    line-height: 1.3;
+    white-space: normal;
+  }
+  .vt-dash .vt-c .vt-c-sub.vt-tone-warn {
+    color: var(--vt-warn);
+  }
+  .vt-dash .vt-c .vt-c-status .vt-status {
+    white-space: normal;
+  }
+  .vt-dash .vt-c .vt-c-roadmap {
+    margin-top: 26px;
+    padding-top: 10px;
+    border-top: 1px solid var(--vt-line);
+  }
+  .vt-dash .vt-c .vt-c-roadmap-body {
+    margin: 4px 0 0 16px;
+  }
+
+  /* ---- pane 3: the KPI as one object, its series, its evidence */
+  .vt-dash .vt-c .vt-c-hero {
+    display: flex;
+    align-items: baseline;
+    gap: 14px;
+    margin-top: 10px;
+  }
+  .vt-dash .vt-c .vt-c-big {
+    font-size: 34px;
+    line-height: 1.1;
+    font-weight: 650;
+    letter-spacing: -0.01em;
+  }
+  .vt-dash .vt-c .vt-c-hero-side {
+    display: flex;
+    flex-direction: column;
+    min-width: 0;
+    line-height: 1.4;
+  }
+  .vt-dash .vt-c .vt-c-context {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: baseline;
+    gap: 4px 14px;
+    margin-top: 8px;
+  }
+  .vt-dash .vt-c .vt-c-note {
+    margin-top: 6px;
+  }
+  .vt-dash .vt-c .vt-c-chart {
+    margin-top: 16px;
+  }
+  .vt-dash .vt-c .vt-c-strip {
+    display: flex;
+    margin-top: 2px;
+  }
+  .vt-dash .vt-c .vt-c-cell {
+    flex: 1 1 0;
+    min-width: 0;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    padding: 4px 2px;
+    border-radius: 4px;
+    font-size: 12.5px;
+    color: var(--vt-grey);
+    line-height: 1.3;
+    overflow: hidden;
+    white-space: nowrap;
+    text-overflow: ellipsis;
+  }
+  .vt-dash .vt-c .vt-c-cell:hover {
+    background: var(--vt-hover);
+  }
+  .vt-dash .vt-c .vt-c-cell span,
+  .vt-dash .vt-c .vt-c-cell small {
+    display: block;
+    max-width: 100%;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  .vt-dash .vt-c .vt-c-cell small {
+    font-size: 11px;
+  }
+  .vt-dash .vt-c .vt-c-cell-latest {
+    color: var(--vt-fg);
+    font-weight: 600;
+  }
+  .vt-dash .vt-c .vt-c-cell-sel {
+    background: var(--vt-hover);
+    color: var(--vt-fg);
+    box-shadow: inset 0 -2px 0 var(--vt-accent);
+  }
+  .vt-dash .vt-c .vt-c-missing {
+    margin-top: 18px;
+    padding: 14px 16px;
+    border: 1px dashed var(--vt-line);
+    border-radius: 6px;
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+  }
+  .vt-dash .vt-c .vt-c-hint {
+    margin-top: 18px;
+  }
+  .vt-dash .vt-c .vt-c-link {
+    color: var(--vt-fg);
+    border-radius: 4px;
+    padding: 1px 4px;
+    margin: 0 -4px;
+  }
+  .vt-dash .vt-c .vt-c-link:hover {
+    background: var(--vt-press);
+  }
+  .vt-dash .vt-c .vt-c-l3 {
+    margin-top: 22px;
+    padding-top: 16px;
+    border-top: 1px solid var(--vt-line);
+    scroll-margin-top: 8px;
+  }
+  .vt-dash .vt-c .vt-c-marker {
+    margin-top: 2px;
+  }
+  .vt-dash .vt-c .vt-c-markers {
+    margin-top: 4px;
+    max-height: 180px;
+    overflow: auto;
+  }
+  .vt-dash .vt-c .vt-c-markers li {
+    padding: 1px 0;
+  }
+  .vt-dash .vt-c .vt-c-point {
+    margin-top: 8px;
+  }
+  .vt-dash .vt-c .vt-c-list-label {
+    margin: 16px 0 6px;
+  }
+  .vt-dash .vt-c .vt-c-rest {
+    margin-top: 14px;
+  }
+  .vt-dash .vt-c .vt-c-l3 .vt-evidence > li {
+    padding-left: 6px;
+    padding-right: 6px;
+    border-radius: 4px;
+  }
+  .vt-dash .vt-c .vt-c-l3 .vt-evidence .vt-ev-title:hover {
+    text-decoration: underline;
+    text-decoration-color: var(--vt-faint);
+  }
+  .vt-dash .vt-c .vt-c-l3 .vt-media-view {
+    margin-left: 0;
+  }
+
+  /* ---- run detail */
+  .vt-dash .vt-c .vt-c-run {
+    margin-top: 14px;
+  }
+  .vt-dash .vt-c .vt-c-run-nav {
+    display: flex;
+    align-items: baseline;
+    gap: 14px;
+  }
+  .vt-dash .vt-c .vt-c-run-title {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: baseline;
+    gap: 4px 12px;
+  }
+  .vt-dash .vt-c .vt-c-metrics {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+    gap: 8px 18px;
+    margin: 14px 0 0;
+  }
+  .vt-dash .vt-c .vt-c-metrics dt {
+    font-size: 12px;
+    color: var(--vt-faint);
+  }
+  .vt-dash .vt-c .vt-c-metrics dd {
+    margin: 0;
+    font-weight: 500;
+  }
+  .vt-dash .vt-c .vt-c-videos {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+    gap: 14px;
+    margin-top: 16px;
+  }
+  .vt-dash .vt-c .vt-c-videos figure {
+    margin: 0;
+    min-width: 0;
+  }
+  .vt-dash .vt-c .vt-c-videos figcaption {
+    display: flex;
+    justify-content: space-between;
+    gap: 8px;
+    margin-bottom: 4px;
+    color: var(--vt-grey);
+  }
+  .vt-dash .vt-c .vt-c-videos video {
+    display: block;
+    width: 100%;
+    aspect-ratio: 4 / 3;
+    background: #000;
+    border-radius: 4px;
+    object-fit: contain;
+  }
+  .vt-dash .vt-c .vt-c-docs {
+    margin-top: 16px;
+  }
+  .vt-dash .vt-c .vt-c-docs .vt-media-view {
+    margin: 6px 0 0;
+  }
+  .vt-dash .vt-c .vt-c-docs .vt-media-view iframe {
+    height: 520px;
+  }
+  .vt-dash .vt-c .vt-c-links {
+    margin-top: 12px;
+  }
+  .vt-dash .vt-c .vt-c-links li {
+    padding: 2px 0;
+    word-break: break-all;
+  }
+
+  /* ---- the glance lists (L1, before a track is picked) */
+  .vt-dash .vt-c .vt-c-glance-list {
+    margin-top: 14px;
+    border-top: 1px solid var(--vt-line);
+  }
+  .vt-dash .vt-c .vt-c-glance-row {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    width: 100%;
+    padding: 9px 8px;
+    border-bottom: 1px solid var(--vt-line);
+    font-size: 13.5px;
+  }
+  .vt-dash .vt-c .vt-c-glance-row:hover {
+    background: var(--vt-hover);
+  }
+
+  .vt-dash .vt-c .vt-c-glance-sep {
+    display: inline-block;
+    width: 1px;
+    height: 11px;
+    margin: 0 10px;
+    background: var(--vt-line);
+  }
+  .vt-dash .vt-c .vt-c-keys {
+    margin: 22px 10px 0;
+    font-size: 11.5px;
+    line-height: 1.9;
+  }
+  .vt-dash .vt-c kbd {
+    font-family: inherit;
+    font-size: 10.5px;
+    padding: 0 4px;
+    margin-right: 2px;
+    border: 1px solid var(--vt-line);
+    border-radius: 3px;
+    color: var(--vt-grey);
+  }
+}
