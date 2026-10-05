@@ -9,16 +9,22 @@ How the curriculum becomes a roadmap:
 
 - an axis (lane) per tier of TIERS, in order; a rung per environment of ENVS, in its tier's lane, in declared order;
 - a gated environment (its id in GATES) has one ``gate_run`` criterion: met when a non-privileged model's best
-  headline run on the frozen protocol has Wilson ``ci_lo`` >= GATES[env] (grasp_bench's own ``gallery.env_verdict``).
-  Its evidence is that ledger row, bound to the row's own ``git_sha``; a row whose ``git_dirty`` is true (or unstated)
-  is ``artifact-dirty``, so only a claim (``evaluate.git_record_binding``), and so is a row that never recorded its
-  ``env_options`` (``unrecorded_configuration``). The row goes stale when the code it ran and was scored by changed
-  after its commit: runner.py's import closure (``@runner``) plus the env and model modules registry.py names for it;
+  headline run on the frozen protocol has Wilson ``ci_lo`` >= GATES[env]. That verdict, which runs are frozen or
+  privileged and which run is each cell's headline are not computed here: they are grasp_bench's own
+  (``gallery.env_verdict``, ``is_frozen_protocol``, ``provenance_gap``), read through ``grasp_bench_bridge.verdict``,
+  which runs the bench's code in its venv (WHY no replica, Oct 4 2026: the bench tightened ``is_frozen_protocol`` with
+  ``provenance_gap`` and this projector's copy kept the old rule, so it called three provisional envs claimed).
+  Its evidence is the bridge's best ledger row, bound to the row's own ``git_sha``; a row whose ``git_dirty`` is true
+  (or unstated) is ``artifact-dirty``, so only a claim (``evaluate.git_record_binding``), and so is a row the bench
+  does not call frozen (its ``provenance_gap``, verbatim, is the note), a privileged row, and a row the bridge's reading
+  does not match (the ledger changed between the two reads). The row goes stale when the code it ran and was scored by
+  changed after its commit: runner.py's import closure (``@runner``) plus the env and model modules registry.py names for it;
 - an ungated environment (the datasets, the bandits, tiers 5-8) has a ``stated`` criterion: the curriculum gives it
   no bar, only prose, so it is never met, whatever is measured; its runs are shown as context evidence and KPIs;
 - CELLS with status "needs" and a named blocker become the rung's blockers ("needs you");
-- the loop writes no status of its own, so every rung's claim is ``missing`` (as kinsim reads a missing status.json),
-  and no rung can show green until the loop states one. The gate criteria still show what the ledger proves.
+- the loop writes no status of its own, so its claim is its gallery verdict: ``envs[env].beaten`` from the bridge (a
+  provisional env, one only a smoke or re-seeded run clears, is not claimed). When the bridge cannot answer there is
+  no projection (``ProjectionError``: "bench verdict unavailable"), never a guess.
 """
 
 from __future__ import annotations
@@ -31,6 +37,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
+from ...benches import grasp_bench_bridge
 from . import links, model, proof
 from .evaluate import Evaluator, Judgement, capped, git_record_binding
 from .files import LINE_KEY, ProjectionError, file_sha256, read_jsonl
@@ -681,7 +688,7 @@ def read_frozen_protocols(runner_path: Path, contracts: Mapping[str, Constructor
     return FrozenProtocols(defaults, (str(fallback[0]), int(fallback[1])), seed, lines)
 
 
-# ---------------------------------------------------------------- grasp_bench's own rules, restated over plain rows
+# ---------------------------------------------------------------- the frozen protocol, as grasp_bench's runner defines it
 def env_family(env_id: str) -> str:
     """``registry.env_family``: the env id's first path segment."""
 
@@ -689,37 +696,15 @@ def env_family(env_id: str) -> str:
 
 
 def frozen_protocol(env: Mapping[str, Any], protocols: FrozenProtocols) -> dict[str, Any]:
-    """``runner.default_protocol(env)`` plus ``runner.default_k(spec)``, as ``gallery.is_frozen_protocol`` compares them."""
+    """``runner.default_protocol(env)`` plus ``runner.default_k(spec)``: what a gate's text and its staleness ruler show.
+
+    WHY it is only shown: whether a run IS on this protocol is the bench's call (``is_frozen_protocol`` over the row's
+    provenance, through the bridge), never this table's.
+    """
 
     name, episodes = protocols.defaults.get(env_family(str(env["id"])), protocols.fallback)
     k = max(int(env.get("request_k") or 1), int(env.get("min_grasps") or 1), 1)
     return {"name": name, "seed": protocols.seed, "episodes": episodes, "split": "test", "k": k}
-
-
-def is_frozen(row: Mapping[str, Any], frozen: Mapping[str, Any] | None) -> bool:
-    """``gallery.is_frozen_protocol``: the frozen name, seed and episodes, the test split, no protocol or env options,
-    every episode scored, and the default k."""
-
-    if frozen is None:
-        return False
-    protocol = row.get("protocol") if isinstance(row.get("protocol"), Mapping) else {}
-    return (protocol.get("name") == frozen["name"] and protocol.get("seed") == frozen["seed"]
-            and protocol.get("episodes") == frozen["episodes"] and protocol.get("split") == "test"
-            and not protocol.get("options") and not row.get("env_options") and row.get("n") == frozen["episodes"]
-            and protocol.get("k") == frozen["k"])
-
-
-def unrecorded_configuration(row: Mapping[str, Any]) -> list[str]:
-    """The fields ``is_frozen`` reads as "no options" that this row never recorded (Codex V01).
-
-    WHY absent is not empty for ``env_options``: the field was added to CellRun after rows were already written
-    (grasp_bench 40611051); a row from before it ran a runner that accepted env overrides and never wrote them down, so
-    nothing in the row says its environment was the default one. The protocol's ``options`` is different: runner.py
-    has written it only when non-empty since its first commit, so inside a recorded protocol its absence is the record.
-    """
-
-    missing = [] if "env_options" in row else ["env_options"]
-    return missing if isinstance(row.get("protocol"), Mapping) else [*missing, "protocol"]
 
 
 def read_factories(registry_path: Path) -> tuple[dict[str, str], dict[tuple[str, str], str]]:
@@ -746,48 +731,20 @@ def read_factories(registry_path: Path) -> tuple[dict[str, str], dict[tuple[str,
             {(str(key[0]), str(key[1])): str(target) for key, target in models.items() if isinstance(key, tuple) and len(key) == 2})
 
 
-def is_privileged(row: Mapping[str, Any], families: Mapping[str, str]) -> bool:
-    """``gallery._privileged``: privileged by the curriculum's spec OR by the input the run recorded it read."""
-
-    return (row.get("model_info") or {}).get("input") == "privileged" or families.get(str(row.get("model"))) == "privileged"
-
-
-def clears_gate(row: Mapping[str, Any], gate: float | None, families: Mapping[str, str]) -> bool:
-    """``gallery.clears_gate``: a non-privileged top-1 run whose Wilson lower bound reaches its env's gate."""
-
-    ci_lo = _number(row.get("ci_lo"))
-    return (gate is not None and row.get("metric") == GATED_METRIC and ci_lo is not None and ci_lo >= gate
-            and not is_privileged(row, families))
-
-
-def headline_runs(rows: Sequence[Mapping[str, Any]], frozen_of: Mapping[str, Mapping[str, Any]]) -> dict[str, Mapping[str, Any]]:
-    """``gallery.headline_runs``: one row per cell: a frozen-protocol row first, then the largest n, then the latest
-    start, then the last written. (A smoke written after the frozen eval never replaces it; a frozen re-run does.)"""
-
-    best: dict[str, tuple[tuple, Mapping[str, Any]]] = {}
-    for index, row in enumerate(rows):
-        cell_id = str(row.get("cell_id"))
-        key = (is_frozen(row, frozen_of.get(str(row.get("env")))), _count(row.get("n")), str(row.get("started_at") or ""), index)
-        if cell_id not in best or key > best[cell_id][0]:
-            best[cell_id] = (key, row)
-    return {cell_id: pair[1] for cell_id, pair in best.items()}
-
-
 def _number(value: Any) -> float | None:
     return float(value) if isinstance(value, (int, float)) and not isinstance(value, bool) and value == value else None
 
 
-def _count(value: Any) -> int:
-    return value if isinstance(value, int) and not isinstance(value, bool) else 0
-
-
 # ---------------------------------------------------------------- the projection
-def project_grasping(grasp_bench_dir: Path, *, now: str, head: str | None = None,
-                     ledger_path: Path | None = None) -> dict[str, Any]:
+def project_grasping(grasp_bench_dir: Path, *, now: str, head: str | None = None, ledger_path: Path | None = None,
+                     verdict_fn: Callable[..., Mapping[str, Any]] | None = None) -> dict[str, Any]:
     """bam-roadmap/1 for the grasping track, judged at ``head`` (default: the checkout's HEAD).
 
     ``ledger_path`` defaults to ``<grasp_bench_dir>/out/ledger/runs.jsonl``, the ledger's own default (``$GRASP_BENCH_OUT``
     is not read here: the projection must depend only on the paths it is given, so the validator can project it again).
+
+    ``verdict_fn(bench_dir)`` answers grasp_bench's own verdict (``grasp_bench_bridge.verdict``, the default, with its
+    default cache, which the dashboard shares); tests inject a fake. Its ``error`` is a ``ProjectionError``.
     """
 
     bench = Path(grasp_bench_dir).resolve()
@@ -802,8 +759,16 @@ def project_grasping(grasp_bench_dir: Path, *, now: str, head: str | None = None
     if not repo.available:
         raise ProjectionError(f"{bench} is not inside a git checkout")
     roots = Roots(repo=repo.root, data_home=ledger.parent.parent, repo_aliases=repo.other_checkouts())
+    rows = read_jsonl(ledger, numbered=True) if ledger.is_file() else []
+    # WHY no call without a ledger: with no row there is nothing to judge, so no env is beaten and no verdict is needed
+    # (the bridge itself would answer "ledger missing", which is the state this projection already shows).
+    judged: Mapping[str, Any] = {"envs": {}, "runs": {}, "headline": {}, "error": None}
+    if ledger.is_file():
+        judged = (verdict_fn or grasp_bench_bridge.verdict)(bench)
+        if judged.get("error"):
+            raise ProjectionError(f"bench verdict unavailable: {judged['error']}")
     return _GraspingProjector(bench=bench, curriculum=curriculum, protocols=protocols, ledger=ledger, repo=repo,
-                              roots=roots).document(now)
+                              roots=roots, rows=rows, judged=judged).document(now)
 
 
 def rung_id_of(env_id: str) -> str:
@@ -818,7 +783,7 @@ def _pointer(*parts: Any) -> str:
 
 class _GraspingProjector:
     def __init__(self, *, bench: Path, curriculum: Curriculum, protocols: FrozenProtocols, ledger: Path, repo: Repo,
-                 roots: Roots) -> None:
+                 roots: Roots, rows: list[dict[str, Any]], judged: Mapping[str, Any]) -> None:
         self.bench, self.curriculum, self.protocols, self.ledger, self.repo, self.roots = bench, curriculum, protocols, ledger, repo, roots
         self.package = bench / PACKAGE
         self.curriculum_path = self.package / "curriculum.py"
@@ -833,14 +798,22 @@ class _GraspingProjector:
         self.tiers = self._tiers(tables["TIERS"])
         self.envs = self._envs(tables["ENVS"])
         self.env_index = {env["id"]: position for position, env in enumerate(self.envs)}
-        self.families = {str(row.get("id")): str(row.get("family")) for row in tables["MODELS"] if isinstance(row, Mapping)}
         self.cells = [cell for cell in tables["CELLS"] if isinstance(cell, Mapping) and cell.get("env") in self.env_index]
         self.gates = {str(env_id): float(gate) for env_id, gate in dict(tables["GATES"]).items()
                       if isinstance(gate, (int, float)) and env_id in self.env_index}
         self.published = tables.get("PUBLISHED_AP") if isinstance(tables.get("PUBLISHED_AP"), Mapping) else {}
         self.frozen_of = {env["id"]: frozen_protocol(env, protocols) for env in self.envs}
-        self.rows = read_jsonl(ledger, numbered=True) if ledger.is_file() else []
-        self.heads = headline_runs(self.rows, self.frozen_of)
+        self.rows = rows
+        # WHY the bridge's run_id is the row's position in runs.jsonl (as read here, by ``read_jsonl``), cross-checked
+        # on started_at, env and model before any of its judgement is applied to a row.
+        self.position = {id(row): index for index, row in enumerate(rows)}
+        self.bench_runs: Mapping[str, Any] = judged.get("runs") or {}
+        self.bench_envs: Mapping[str, Any] = judged.get("envs") or {}
+        uncovered = [env_id for env_id in self.gates if env_id not in self.bench_envs] if rows else []
+        if uncovered:
+            raise ProjectionError(f"bench verdict unavailable: the bench's verdict has no gated env {', '.join(uncovered)}")
+        self.heads = {str(cell_id): rows[int(index)] for cell_id, index in (judged.get("headline") or {}).items()
+                      if str(index).isdigit() and int(index) < len(rows)}
         self.verdicts = {env["id"]: self._verdict(env["id"]) for env in self.envs}
         self.depends = self._dependencies()
         self.frontier = self._frontier()
@@ -908,22 +881,50 @@ class _GraspingProjector:
                               if status in by_status},
                 "wave1_unmeasured": [cell_id for cell_id in wave1 if cell_id not in self.heads]}
 
-    # ------------------------------------------------------------ beaten (gallery.env_verdict)
-    def _verdict(self, env_id: str) -> dict[str, Any]:
-        """gallery.env_verdict and env_provisional over the headline rows: the env's candidates, winners and best run."""
+    # ------------------------------------------------------------ what the bench says about a row or an env
+    def _bench_row(self, row: Mapping[str, Any]) -> Mapping[str, Any] | None:
+        """The bridge's judgement of this ledger row (``frozen``, ``gap``, ``privileged``), or None when it is not the
+        row the bridge read at that position: the ledger grew or was rewritten between the two reads."""
 
+        found = self.bench_runs.get(str(self.position.get(id(row))))
+        if not isinstance(found, Mapping):
+            return None
+        same = all(str(found.get(key)) == str(row.get(key)) for key in ("started_at", "env", "model"))
+        return found if same else None
+
+    def _is_privileged(self, row: Mapping[str, Any]) -> bool:
+        found = self._bench_row(row)
+        return bool(found and found.get("privileged"))
+
+    def _is_frozen(self, row: Mapping[str, Any]) -> bool:
+        found = self._bench_row(row)
+        return bool(found and found.get("frozen"))
+
+    def _row_at(self, index: Any) -> Mapping[str, Any] | None:
+        text = str(index)
+        return self.rows[int(text)] if text.isdigit() and int(text) < len(self.rows) else None
+
+    def _verdict(self, env_id: str) -> dict[str, Any]:
+        """What the bench's gallery says of this env (``env_verdict``, ``env_provisional``) and the headline rows under it.
+
+        ``best`` is the bench's own ``best_run`` (the winner when beaten, else its best non-privileged candidate); the
+        candidates are the headline rows the bridge judged and did not call privileged.
+        """
+
+        said = self.bench_envs.get(env_id) or {}
         heads = [row for row in self.heads.values() if row.get("env") == env_id]
-        candidates = [row for row in heads if _number(row.get("value")) is not None and not is_privileged(row, self.families)]
-        gate = self.gates.get(env_id)
-        frozen = self.frozen_of[env_id]
-        winners = [row for row in candidates if clears_gate(row, gate, self.families) and is_frozen(row, frozen)]
-        best = max(candidates, key=lambda row: (_number(row.get("value")), _number(row.get("ci_lo")) if _number(row.get("ci_lo")) is not None else -1),
-                   default=None)
-        if winners:
-            best = max(winners, key=lambda row: _number(row.get("ci_lo")))
-        provisional = not winners and any(clears_gate(row, gate, self.families) and not is_frozen(row, frozen) for row in heads)
-        return {"beaten": bool(winners), "winners": winners, "best": best, "provisional": provisional, "heads": heads,
-                "frozen_runs": [row for row in candidates if is_frozen(row, frozen)]}
+        candidates = [row for row in heads if self._bench_row(row) is not None and not self._is_privileged(row)
+                      and _number(row.get("value")) is not None]
+        best = self._row_at(said.get("best_run")) if said.get("best_run") is not None else None
+        if env_id not in self.bench_envs:
+            # An ungated env has no gallery verdict (the bridge answers only GATES' envs): its "best" is only the
+            # highest measured value among the candidates, shown as a KPI and never as proof.
+            best = max(candidates, key=lambda row: (_number(row.get("value")), _number(row.get("ci_lo")) if _number(row.get("ci_lo")) is not None else -1),
+                       default=None)
+        beaten = bool(said.get("beaten"))
+        return {"beaten": beaten, "winners": [best] if beaten and best is not None else [], "best": best,
+                "provisional": bool(said.get("provisional")) and not beaten, "heads": heads,
+                "frozen_runs": [row for row in candidates if self._is_frozen(row)]}
 
     def _frontier(self) -> list[str]:
         """The lowest tier whose wave-1 cells are incomplete or whose gated envs are not all beaten: its unbeaten envs.
@@ -1004,7 +1005,8 @@ class _GraspingProjector:
         rows = []
         for path, role in ((self.curriculum_path, "curriculum"), (self.package / "contracts.py", "contracts"),
                            (self.package / "runner.py", "frozen protocol"), (self.package / "registry.py", "factories"),
-                           (self.ledger, "ledger")):
+                           (self.package / "gallery.py", "verdict rule"), (self.package / "ledger.py", "ledger reader"),
+                           (self.ledger, "ledger"), (self.ledger.parent / "attestations.jsonl", "attestations")):
             entry = links.link("file", str(path), self.roots)
             entry.update({"role": role, "sha256": file_sha256(path) if path.is_file() else None})
             rows.append(entry)
@@ -1023,6 +1025,10 @@ class _GraspingProjector:
         dirty = sum(1 for row in self.rows if row.get("git_dirty") is not False)
         if dirty:
             warnings.append(f"{dirty} of {len(self.rows)} ledger rows ran on a dirty or unrecorded tree, so they are claims")
+        unmatched = sum(1 for row in self.rows if self._bench_row(row) is None)
+        if unmatched:
+            warnings.append(f"{unmatched} of {len(self.rows)} ledger rows are not the rows the bench judged (the ledger changed "
+                            "between the two reads), so they are claims")
         unnamed = [f"{cell.get('model')}@{cell.get('env')}" for cell in self.cells if cell.get("status") == "needs" and not str(cell.get("why") or "").strip()]
         if unnamed:
             warnings.append(f"needs cells with no named blocker (not shown as blockers): {', '.join(unnamed)}")
@@ -1049,9 +1055,10 @@ class _GraspingProjector:
         if self.depends[env_id]:
             criteria.append(self._prerequisites_criterion(env_id, rung_id, done_source))
         # WHY the loop's claim is its own gallery verdict: grasp_bench writes no status file, but it does publish a
-        # verdict per env (gallery.env_verdict: a frozen-protocol headline run clearing GATES), and this projector applies
-        # that same rule to the same ledger. Holding every rung at "missing" instead would show "0 proven" for a loop
-        # that has visibly beaten its gates; the evidence still caps the claim (a dirty-tree run makes it "claimed").
+        # verdict per env (gallery.env_verdict: a frozen-protocol headline run clearing GATES), and the bridge reads it
+        # from the bench itself. Holding every rung at "missing" instead would show "0 proven" for a loop that has
+        # visibly beaten its gates; the evidence still caps the claim (a dirty-tree run makes it "claimed"). An env the
+        # gallery calls provisional (a smoke or re-seeded run clears it) is not beaten, so it is not claimed.
         if gate is not None and verdict["beaten"]:
             claimed = "green"
         elif verdict["heads"]:
@@ -1164,11 +1171,11 @@ class _GraspingProjector:
         return f"{base}. {rule}" if rule else base
 
     def _gate_criterion(self, env_id: str, rung_id: str, gate: float, text: str, source: dict, book: EvidenceBook) -> dict[str, Any]:
-        """The gate on the ledger rows themselves (gallery.env_verdict), judged by the shared evaluator.
+        """The gate on the ledger rows themselves, judged by the shared evaluator.
 
-        WHY the strongest winner, not the gallery's highest ci_lo: any frozen non-privileged run at or above the gate
-        beats the env, and a clean-tree one proves it at record strength where a dirty one is only the loop's word, so
-        the target rests on the strongest proof (``proof.choose``'s order), then the highest Wilson lower bound.
+        WHY the bench's own ``best_run`` and no other winner: which runs clear the gate is ``gallery.env_verdict``'s
+        call, and the bridge hands over its one best (the highest Wilson lower bound among the frozen, non-privileged
+        headline runs). The earlier rule (any clean winner over a dirty best) needed a copy of ``clears_gate``.
         """
 
         verdict = self.verdicts[env_id]
@@ -1179,20 +1186,20 @@ class _GraspingProjector:
         target_link.pop("pointer")
         spec = {"rule": "wilson_lb", "gate": gate, "metric": GATED_METRIC, "protocol": frozen, "privileged_counts": False,
                 "via": "grasp_bench gallery.env_verdict"}
-        # The run must have been made under the frozen protocol (is_frozen already keeps any other run out of the gate).
+        # The run must have been made under the frozen protocol (the bench's is_frozen_protocol keeps any other out of the gate).
         context = {"frozen_protocol": frozen}
         row: Mapping[str, Any] | None = None
         if verdict["winners"]:
-            judged = [(row, self._judge(row, "passed", f"{row.get('run_id')} ({row.get('model')}): Wilson LB "
-                                                       f"{_number(row.get('ci_lo')):.4f} >= {gate:g} over n={row.get('n')}",
-                                        context))
-                      for row in verdict["winners"]]
-            row, judgement = min(judged, key=lambda pair: (proof.standing(pair[1]), not pair[1].placed,
-                                                           model.STRENGTHS.index(pair[1].strength) if pair[1].strength else 9,
-                                                           -(_number(pair[0].get("ci_lo")) or 0.0), pair[0].get(LINE_KEY) or 0))
-            if len(judged) > 1:
-                judgement.note += f"; {len(judged) - 1} other frozen run(s) also clear it"
+            row = verdict["winners"][0]
+            ci_lo = _number(row.get("ci_lo"))
+            judgement = self._judge(row, "passed", f"{row.get('run_id')} ({row.get('model')}): Wilson LB "
+                                                   f"{f'{ci_lo:.4f}' if ci_lo is not None else 'none'} >= {gate:g} over n={row.get('n')}",
+                                    context)
             evidence = [book.add(self._run_item(row, "passed"), key=("run", str(row.get("run_id"))))]
+        elif verdict["beaten"]:
+            # The bench calls it beaten on a row this projection did not read: the ledger grew after this read.
+            judgement, evidence = Judgement("unknown", None, [], "the bench's verdict rests on a ledger row this projection did "
+                                            "not read (the ledger grew between the two reads)"), []
         elif verdict["frozen_runs"]:
             row = max(verdict["frozen_runs"], key=lambda row: (_number(row.get("ci_lo")) if _number(row.get("ci_lo")) is not None else -1.0,
                                                                _number(row.get("value")) or 0.0))
@@ -1201,10 +1208,11 @@ class _GraspingProjector:
                                                    f"{f'{ci_lo:.4f}' if ci_lo is not None else 'none'} < {gate:g}", context)
             evidence = [book.add(self._run_item(row, "failed"), key=("run", str(row.get("run_id"))))]
         else:
-            why = f"no non-privileged run on the frozen {frozen['name']} protocol yet"
-            if verdict["provisional"]:
-                why += "; a smoke or re-seeded run clears it (provisional, not proof)"
-            judgement, evidence = Judgement("unknown", None, [], why), []
+            judgement, evidence = Judgement("unknown", None, [], f"no non-privileged run on the frozen {frozen['name']} protocol yet"), []
+        if verdict["provisional"]:
+            # WHY a note on the target and no claim: the gallery calls an env provisional when only a smoke or re-seeded
+            # run clears its gate, which is not "beaten", so the loop has not said green.
+            judgement.note += "; the loop calls this provisional"
         scope = self._row_scope(row) if row is not None else [RUNNER_SCOPE]
         target = proof.target_entry(target_link, judgement, evidence, scope=scope, context=context, spec=spec)
         return proof.reduce(f"{rung_id}#gate", "gate_run", "test", f"Wilson LB >= {gate:g} on {frozen['name']}", text,
@@ -1217,14 +1225,32 @@ class _GraspingProjector:
         binding = git_record_binding({"sha": row.get("git_sha") or None, "dirty": row.get("git_dirty")}, f"{row.get('run_id')}'s ledger row")
         judgement = self.evaluator.finish(result, "record", binding.commit, self._expand(self._row_scope(row)), context,
                                           notes=[note, binding.note], source=binding.source)
-        missing = unrecorded_configuration(row)
-        if missing:
-            # WHY a cap and not a refusal: the evidence earns only what the run recorded. The loop's own verdict (the
-            # gallery reads a missing env_options as the default env) stays the claim; the row cannot prove it.
+        for note in self._doubts(row):
+            # WHY a cap and not a refusal: the evidence earns only what the bench's own reading of the row vouches for.
+            # The loop's verdict stays the claim; a row the bench does not call frozen cannot prove it.
             judgement.strength = capped(judgement.strength, None)
-            judgement.note += (f"; {row.get('run_id')}'s ledger row records no {' or '.join(missing)}, so its frozen "
-                               "protocol is the loop's word, not the row's")
+            judgement.note += f"; {note}"
         return judgement
+
+    def _doubts(self, row: Mapping[str, Any]) -> list[str]:
+        """Why this ledger row can only be a claim (empty: it may earn record strength), from the bench's reading of it.
+
+        ``gap`` is ``gallery.provenance_gap`` verbatim; a row that is not frozen with no gap is simply not the frozen
+        protocol (a smoke, a re-seeded run). An unmatched row (its position, started_at, env or model differ from the
+        bridge's) is a ledger that changed between the two reads.
+        """
+
+        found = self._bench_row(row)
+        run_id = row.get("run_id")
+        if found is None:
+            return [f"{run_id}'s ledger row is not the row the bench judged at position {self.position.get(id(row))} (the ledger "
+                    "changed between the two reads), so it is the loop's word"]
+        notes = []
+        if found.get("privileged"):
+            notes.append(f"{run_id} is a privileged run (it reads ground truth), and a privileged run never proves")
+        if not found.get("frozen"):
+            notes.append(f"{run_id}: {found.get('gap') or 'not the frozen protocol'}")
+        return notes
 
     def _measured_criterion(self, env: Mapping[str, Any], rung_id: str, text: str, source: dict) -> dict[str, Any]:
         """An ungated env: what is measured, as a ``stated`` criterion that stays unknown.
@@ -1266,12 +1292,13 @@ class _GraspingProjector:
         protocol = row.get("protocol") if isinstance(row.get("protocol"), Mapping) else {}
         facts = {"cell": row.get("cell_id"), "model": row.get("model"), "env": row.get("env"), "metric": row.get("metric"),
                  "value": _number(row.get("value")), "ci_lo": _number(row.get("ci_lo")), "ci_hi": _number(row.get("ci_hi")),
-                 "n": row.get("n"), "protocol": dict(protocol), "frozen": is_frozen(row, self.frozen_of.get(str(row.get("env")))),
-                 "privileged": is_privileged(row, self.families), "git_dirty": row.get("git_dirty"),
+                 "n": row.get("n"), "protocol": dict(protocol), "frozen": self._is_frozen(row),
+                 "privileged": self._is_privileged(row), "gap": (self._bench_row(row) or {}).get("gap") or None,
+                 "git_dirty": row.get("git_dirty"),
                  "latency_ms_p50": _number(row.get("latency_ms_p50")), "latency_ms_p95": _number(row.get("latency_ms_p95")),
                  "lost_in_conversion": row.get("lost_in_conversion"), "ledger_line": row.get(LINE_KEY),
                  "episodes": (row.get("artifacts") or {}).get("episodes") if isinstance(row.get("artifacts"), Mapping) else None}
-        strength = capped("record", binding.source) if item["exists"] and not unrecorded_configuration(row) else "claim"
+        strength = capped("record", binding.source) if item["exists"] and not self._doubts(row) else "claim"
         return {**item, "result": result, "strength": strength,
                 "commit": binding.commit, "ts": started if _TIMESTAMP.fullmatch(started) else None, "origin": "ledger",
                 "facts": facts, "run_id": run_id, "as_cited": None, "event": None, "commit_source": binding.source}
@@ -1299,7 +1326,7 @@ class _GraspingProjector:
         if best is not None:
             rows.append(self._kpi(f"best {best.get('model')}", _number(best.get("value")), unit, best))
             rows.append(self._kpi(f"best {best.get('model')} 95% CI low", _number(best.get("ci_lo")), unit, best))
-        ceiling = max((row for row in verdict["heads"] if is_privileged(row, self.families) and _number(row.get("value")) is not None),
+        ceiling = max((row for row in verdict["heads"] if self._is_privileged(row) and _number(row.get("value")) is not None),
                       key=lambda row: _number(row.get("value")), default=None)
         if ceiling is not None:
             rows.append(self._kpi(f"ceiling {ceiling.get('model')} (privileged)", _number(ceiling.get("value")), unit, ceiling))

@@ -49,8 +49,13 @@ class Validation:
     differences: list[str] = field(default_factory=list)  # how it differs from projecting the loop again
 
 
-def validate(document: Any, *, check_disk: bool = True, against_sources: bool = True, head: str | None = None) -> Validation:
-    """The verdict on one document (see the module docstring for the three verdicts and the layers)."""
+def validate(document: Any, *, check_disk: bool = True, against_sources: bool = True, head: str | None = None,
+             verdict_fn: Any = None) -> Validation:
+    """The verdict on one document (see the module docstring for the three verdicts and the layers).
+
+    ``verdict_fn`` is the grasping projector's bench-verdict reader (default: the same bridge and cache the live
+    projection uses); only a grasping document reads it.
+    """
 
     problems = [f"schema {error}" for error in schema_check.errors(document)]
     if problems:
@@ -62,7 +67,7 @@ def validate(document: Any, *, check_disk: bool = True, against_sources: bool = 
             problems += _disk(document)
         return Validation("invalid" if problems else "valid", problems)
     try:
-        fresh = reproject(document, head=head)
+        fresh = reproject(document, head=head, verdict_fn=verdict_fn)
     except (ProjectionError, OSError, ValueError, KeyError) as error:
         return Validation("invalid", problems + [f"cannot project the loop again from the sources this document names: {error}"])
     found = differences(document, fresh)
@@ -79,11 +84,12 @@ def validate(document: Any, *, check_disk: bool = True, against_sources: bool = 
     return Validation("invalid", found, moved, found)
 
 
-def validate_document(document: Any, *, check_disk: bool = True, against_sources: bool = True, head: str | None = None) -> list[str]:
+def validate_document(document: Any, *, check_disk: bool = True, against_sources: bool = True, head: str | None = None,
+                      verdict_fn: Any = None) -> list[str]:
     """Every problem with the document; empty only when it is valid. An outdated document returns its differences:
     ``validate`` tells outdated from invalid."""
 
-    result = validate(document, check_disk=check_disk, against_sources=against_sources, head=head)
+    result = validate(document, check_disk=check_disk, against_sources=against_sources, head=head, verdict_fn=verdict_fn)
     return result.problems if result.verdict == "invalid" else result.differences
 
 
@@ -112,7 +118,7 @@ def same_statuses(document: Mapping[str, Any], fresh: Mapping[str, Any]) -> bool
 
 
 # ---------------------------------------------------------------- 3. the loop's sources
-def reproject(document: Mapping[str, Any], *, head: str | None = None) -> dict[str, Any]:
+def reproject(document: Mapping[str, Any], *, head: str | None = None, verdict_fn: Any = None) -> dict[str, Any]:
     """The loop projected again from the sources ``document`` names, as of ``head`` (default: its checkout's HEAD)."""
 
     from .kinsim import project_kinsim  # here, not at the top: the projectors import this module's peers
@@ -140,7 +146,9 @@ def reproject(document: Mapping[str, Any], *, head: str | None = None) -> dict[s
     # grasping and detection existed) made a valid grasping or detection document read invalid.
     if document.get("loop") == "grasping":
         from .grasping import project_grasping
-        return project_grasping(located("curriculum").parents[2], now=now, head=head, ledger_path=located("ledger"))
+        # WHY the same call as the live projection: the same bridge and cache, so a re-projection cannot disagree with it.
+        return project_grasping(located("curriculum").parents[2], now=now, head=head, ledger_path=located("ledger"),
+                                verdict_fn=verdict_fn)
     if document.get("loop") == "detection":
         from .detection import project_detection
         return project_detection(located("ladder").parent, now=now, head=head)

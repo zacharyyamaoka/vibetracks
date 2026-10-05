@@ -22,6 +22,7 @@ from pathlib import Path
 
 import pytest
 
+from vibetracks.benches import grasp_bench_bridge
 from vibetracks.roadmap.projector import ProjectionError, gitinfo, model, schema_check
 from vibetracks.roadmap.projector.grasping import project_grasping, read_curriculum
 from vibetracks.roadmap.projector.validate import validate_document
@@ -68,9 +69,66 @@ def make_bench(tmp_path: Path) -> tuple[Path, str]:
     return bench, sha
 
 
-def project(bench: Path) -> dict:
+# ---------------------------------------------------------------- the bench's verdict, faked
+# WHY a fake of the bridge and not a copy of the rules in the projector: the projector no longer decides who is frozen,
+# privileged, a headline or beaten (grasp_bench's gallery does, read through ``grasp_bench_bridge.verdict``). This
+# stands in for that call over the fixture ledger, with the fixture's own frozen protocols, so a test states what the
+# bench "said" and the projector's job (cap, claim, cite) is what is under test. The live test below asks the real one.
+FROZEN_FIXTURE = {"toy": ("eval-2000", 2000, 1), "data": ("data-30x4", 120, 300)}  # family -> (protocol name, episodes, k)
+LEGACY_GAP = "legacy ledger row (no recorded env options)"
+
+
+class FakeBench:
+    """``grasp_bench_bridge.verdict`` over a fixture bench: ``bench(bench_dir)`` -> grasp-bench-verdict/2.
+
+    ``patch`` edits the finished document (a test's way of making the bench say something else); ``error`` makes the
+    bench unable to answer. ``calls`` counts how often the projector asked.
+    """
+
+    def __init__(self, patch=None, error: str | None = None) -> None:
+        self.patch, self.error, self.calls = patch, error, 0
+
+    def __call__(self, bench_dir, **_unused) -> dict:
+        self.calls += 1
+        if self.error:
+            return {"schema": "grasp-bench-verdict/2", "envs": {}, "runs": {}, "headline": {}, "bench_head": None, "error": self.error}
+        bench = Path(bench_dir)
+        rows = [json.loads(line) for line in (bench / "out" / "ledger" / "runs.jsonl").read_text(encoding="utf-8").splitlines() if line.strip()]
+        gates = read_curriculum(bench / "src" / "grasp_bench" / "curriculum.py", bench / "src" / "grasp_bench" / "contracts.py").tables["GATES"]
+        runs = {}
+        for index, row in enumerate(rows):
+            name, episodes, k = FROZEN_FIXTURE[row["env"].split("/")[0]]
+            protocol = row["protocol"]
+            gap = "" if "env_options" in row else LEGACY_GAP
+            frozen = (not gap and not row["env_options"] and not protocol.get("options") and row["n"] == episodes
+                      and (protocol["name"], protocol["episodes"], protocol["split"], protocol["k"], protocol["seed"]) == (name, episodes, "test", k, 20261004))
+            runs[str(index)] = {"frozen": frozen, "gap": gap, "privileged": row["model_info"]["input"] == "privileged",
+                                "started_at": row["started_at"], "env": row["env"], "model": row["model"]}
+        headline: dict[str, int] = {}
+        for index, row in enumerate(rows):
+            def key(position: int) -> tuple:
+                return (runs[str(position)]["frozen"], rows[position]["n"], rows[position]["started_at"], position)
+            if row["cell_id"] not in headline or key(index) > key(headline[row["cell_id"]]):
+                headline[row["cell_id"]] = index
+        envs = {}
+        for env_id, gate in gates.items():
+            heads = [position for position in headline.values() if rows[position]["env"] == env_id]
+            candidates = [position for position in heads if not runs[str(position)]["privileged"]]
+            winners = [position for position in candidates if runs[str(position)]["frozen"] and rows[position]["ci_lo"] >= gate]
+            best = (max(winners, key=lambda position: rows[position]["ci_lo"]) if winners else
+                    max(candidates, key=lambda position: (rows[position]["value"], rows[position]["ci_lo"]), default=None))
+            provisional = not winners and any(rows[position]["ci_lo"] >= gate and not runs[str(position)]["frozen"] for position in candidates)
+            envs[env_id] = {"beaten": bool(winners), "provisional": provisional, "best_run": None if best is None else str(best)}
+        document = {"schema": "grasp-bench-verdict/2", "envs": envs, "runs": runs,
+                    "headline": {cell: str(position) for cell, position in headline.items()}, "bench_head": None, "error": None}
+        if self.patch:
+            self.patch(document)
+        return document
+
+
+def project(bench: Path, verdict_fn=None) -> dict:
     gitinfo.clear_cache()
-    document = project_grasping(bench, now=NOW)
+    document = project_grasping(bench, now=NOW, verdict_fn=verdict_fn or FakeBench())
     assert schema_check.errors(document) == []
     assert validate_document(document, against_sources=False) == []
     return document
@@ -127,7 +185,7 @@ def test_the_reader_never_executes_the_curriculum(tmp_path):
                                    'GATES: dict[str, float] = load_gates()'))
     gitinfo.clear_cache()
     with pytest.raises(ProjectionError, match="GATES"):
-        project_grasping(bench, now=NOW)
+        project_grasping(bench, now=NOW, verdict_fn=FakeBench())
 
 
 # ---------------------------------------------------------------- gated environments
@@ -181,24 +239,29 @@ def test_a_dirty_tree_row_is_only_a_claim(tmp_path):
     assert model.derive_status("green", rung(document, "toy.x")["criteria"])[0] != "green"
 
 
-def test_a_clean_winner_is_preferred_over_a_dirty_one(tmp_path):
+def test_the_evidence_is_the_benches_best_run_whatever_its_cleanliness(tmp_path):
+    """Which run beat the gate is gallery.env_verdict's call (its ``best_run``: the highest Wilson bound among the frozen
+    headline runs), so a second winner that is clean does not replace a dirtier best: the gate is met at claim."""
+
     bench, sha = make_bench(tmp_path)
     rows = fixture_rows(sha)
-    for row in rows:
-        if row["run_id"] == "r03_bandit_toy_x":
-            row["git_dirty"] = True
     rows.append({**rows[2], "run_id": "r09_dense_toy_x", "cell_id": "M3.dense@toy/x", "model": "M3.dense",
-                 "ci_lo": 0.990, "git_dirty": False})
+                 "ci_lo": 0.9995, "git_dirty": True, "started_at": "2026-10-05T01:05:00+00:00"})
     write_ledger(bench, rows)
     document = project(bench)
     gate = criterion(document, "toy.x#gate")
-    assert (gate["verdict"], gate["strength"]) == ("met", "record")
     assert evidence(document, "toy.x", gate["targets"][0]["evidence"][0])["run_id"] == "r09_dense_toy_x"
+    assert (gate["verdict"], gate["strength"]) == ("met", "claim")
+    # A clean best is record strength, as before.
+    rows[-1]["git_dirty"] = False
+    write_ledger(bench, rows)
+    gate = criterion(project(bench), "toy.x#gate")
+    assert (gate["verdict"], gate["strength"]) == ("met", "record")
 
 
-def test_a_row_that_never_recorded_its_env_options_is_only_a_claim(tmp_path):
-    """Codex V01: an absent env_options is not a recorded empty one. The gallery's verdict stays the claim (green), but
-    the row cannot prove its frozen protocol from its own record, so the gate is met at claim strength."""
+def test_a_row_that_never_recorded_its_env_options_is_not_the_frozen_protocol(tmp_path):
+    """Codex V01, now the bench's own rule: a row with no env_options has a provenance gap ("legacy ledger row ..."),
+    so the bench does not call it frozen. Its env is provisional, not beaten, and the loop does not claim green."""
 
     bench, sha = make_bench(tmp_path)
     rows = fixture_rows(sha)
@@ -207,15 +270,142 @@ def test_a_row_that_never_recorded_its_env_options_is_only_a_claim(tmp_path):
             del row["env_options"]
     write_ledger(bench, rows)
     document = project(bench)
+    assert rung(document, "toy.x")["x"]["beaten"] is False and rung(document, "toy.x")["x"]["provisional"] is True
+    assert rung(document, "toy.x")["claimed_status"] == "partial" and rung(document, "toy.x")["status"] == "partial"
+    assert document["summary"]["beaten"] == []
     gate = criterion(document, "toy.x#gate")
     (target,) = gate["targets"]
-    resting = evidence(document, "toy.x", target["evidence"][0])
-    assert resting["run_id"] == "r03_bandit_toy_x"
-    assert (gate["verdict"], gate["strength"]) == ("met", "claim")
-    assert (resting["commit_source"], resting["strength"]) == ("artifact", "claim")
-    assert "records no env_options" in target["note"]
+    assert "the loop calls this provisional" in target["note"]
+
+
+def test_the_gap_a_frozen_false_row_is_cited_with_is_the_benches_own_words(tmp_path):
+    """The bench says an env is beaten on a row it does not call frozen (an inconsistent answer, but the projector must
+    not take it as proof): the row caps at claim and its gap is the note, verbatim; empty, "not the frozen protocol"."""
+
+    bench, _sha = make_bench(tmp_path)
+
+    def bandit(document, **fields):
+        document["runs"]["2"].update(fields)
+
+    for gap, said in ((LEGACY_GAP, LEGACY_GAP), ("", "not the frozen protocol"),
+                      ("attested by nobody", "attested by nobody")):
+        document = project(bench, FakeBench(lambda doc: bandit(doc, frozen=False, gap=gap)))
+        gate = criterion(document, "toy.x#gate")
+        resting = evidence(document, "toy.x", gate["targets"][0]["evidence"][0])
+        assert (gate["verdict"], gate["strength"], resting["strength"]) == ("met", "claim", "claim")
+        assert f"r03_bandit_toy_x: {said}" in gate["targets"][0]["note"]
+        assert resting["facts"]["frozen"] is False and resting["facts"]["gap"] == (gap or None)
+        assert rung(document, "toy.x")["status"] == "claimed"
+
+
+def test_a_privileged_row_never_proves(tmp_path):
+    bench, _sha = make_bench(tmp_path)
+    document = project(bench, FakeBench(lambda doc: doc["runs"]["2"].update(privileged=True)))
+    gate = criterion(document, "toy.x#gate")
+    resting = evidence(document, "toy.x", gate["targets"][0]["evidence"][0])
+    assert (gate["verdict"], gate["strength"], resting["strength"]) == ("met", "claim", "claim")
+    assert "privileged run never proves" in gate["targets"][0]["note"] and resting["facts"]["privileged"] is True
+
+
+@pytest.mark.parametrize("change", [
+    lambda document: document["runs"].pop("2"),                                  # the bench has no row at that position
+    lambda document: document["runs"]["2"].update(started_at="2026-10-05T09:09:09+00:00"),   # a different row stands there
+    lambda document: document["runs"]["2"].update(env="toy/xy"),
+    lambda document: document["runs"]["2"].update(model="M9.other"),
+])
+def test_a_row_the_bench_did_not_read_there_is_only_a_claim(tmp_path, change):
+    """The ledger changed between this projection's read and the bridge's: a position the bridge lacks, or one whose
+    started_at (env, model) differs, is not the row the bench judged, so it is cited at claim with a note."""
+
+    bench, _sha = make_bench(tmp_path)
+    document = project(bench, FakeBench(change))
+    gate = criterion(document, "toy.x#gate")
+    resting = evidence(document, "toy.x", gate["targets"][0]["evidence"][0])
+    assert (gate["verdict"], gate["strength"], resting["strength"]) == ("met", "claim", "claim")
+    assert "is not the row the bench judged at position 2" in gate["targets"][0]["note"]
+    assert any("ledger rows are not the rows the bench judged" in warning for warning in document["warnings"])
     assert rung(document, "toy.x")["claimed_status"] == "green" and rung(document, "toy.x")["status"] == "claimed"
-    assert document["summary"]["beaten"] == ["toy.x"]
+
+
+def test_a_beaten_env_whose_best_row_this_projection_did_not_read_is_claimed_not_proven(tmp_path):
+    bench, _sha = make_bench(tmp_path)
+
+    def grown(document):
+        document["envs"]["toy/x"]["best_run"] = "99"   # the bench read a ledger that has grown past this projection's
+
+    document = project(bench, FakeBench(grown))
+    gate = criterion(document, "toy.x#gate")
+    assert gate["verdict"] == "unknown" and "the ledger grew" in gate["targets"][0]["note"]
+    assert rung(document, "toy.x")["claimed_status"] == "green" and rung(document, "toy.x")["status"] == "claimed"
+
+
+def test_a_provisional_env_is_not_claimed_and_says_so(tmp_path):
+    """Only a smoke clears the gate, in a cell with no frozen run: the bench calls the env provisional. The loop has not
+    said green (partial, never claimed) and the target says why."""
+
+    bench, sha = make_bench(tmp_path)
+    rows = fixture_rows(sha)
+    rows.append({**rows[6], "run_id": "r11_dense_toy_xy_smoke", "cell_id": "M3.dense@toy/xy", "model": "M3.dense", "n": 200,
+                 "protocol": {**rows[6]["protocol"], "name": "eval-200", "episodes": 200}, "value": 0.99, "ci_lo": 0.96,
+                 "started_at": "2026-10-05T04:00:00+00:00"})
+    write_ledger(bench, rows)
+    document = project(bench)
+    item = rung(document, "toy.xy")
+    assert (item["x"]["beaten"], item["x"]["provisional"]) == (False, True)
+    assert (item["claimed_status"], item["status"]) == ("partial", "partial")
+    assert "toy.xy" not in document["summary"]["beaten"] and document["summary"]["frontier"] == ["toy.xy"]
+    gate = criterion(document, "toy.xy#gate")
+    assert gate["verdict"] == "unmet" and "the loop calls this provisional" in gate["targets"][0]["note"]
+
+
+def test_a_bench_that_cannot_answer_is_no_projection(tmp_path):
+    bench, _sha = make_bench(tmp_path)
+    gitinfo.clear_cache()
+    with pytest.raises(ProjectionError, match="^bench verdict unavailable: the venv is gone$"):
+        project_grasping(bench, now=NOW, verdict_fn=FakeBench(error="the venv is gone"))
+
+
+def test_a_bench_verdict_that_lacks_a_gated_env_is_no_projection(tmp_path):
+    bench, _sha = make_bench(tmp_path)
+    gitinfo.clear_cache()
+    with pytest.raises(ProjectionError, match="bench verdict unavailable: .*toy/xy"):
+        project_grasping(bench, now=NOW, verdict_fn=FakeBench(lambda document: document["envs"].pop("toy/xy")))
+
+
+def test_the_default_verdict_is_the_bridge_with_its_default_cache(tmp_path, monkeypatch):
+    """No replica and no private cache: omitting ``verdict_fn`` calls ``grasp_bench_bridge.verdict(bench_dir)`` (so the
+    dashboard's cache is shared); here a fixture bench has no venv, so the bridge's own error is the projection's."""
+
+    bench, _sha = make_bench(tmp_path)
+    asked = []
+    real = grasp_bench_bridge.verdict
+    monkeypatch.setattr(grasp_bench_bridge, "verdict", lambda *arguments, **keywords: (asked.append((arguments, keywords)), real(*arguments, **keywords))[1])
+    gitinfo.clear_cache()
+    with pytest.raises(ProjectionError, match="^bench verdict unavailable: bench venv missing"):
+        project_grasping(bench, now=NOW)
+    assert asked == [((bench.resolve(),), {})]
+
+
+def test_the_bridges_inputs_are_declared_sources(tmp_path):
+    bench, _sha = make_bench(tmp_path)
+    document = project(bench)
+    roles = {source["role"]: source for source in document["sources"]}
+    for role, name in (("verdict rule", "gallery.py"), ("ledger reader", "ledger.py"), ("attestations", "attestations.jsonl")):
+        assert roles[role]["path"].endswith(name) or roles[role]["abs"].endswith(name)
+    assert roles["verdict rule"]["exists"] and roles["ledger reader"]["exists"] is False  # the fixture has no ledger.py
+    assert roles["attestations"]["exists"] is False and roles["attestations"]["sha256"] is None  # absent is fine
+
+
+def test_the_validator_projects_again_through_the_same_verdict(tmp_path):
+    bench, _sha = make_bench(tmp_path)
+    fake = FakeBench()
+    document = project(bench, fake)
+    before = fake.calls
+    assert validate_document(document, check_disk=False, verdict_fn=fake) == []
+    assert fake.calls == before + 1
+    # And a different verdict is a different projection, which the validator reports.
+    other = FakeBench(lambda doc: doc["envs"]["toy/x"].update(beaten=False))
+    assert validate_document(document, check_disk=False, verdict_fn=other) != []
 
 
 def test_recorded_empty_options_keep_record_strength(tmp_path):
@@ -561,6 +751,9 @@ def test_the_live_grasping_loop_projects_and_validates():
     bench = real_grasp_bench_dir()
     if not (bench / "src" / "grasp_bench" / "curriculum.py").is_file():
         pytest.skip(f"the grasping loop is not on this machine ({bench})")
+    if not (bench / ".venv" / "bin" / "python").is_file():
+        pytest.skip(f"the grasping loop has no venv to run its gallery in ({bench})")
+    grasp_bench_bridge.verdict(bench)  # warm the shared cache: the timing below is the projection, not the bench's subprocess
     for _attempt in range(2):  # WHY twice: the live loop appends rows; a row landing between oracle and projection is it moving
         oracle = gallery_beaten(bench)
         gitinfo.clear_cache()
@@ -588,6 +781,19 @@ def test_the_live_grasping_loop_projects_and_validates():
     assert sorted(beaten) == met
     if oracle is not None:
         assert sorted(beaten) == oracle
+    # The loop's claim is the bench's verdict, and only what the bench calls beaten may be proven (Oct 4 2026: the
+    # projector's own copy of the rule called provisional envs claimed). Read through the bridge, not recomputed.
+    bridge = grasp_bench_bridge.verdict(bench)
+    assert bridge["error"] is None
+    bridge_beaten = {env_id for env_id, said in bridge["envs"].items() if said["beaten"]}
+    proven = {item["x"]["env"] for item in document["rungs"] for entry in item["criteria"]
+              if entry["id"].endswith("#gate") and entry["verdict"] == "met" and entry["strength"] == "record"}
+    claimed = {item["x"]["env"] for item in document["rungs"] if item["claimed_status"] == "green"}
+    provisional = sorted(env_id for env_id, said in bridge["envs"].items() if said["provisional"])
+    print(f"[grasping] bridge beaten {sorted(bridge_beaten)}; provisional {provisional}; proven {sorted(proven)}; claimed {sorted(claimed)}")
+    assert proven <= bridge_beaten
+    assert proven | claimed == bridge_beaten
+    assert not claimed & set(provisional)
     assert len(gated) == 10
     assert document["summary"]["frontier"]
     assert elapsed < 5.0
