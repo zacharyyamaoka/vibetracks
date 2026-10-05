@@ -778,7 +778,16 @@ class _GraspingProjector:
             book.add(self._run_item(row, None), key=("run", str(row.get("run_id"))))
         if self.depends[env_id]:
             criteria.append(self._prerequisites_criterion(env_id, rung_id, done_source))
-        claimed = "missing"  # WHY: the loop writes no status of its own (kinsim reads a missing status.json the same way)
+        # WHY the loop's claim is its own gallery verdict: grasp_bench writes no status file, but it does publish a
+        # verdict per env (gallery.env_verdict: a frozen-protocol headline run clearing GATES), and this projector applies
+        # that same rule to the same ledger. Holding every rung at "missing" instead would show "0 proven" for a loop
+        # that has visibly beaten its gates; the evidence still caps the claim (a dirty-tree run makes it "claimed").
+        if gate is not None and verdict["beaten"]:
+            claimed = "green"
+        elif verdict["heads"]:
+            claimed = "partial"
+        else:
+            claimed = "missing"
         status, reason = model.derive_status(claimed, criteria)
         counts = self._cell_counts(env_id)
         best = verdict["best"]
@@ -788,7 +797,7 @@ class _GraspingProjector:
             "order": self.env_index[env_id], "wave": None,
             "depends_on": [rung_id_of(parent) for parent in self.depends[env_id]], "alias_of": None,
             "status": status, "claimed_status": claimed, "status_reason": reason,
-            "claimed_by": {"source": None, "event": None},
+            "claimed_by": {"source": done_source if claimed != "missing" else None, "event": None},
             "frontier": rung_id in self.frontier,
             "done_when": {"rule": "all", "text": text, "source": done_source},
             "criteria": criteria, "support": None, "evidence": book.items, "history": [],

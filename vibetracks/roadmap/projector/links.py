@@ -13,6 +13,7 @@ regex that used to live in each viewer has one tested home until the loops write
 from __future__ import annotations
 
 import ast
+import os
 import re
 from collections.abc import Iterable, Sequence
 from dataclasses import dataclass, field
@@ -284,8 +285,23 @@ def link(kind: str, raw: str | None, roots: Roots, *, label: str | None = None, 
             "exists": exists, "why_unresolved": why}
 
 
-@lru_cache(maxsize=2048)
 def count_lines(path: str) -> int | None:
+    """Lines in ``path``, re-counted whenever its (size, mtime) changes.
+
+    WHY keyed on the file's stamp and not just its path: the dashboard serves projections from one long-lived process,
+    and an append-only ledger grows under it; a per-path cache marked every new row "past the end", dropping its proof
+    to a claim (found by the grasping projector's tests).
+    """
+
+    try:
+        info = os.stat(path)
+    except OSError:
+        return None
+    return _count_lines(path, info.st_size, info.st_mtime_ns)
+
+
+@lru_cache(maxsize=2048)
+def _count_lines(path: str, _size: int, _mtime_ns: int) -> int | None:
     try:
         with open(path, "rb") as handle:
             return sum(1 for _line in handle)

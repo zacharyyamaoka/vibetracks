@@ -107,8 +107,8 @@ def test_tiers_are_lanes_and_envs_are_rungs_in_declared_order(tmp_path):
     assert gate_source["pointer"] == "/GATES/toy~1x" and gate_source["line"] is not None
     lines = (Path(gate_source["abs"])).read_text(encoding="utf-8").splitlines()
     assert '"toy/x": 0.97' in lines[gate_source["line"] - 1]
-    env_source = rung(document, "toy.xy")["claimed_by"]["source"]
-    assert env_source is None  # the loop writes no status of its own: nothing claims a rung
+    # The loop's claim is its gallery verdict, sourced to the env's gate (or GATES for an ungated env).
+    assert rung(document, "toy.x")["claimed_by"]["source"]["pointer"] == "/GATES/toy~1x"
 
 
 def test_the_reader_never_executes_the_curriculum(tmp_path):
@@ -211,12 +211,18 @@ def test_an_ungated_env_is_measured_but_never_green(tmp_path):
 
 
 # ---------------------------------------------------------------- claims, frontier, blockers
-def test_no_status_file_means_every_claim_reads_missing(tmp_path):
+def test_the_claim_is_the_gallery_verdict_and_the_evidence_caps_it(tmp_path):
+    """No status file: the loop's own published rule (a frozen-protocol headline run clearing GATES) is its claim, so
+    a beaten env claims green, a measured one partial, an unmeasured one missing; the evidence still decides status."""
+
     bench, _sha = make_bench(tmp_path)
     document = project(bench)
-    assert {item["claimed_status"] for item in document["rungs"]} == {"missing"}
-    assert document["counts"]["by_status"]["missing"] == 3
-    assert any("writes no status" in warning for warning in document["warnings"])
+    claims = {item["id"]: item["claimed_status"] for item in document["rungs"]}
+    assert claims == {"toy.x": "green", "toy.xy": "partial", "data.seen": "partial"}
+    assert rung(document, "toy.x")["status"] in {"green", "claimed"}  # green only on recorded proof
+    assert rung(document, "toy.xy")["status"] == "partial"
+    for item in document["rungs"]:
+        assert item["status"] != "green" or item["claimed_status"] == "green"
 
 
 def test_the_frontier_is_the_lowest_unfinished_tiers_unbeaten_envs(tmp_path):

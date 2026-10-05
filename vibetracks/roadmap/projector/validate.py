@@ -136,6 +136,14 @@ def reproject(document: Mapping[str, Any], *, head: str | None = None) -> dict[s
         if not data_home:
             raise ProjectionError("the document names no data home")
         return project_kinsim(located("curriculum").parent, Path(data_home), now=now, head=head)
+    # WHY one branch per loop: each projector reads its own sources; sending every other loop to project_rig (as before
+    # grasping and detection existed) made a valid grasping or detection document read invalid.
+    if document.get("loop") == "grasping":
+        from .grasping import project_grasping
+        return project_grasping(located("curriculum").parents[2], now=now, head=head, ledger_path=located("ledger"))
+    if document.get("loop") == "detection":
+        from .detection import project_detection
+        return project_detection(located("ladder").parent, now=now, head=head)
     return project_rig(located("ladder").parent, now=now, head=head)
 
 
