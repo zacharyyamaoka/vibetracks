@@ -2,13 +2,16 @@
 
 from __future__ import annotations
 
+import hashlib
 import json
 import os
 import subprocess
 import tempfile
 import unittest
 from pathlib import Path
+from unittest import mock
 
+from tests.test_grasp_bench_bridge_deps import ROWS, Counting, make_bench
 from vibetracks.benches import grasp_bench_bridge
 
 LIVE_BENCH = Path("/home/bam/bam_ws/.claude/worktrees/grasping-agent-roadmap-ab12d8/src/core/mdp/agent/actor/policy/grasp_bench")
@@ -56,6 +59,134 @@ class StandaloneTest(unittest.TestCase):
         self.assertNotRegex(source, r"(?m)^\s*(from|import)\s+(vibetracks|\.)")
 
 
+def raw_lines(runs_jsonl: Path) -> list[bytes]:
+    """The ledger's non-blank lines as raw bytes without their one terminator, in file order (what line_sha256 hashes)."""
+
+    return [line for line in runs_jsonl.read_bytes().splitlines() if line.strip()]
+
+
+def digests(runs_jsonl: Path) -> list[str]:
+    return [hashlib.sha256(line).hexdigest() for line in raw_lines(runs_jsonl)]
+
+
+# A ledger whose first load_runs() sees a row that was appended after the bridge's own bytes read: the digests are
+# unaligned on attempt one. GROWS_EVERY_TIME keeps doing it, GROWS_ONCE does it a single time.
+GROWING_LEDGER = '''
+import json, os
+from types import SimpleNamespace
+
+from . import contracts
+
+
+class Ledger:
+    def __init__(self, root):
+        self.root = root
+        self.attestations_path = os.path.join(root, "attestations.jsonl")
+        self.runs_path = os.path.join(root, "runs.jsonl")
+
+    def load_runs(self):
+        marker = os.path.join(self.root, "grew-once")
+        path = os.path.join(self.root, "runs.jsonl")
+        if not (ONCE and os.path.exists(marker)):
+            with open(path, "a", encoding="utf-8") as handle:
+                handle.write(json.dumps({"run_id": "r%d" % len(open(path).readlines()), "cell_id": "m@toy/a", "model": "m",
+                                         "env": "toy/a", "value": 0.7, "ci_lo": 0.6, "n": 10, "started_at": "t"}) + "\\n")
+            open(marker, "w").close()
+        with open(path, encoding="utf-8") as handle:
+            return [SimpleNamespace(**json.loads(line)) for line in handle if line.strip()]
+'''
+
+
+class RowDigestTest(unittest.TestCase):
+    """line_sha256: the digest of the ledger row's exact bytes, taken in the bench subprocess beside the judgement."""
+
+    def verdict(self, bench: Path, cache: Path) -> dict:
+        result = grasp_bench_bridge.verdict(bench, cache_dir=cache)
+        self.assertIsNone(result["error"], result["error"])
+        return result
+
+    def test_every_run_carries_the_sha256_of_its_raw_ledger_line(self) -> None:
+        with tempfile.TemporaryDirectory() as folder:
+            bench = make_bench(Path(folder) / "grasp_bench")
+            result = self.verdict(bench, Path(folder) / "cache")
+            self.assertEqual(result["schema"], "grasp-bench-verdict/2")
+            expected = digests(bench / "out" / "ledger" / "runs.jsonl")
+            self.assertEqual(len(expected), len(ROWS))
+            self.assertEqual({run_id: run["line_sha256"] for run_id, run in result["runs"].items()},
+                             {str(index): digest for index, digest in enumerate(expected)})
+
+    def test_blank_lines_and_crlf_do_not_misalign_or_leak_into_the_digest(self) -> None:
+        with tempfile.TemporaryDirectory() as folder:
+            bench = make_bench(Path(folder) / "grasp_bench")
+            runs_jsonl = bench / "out" / "ledger" / "runs.jsonl"
+            first, second = (json.dumps(row).encode() for row in ROWS)
+            runs_jsonl.write_bytes(b"\r\n" + first + b"\r\n\r\n" + second + b"\r\n")
+            result = self.verdict(bench, Path(folder) / "cache")
+            # WHY by hand and not via raw_lines: the CRLF is a terminator and is not hashed, a blank line is not a row.
+            self.assertEqual(result["runs"]["0"]["line_sha256"], hashlib.sha256(first).hexdigest())
+            self.assertEqual(result["runs"]["1"]["line_sha256"], hashlib.sha256(second).hexdigest())
+            self.assertEqual(len(result["runs"]), 2)
+
+    def test_rows_that_agree_on_started_at_env_and_model_but_differ_in_content_get_different_digests(self) -> None:
+        with tempfile.TemporaryDirectory() as folder:
+            bench = make_bench(Path(folder) / "grasp_bench")
+            twin = dict(ROWS[0], run_id="r0-twin", value=0.71, notes="re-measured")
+            runs_jsonl = bench / "out" / "ledger" / "runs.jsonl"
+            runs_jsonl.write_text("".join(json.dumps(row) + "\n" for row in (ROWS[0], twin)), encoding="utf-8")
+            result = self.verdict(bench, Path(folder) / "cache")
+            first, second = result["runs"]["0"], result["runs"]["1"]
+            for field in ("started_at", "env", "model"):
+                self.assertEqual(first[field], second[field])
+            self.assertNotEqual(first["line_sha256"], second["line_sha256"])
+
+    def test_a_whitespace_only_difference_in_the_raw_line_changes_the_digest(self) -> None:
+        # WHY: the digest is of the exact bytes, not of the parsed row, so a re-serialised row is a different row.
+        with tempfile.TemporaryDirectory() as folder:
+            bench = make_bench(Path(folder) / "grasp_bench")
+            runs_jsonl = bench / "out" / "ledger" / "runs.jsonl"
+            compact = self.verdict(bench, Path(folder) / "cache-a")["runs"]["0"]["line_sha256"]
+            runs_jsonl.write_text("".join(json.dumps(row, separators=(",", ":")) + "\n" for row in ROWS), encoding="utf-8")
+            self.assertNotEqual(self.verdict(bench, Path(folder) / "cache-b")["runs"]["0"]["line_sha256"], compact)
+
+    def test_an_old_cache_entry_without_the_field_is_a_miss(self) -> None:
+        with tempfile.TemporaryDirectory() as folder:
+            bench = make_bench(Path(folder) / "grasp_bench")
+            cache = Path(folder) / "cache"
+            counter = Counting()
+            with mock.patch.object(grasp_bench_bridge.subprocess, "run", side_effect=counter):
+                first = self.verdict(bench, cache)
+                self.assertEqual(self.verdict(bench, cache), first)
+                self.assertEqual(counter.runs, 1, "an entry with the field is a hit")
+                file = cache / grasp_bench_bridge.VERDICT_CACHE_NAME
+                entry = json.loads(file.read_text(encoding="utf-8"))
+                for run in entry["doc"]["runs"].values():
+                    del run["line_sha256"]
+                file.write_text(json.dumps(entry), encoding="utf-8")
+                again = self.verdict(bench, cache)
+            self.assertEqual(counter.runs, 2, "an entry written before line_sha256 existed must be recomputed")
+            self.assertEqual(again, first)
+            self.assertEqual(grasp_bench_bridge.VERDICT_CACHE_NAME, "verdict-v3.json")
+
+    def test_a_ledger_that_grew_between_the_two_reads_is_retried_and_stays_aligned(self) -> None:
+        with tempfile.TemporaryDirectory() as folder:
+            bench = make_bench(Path(folder) / "grasp_bench")
+            (bench / "src" / "grasp_bench" / "ledger.py").write_text(GROWING_LEDGER.replace("ONCE", "True"), encoding="utf-8")
+            result = self.verdict(bench, Path(folder) / "cache")
+            expected = digests(bench / "out" / "ledger" / "runs.jsonl")
+            self.assertEqual(len(result["runs"]), len(ROWS) + 1)
+            self.assertEqual([result["runs"][str(index)]["line_sha256"] for index in range(len(expected))], expected)
+
+    def test_a_ledger_that_never_holds_still_is_an_error_with_nothing_to_misread(self) -> None:
+        with tempfile.TemporaryDirectory() as folder:
+            bench = make_bench(Path(folder) / "grasp_bench")
+            (bench / "src" / "grasp_bench" / "ledger.py").write_text(GROWING_LEDGER.replace("ONCE", "False"), encoding="utf-8")
+            cache = Path(folder) / "cache"
+            result = grasp_bench_bridge.verdict(bench, cache_dir=cache)
+            self.assertEqual(result["error"], "ledger changed during read; row digests unaligned")
+            self.assertEqual((result["envs"], result["runs"], result["headline"]), ({}, {}, {}))
+            self.assertFalse((cache / grasp_bench_bridge.VERDICT_CACHE_NAME).exists())
+
+
 @unittest.skipUnless(LIVE_PYTHON.exists(), f"no bench venv at {LIVE_PYTHON}")
 class LiveBenchTest(unittest.TestCase):
     def test_the_verdict_is_what_the_bench_reports_itself(self) -> None:
@@ -81,6 +212,15 @@ class LiveBenchTest(unittest.TestCase):
             for env_row in result["envs"].values():
                 self.assertTrue(env_row["best_run"] is None or env_row["best_run"] in result["runs"])
             self.assertTrue(all(run_id in result["runs"] for run_id in result["headline"].values()))
+
+            # WHY read after the call and compare only indices that existed: the ledger is append-only and live.
+            lines = raw_lines(LIVE_BENCH / "out" / "ledger" / "runs.jsonl")
+            checked = 0
+            for run_id, run in result["runs"].items():
+                if int(run_id) < len(lines):
+                    self.assertEqual(run["line_sha256"], hashlib.sha256(lines[int(run_id)]).hexdigest(), run_id)
+                    checked += 1
+            self.assertEqual(checked, len(result["runs"]), "every judged row was still in the file")
 
             self.assertTrue((cache / grasp_bench_bridge.VERDICT_CACHE_NAME).is_file())
             again = grasp_bench_bridge.verdict(LIVE_BENCH, cache_dir=cache)

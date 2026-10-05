@@ -35,9 +35,10 @@ class Ledger:
     def __init__(self, root):
         self.root = root
         self.attestations_path = os.path.join(root, "attestations.jsonl")
+        self.runs_path = os.path.join(root, "runs.jsonl")  # WHY: the bridge reads the very file the Ledger parses
 
     def load_runs(self):
-        with open(os.path.join(self.root, "runs.jsonl"), encoding="utf-8") as handle:
+        with open(self.runs_path, encoding="utf-8") as handle:
             return [SimpleNamespace(**json.loads(line)) for line in handle if line.strip()]
 ''',
     # WHY the threshold lives in registry.py: the verdict depends on a module only gallery.py names.

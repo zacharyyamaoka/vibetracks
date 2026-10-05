@@ -334,14 +334,18 @@ def bench_verdict(paths: BenchPaths, subsets: dict[str, list[str]], *, timeout: 
 # ---- verdict(): the one-call reader the roadmap projector and the dashboard share
 
 VERDICT_SCHEMA = "grasp-bench-verdict/2"
-VERDICT_CACHE_NAME = "verdict-v2.json"
+# WHY v3 on the cache and not on the schema: line_sha256 is purely additive to every runs[run_id] entry, so readers of
+# /2 keep working; but a cache entry written before the field existed would answer without it, so it must be a miss.
+VERDICT_CACHE_SCHEMA = "grasp-bench-verdict/3"
+VERDICT_CACHE_NAME = "verdict-v3.json"
+LEDGER_UNALIGNED = "ledger changed during read; row digests unaligned"
 #: The dashboard data home's folder for this bridge's cache (sources.py: ``{dashboard_data_home}/grasping-bench-verdict``).
 DEFAULT_CACHE_DIR = "~/.local/share/vibetracks/dashboard/grasping-bench-verdict"
 
 # WHY run_id = the row's index in runs.jsonl: the ledger's own run_id strings are free-form file names; the position is
 # stable while the ledger is append-only and needs no knowledge of the bench's naming.
 VERDICT_SCRIPT = r'''
-import json, os, sys
+import hashlib, json, os, sys
 request = json.load(sys.stdin)
 # WHY after the verdict and from sys.modules: the files that decided it are exactly the grasp_bench modules this run
 # imported (gallery -> registry, runner -> contracts, ...), which no fixed list can name ahead of time.
@@ -356,14 +360,54 @@ from grasp_bench import curriculum, gallery
 from grasp_bench import ledger as ledger_module
 from grasp_bench.ledger import Ledger
 
+# WHY line_sha256 is computed here, from a read the Ledger's own parse is checked against: a digest taken by another
+# process, or from another read, could describe a row the frozen/gap judgement never saw (the file grew in between).
+# Alignment is guaranteed by construction, not by hope: read runs.jsonl as bytes once, split it the way the Ledger's
+# text-mode read does (bytes.splitlines breaks on \n, \r\n and a lone \r, exactly Python's universal newlines, and
+# drops that one terminator, so a CRLF file hashes without its \r too), skip blank and undecodable-JSON lines by the
+# same rule (line.strip() empty, json.JSONDecodeError), then require the parsed rows to equal what load_runs() holds,
+# count and every row's run_id and fields. One retry; a second disagreement is an error, never a misaligned digest.
+def _raw_rows(data):
+    pairs = []
+    for raw in data.splitlines():
+        text = raw.decode("utf-8")
+        if not text.strip():
+            continue
+        try:
+            pairs.append((raw, json.loads(text)))
+        except json.JSONDecodeError:
+            continue
+    return pairs
+
+def _aligned(loaded, pairs):
+    if len(loaded) != len(pairs):
+        return False
+    for run, (raw, row) in zip(loaded, pairs):
+        if not isinstance(row, dict) or row.get("run_id") != run.run_id:
+            return False
+        for key, value in row.items():
+            if key != "attestation" and hasattr(run, key) and getattr(run, key) != value:
+                return False
+    return True
+
 book = Ledger(request["ledger_root"])
-loaded = book.load_runs()
+for _attempt in (0, 1):
+    with open(book.runs_path, "rb") as handle:
+        data = handle.read()
+    loaded = book.load_runs()
+    pairs = _raw_rows(data)
+    if _aligned(loaded, pairs):
+        break
+else:
+    sys.stdout.write("\n" + json.dumps({"error": request["unaligned"]}) + "\n")
+    sys.exit(0)
 index_of = {id(run): str(position) for position, run in enumerate(loaded)}
 runs = {}
-for run in loaded:
+for position, run in enumerate(loaded):
     runs[index_of[id(run)]] = {"frozen": bool(gallery.is_frozen_protocol(run)), "gap": str(gallery.provenance_gap(run)),
                                "privileged": bool(gallery._run_privileged(run)), "started_at": run.started_at,
-                               "env": run.env, "model": run.model}
+                               "env": run.env, "model": run.model,
+                               "line_sha256": hashlib.sha256(pairs[position][0]).hexdigest()}
 heads = gallery.headline_runs(loaded)
 envs = {}
 for env_id in curriculum.GATES:
@@ -376,6 +420,15 @@ document = {"envs": envs, "runs": runs, "headline": {cell: index_of[id(run)] for
             "dependencies": _dependencies()}
 sys.stdout.write("\n" + json.dumps(document) + "\n")
 '''
+
+
+def _has_row_digests(doc: dict[str, Any]) -> bool:
+    """True when every run in a cached verdict carries its ledger row's digest (an older entry does not: a miss)."""
+
+    runs = doc.get("runs")
+    return isinstance(runs, dict) and all(
+        isinstance(run, dict) and isinstance(run.get("line_sha256"), str) and len(run["line_sha256"]) == 64
+        for run in runs.values())
 
 
 def _verdict_failure(reason: str, bench_head: str | None) -> dict[str, Any]:
@@ -397,7 +450,10 @@ def verdict(bench_dir: str | Path, *, cache_dir: str | Path | None = None, timeo
     """The bench's verdict over its whole ledger, computed by its own code in its own venv (grasp-bench-verdict/2).
 
     ``bench_dir`` is the grasp_bench package root. Never a replica: when the bench cannot run, ``error`` says why and
-    ``envs``/``runs``/``headline`` are empty.
+    ``envs``/``runs``/``headline`` are empty. Every ``runs[run_id]`` carries ``line_sha256``: the sha256 hex of that
+    ledger row's exact bytes in runs.jsonl, without its one line terminator (``\\n`` or ``\\r\\n``), computed in the
+    bench subprocess from the same read the Ledger's parse was checked against. When the two cannot be aligned (the
+    file changed during the read, twice) ``error`` is "ledger changed during read; row digests unaligned".
     """
 
     bench = Path(bench_dir)
@@ -410,16 +466,16 @@ def verdict(bench_dir: str | Path, *, cache_dir: str | Path | None = None, timeo
     if not (ledger_root / "runs.jsonl").is_file():
         return _verdict_failure(f"ledger missing: {ledger_root / 'runs.jsonl'}", head)
 
-    request = {"ledger_root": str(ledger_root)}
+    request = {"ledger_root": str(ledger_root), "unaligned": LEDGER_UNALIGNED}
     # WHY these and not the module list: runs.jsonl, attestations.jsonl (stamped absent when missing) and the venv
     # python are known before the run; every grasp_bench module the verdict imports is checked from the cache entry.
     watched = [ledger_root / "runs.jsonl", ledger_root / "attestations.jsonl", python]
-    blob = json.dumps({"script": VERDICT_SCRIPT, "schema": VERDICT_SCHEMA, "request": request,
+    blob = json.dumps({"script": VERDICT_SCRIPT, "schema": VERDICT_CACHE_SCHEMA, "request": request,
                        "stamps": [_stamp(str(path)) for path in watched]}, sort_keys=True)
     key = hashlib.sha256(blob.encode("utf-8")).hexdigest()
     directory = Path(cache_dir if cache_dir is not None else DEFAULT_CACHE_DIR).expanduser()
     hit = _read_cache(directory / VERDICT_CACHE_NAME, key)
-    if hit is not None:
+    if hit is not None and _has_row_digests(hit["doc"]):
         return {**hit["doc"], "bench_head": head}
 
     env = {name: value for name, value in os.environ.items() if name not in _SCRUB}
@@ -440,6 +496,8 @@ def verdict(bench_dir: str | Path, *, cache_dir: str | Path | None = None, timeo
         raw = json.loads(lines[-1]) if lines else None
     except ValueError:
         raw = None
+    if isinstance(raw, dict) and raw.get("error"):
+        return _verdict_failure(str(raw["error"]), head)  # never cached: the next call reads the ledger afresh
     if not isinstance(raw, dict) or not all(isinstance(raw.get(name), dict) for name in ("envs", "runs", "headline")):
         return _verdict_failure("the bench printed no verdict document", head)
     for name, imported in (raw.get("modules") or {}).items():
@@ -449,5 +507,6 @@ def verdict(bench_dir: str | Path, *, cache_dir: str | Path | None = None, timeo
            "bench_head": None, "error": None}
     deps, _uncached = _dependencies(raw, before)
     if deps is not None:  # WHY no error when deps cannot be stamped: the verdict is still the bench's; it is just not cached
-        _write_cache(directory, {"key": key, "deps": deps, "doc": doc}, VERDICT_CACHE_NAME)
+        _write_cache(directory, {"key": key, "cache_schema": VERDICT_CACHE_SCHEMA, "deps": deps, "doc": doc},
+                     VERDICT_CACHE_NAME)
     return {**doc, "bench_head": head}
