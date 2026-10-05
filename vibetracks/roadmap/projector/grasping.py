@@ -11,7 +11,9 @@ How the curriculum becomes a roadmap:
 - a gated environment (its id in GATES) has one ``gate_run`` criterion: met when a non-privileged model's best
   headline run on the frozen protocol has Wilson ``ci_lo`` >= GATES[env] (grasp_bench's own ``gallery.env_verdict``).
   Its evidence is that ledger row, bound to the row's own ``git_sha``; a row whose ``git_dirty`` is true (or unstated)
-  is ``artifact-dirty``, so only a claim (``evaluate.git_record_binding``);
+  is ``artifact-dirty``, so only a claim (``evaluate.git_record_binding``), and so is a row that never recorded its
+  ``env_options`` (``unrecorded_configuration``). The row goes stale when the code it ran and was scored by changed
+  after its commit: runner.py's import closure (``@runner``) plus the env and model modules registry.py names for it;
 - an ungated environment (the datasets, the bandits, tiers 5-8) has a ``stated`` criterion: the curriculum gives it
   no bar, only prose, so it is never met, whatever is measured; its runs are shown as context evidence and KPIs;
 - CELLS with status "needs" and a named blocker become the rung's blockers ("needs you");
@@ -34,10 +36,12 @@ from .evaluate import Evaluator, Judgement, capped, git_record_binding
 from .files import LINE_KEY, ProjectionError, file_sha256, read_jsonl
 from .gitinfo import Repo
 from .links import EvidenceBook, Roots
+from .scope import CodeIndex
 
 LOOP_ID = "grasping"
 PACKAGE = Path("src") / "grasp_bench"
 LEDGER = Path("out") / "ledger" / "runs.jsonl"
+RUNNER_SCOPE = "@runner"  # a target scope entry that stands for the document's scopes["runner"]
 REQUIRED_TABLES = ("TIERS", "ENVS", "MODELS", "CELLS", "GATES")
 GATED_METRIC = "top1_success"
 CELL_STATUSES = ("wave1", "wave2", "needs", "later", "ref")
@@ -72,6 +76,15 @@ class _TableReader:
     """
 
     STEP_LIMIT = 500_000
+    # WHY allocation is bounded before it happens, not by steps (Codex V12): one step can build a container, repeat a
+    # sequence or pad a format (``list(range(500001))``, ``"x" * 1000001``, ``f"{1:1000001}"``), and the reader runs
+    # inside the dashboard's server. The real curriculum needs far less (measured Oct 4 2026: its largest container is
+    # CELLS at 138 items, its longest built string 53 characters, 1,407 units allocated in all), so each limit sits over
+    # 100x above it, and CELLS could grow to every model on every env (20 x 22 = 440) without coming near.
+    MAX_ITEMS = 20_000            # one range, list, tuple or dict
+    MAX_STRING = 20_000           # one string, formatted or repeated
+    MAX_INT_BITS = 4_096          # one integer from + or *
+    ALLOCATION_BUDGET = 1_000_000  # items + characters + integer bytes created over the whole evaluation
     BUILTINS: dict[str, Callable[..., Any]] = {"range": range, "tuple": tuple, "list": list, "dict": dict}
     BINARY = {ast.Add: operator.add, ast.Sub: operator.sub, ast.Mult: operator.mul, ast.Div: operator.truediv,
               ast.FloorDiv: operator.floordiv, ast.Mod: operator.mod}
@@ -84,6 +97,32 @@ class _TableReader:
         self.constructors: dict[str, Constructor] = {}
         self.item_lines: list[int] = []
         self.steps = 0
+        self.allocated = 0
+
+    def _allocate(self, size: int, limit: int, node: ast.AST, what: str) -> None:
+        """Refuse ``what`` of ``size`` (items, characters) before it is built when it passes ``limit`` or the budget."""
+
+        if size > limit:
+            raise NotData(f"line {getattr(node, 'lineno', '?')}: {what} of {size} is more than {limit}")
+        self.allocated += size
+        if self.allocated > self.ALLOCATION_BUDGET:
+            raise NotData(f"line {getattr(node, 'lineno', '?')}: more than {self.ALLOCATION_BUDGET} items and characters in all")
+
+    def _sized(self, value: Any, node: ast.AST) -> Any:
+        """Charge a value just built (a container from its elements, a joined or formatted string) to the budget."""
+
+        if isinstance(value, str):
+            self._allocate(len(value), self.MAX_STRING, node, "a string")
+        elif isinstance(value, (list, tuple, dict)):
+            self._allocate(len(value), self.MAX_ITEMS, node, "a container")
+        return value
+
+    def _format_width(self, spec: str, node: ast.AST) -> None:
+        """A format spec (``1000001``, ``.500000f``) or ``%`` template's widths, refused before they pad a string."""
+
+        widths = [int(digits) for digits in re.findall(r"[0-9]+", spec)]
+        if widths and max(widths) > self.MAX_STRING:
+            raise NotData(f"line {getattr(node, 'lineno', '?')}: a format width of {max(widths)} is more than {self.MAX_STRING}")
 
     def value(self, node: ast.AST, scope: Mapping[str, Any]) -> Any:
         self.steps += 1
@@ -114,10 +153,10 @@ class _TableReader:
         return values
 
     def _Tuple(self, node: ast.Tuple, scope: Mapping[str, Any]) -> tuple:
-        return tuple(self._elements(node.elts, scope))
+        return self._sized(tuple(self._elements(node.elts, scope)), node)
 
     def _List(self, node: ast.List, scope: Mapping[str, Any]) -> list:
-        return self._elements(node.elts, scope)
+        return self._sized(self._elements(node.elts, scope), node)
 
     def _Dict(self, node: ast.Dict, scope: Mapping[str, Any]) -> dict:
         result: dict[Any, Any] = {}
@@ -129,21 +168,47 @@ class _TableReader:
                 result.update(spread)
             else:
                 result[self.value(key, scope)] = self.value(value, scope)
-        return result
+        return self._sized(result, node)
 
     def _JoinedStr(self, node: ast.JoinedStr, scope: Mapping[str, Any]) -> str:
-        return "".join(str(self.value(part, scope)) for part in node.values)
+        return self._sized("".join(str(self.value(part, scope)) for part in node.values), node)
 
     def _FormattedValue(self, node: ast.FormattedValue, scope: Mapping[str, Any]) -> str:
         value = self.value(node.value, scope)
         value = {115: str, 114: repr, 97: ascii}.get(node.conversion, lambda item: item)(value)
-        return format(value, self.value(node.format_spec, scope) if node.format_spec is not None else "")
+        spec = self.value(node.format_spec, scope) if node.format_spec is not None else ""
+        self._format_width(str(spec), node)
+        return self._sized(format(value, spec), node)
 
     def _BinOp(self, node: ast.BinOp, scope: Mapping[str, Any]) -> Any:
         function = self.BINARY.get(type(node.op))
         if function is None:
             raise NotData(f"line {node.lineno}: operator {type(node.op).__name__}")
-        return function(self.value(node.left, scope), self.value(node.right, scope))
+        left, right = self.value(node.left, scope), self.value(node.right, scope)
+        self._bound_binary(node, left, right)
+        return function(left, right)
+
+    def _bound_binary(self, node: ast.BinOp, left: Any, right: Any) -> None:
+        """What ``left <op> right`` would allocate, charged (or refused) before it runs."""
+
+        sequences = (str, list, tuple)
+        if isinstance(node.op, ast.Mult):
+            for sequence, count in ((left, right), (right, left)):
+                if isinstance(sequence, sequences) and isinstance(count, int):
+                    limit = self.MAX_STRING if isinstance(sequence, str) else self.MAX_ITEMS
+                    self._allocate(len(sequence) * max(count, 0), limit, node, "a repeated sequence")
+                    return
+        if isinstance(node.op, ast.Add) and isinstance(left, sequences) and type(left) is type(right):
+            self._allocate(len(left) + len(right), self.MAX_STRING if isinstance(left, str) else self.MAX_ITEMS, node,
+                           "a concatenation")
+            return
+        if isinstance(node.op, ast.Mod) and isinstance(left, str):
+            self._format_width(left, node)  # printf-style formatting pads like a format spec
+            return
+        if isinstance(node.op, (ast.Add, ast.Mult)) and all(isinstance(side, int) for side in (left, right)):
+            bits = abs(left).bit_length() + abs(right).bit_length() if isinstance(node.op, ast.Mult) else \
+                max(abs(left).bit_length(), abs(right).bit_length()) + 1
+            self._allocate(bits // 8, self.MAX_INT_BITS // 8, node, "an integer's bytes")
 
     def _UnaryOp(self, node: ast.UnaryOp, scope: Mapping[str, Any]) -> Any:
         operand = self.value(node.operand, scope)
@@ -188,11 +253,8 @@ class _TableReader:
             raise NotData(f"line {node.lineno}: {error!r}") from error
 
     def _iterable(self, value: Any, node: ast.AST) -> list[Any]:
-        if isinstance(value, Mapping):
-            return list(value)
-        if isinstance(value, (list, tuple, range, str)):
-            if len(value) > self.STEP_LIMIT:
-                raise NotData(f"line {getattr(node, 'lineno', '?')}: {len(value)} items")
+        if isinstance(value, (Mapping, list, tuple, range, str)):
+            self._allocate(len(value), self.MAX_ITEMS, node, "an iteration")
             return list(value)
         raise NotData(f"line {getattr(node, 'lineno', '?')}: {type(value).__name__} is not iterable table data")
 
@@ -240,7 +302,7 @@ class _TableReader:
     def _GeneratorExp(self, node: ast.GeneratorExp, scope: Mapping[str, Any]) -> list[Any]:
         values: list[Any] = []
         self._comprehension(node.generators, scope, lambda inner: values.append(self.value(node.elt, inner)))
-        return values
+        return self._sized(values, node)
 
     _ListComp = _GeneratorExp
 
@@ -248,7 +310,7 @@ class _TableReader:
         values: dict[Any, Any] = {}
         self._comprehension(node.generators, scope,
                             lambda inner: values.__setitem__(self.value(node.key, inner), self.value(node.value, inner)))
-        return values
+        return self._sized(values, node)
 
     def _Call(self, node: ast.Call, scope: Mapping[str, Any]) -> Any:
         if not isinstance(node.func, ast.Name):
@@ -265,6 +327,16 @@ class _TableReader:
         if name in self.BUILTINS and name not in scope and name not in self.names:
             if name == "range" and (keywords or not all(isinstance(argument, int) for argument in arguments)):
                 raise NotData(f"line {node.lineno}: range over non-integers")
+            if name == "range":
+                built = range(*arguments)  # lazy: only its length is charged, before anything iterates it
+                try:
+                    length = len(built)
+                except OverflowError:
+                    length = self.MAX_ITEMS + 1
+                self._allocate(length, self.MAX_ITEMS, node, "a range")
+                return built
+            size = sum(len(argument) if hasattr(argument, "__len__") else 0 for argument in arguments) + len(keywords)
+            self._allocate(size, self.MAX_ITEMS, node, f"a {name}")
             return self.BUILTINS[name](*arguments, **keywords)
         raise NotData(f"line {node.lineno}: a call to {name}")
 
@@ -482,6 +554,43 @@ def is_frozen(row: Mapping[str, Any], frozen: Mapping[str, Any] | None) -> bool:
             and protocol.get("k") == frozen["k"])
 
 
+def unrecorded_configuration(row: Mapping[str, Any]) -> list[str]:
+    """The fields ``is_frozen`` reads as "no options" that this row never recorded (Codex V01).
+
+    WHY absent is not empty for ``env_options``: the field was added to CellRun after rows were already written
+    (grasp_bench 40611051); a row from before it ran a runner that accepted env overrides and never wrote them down, so
+    nothing in the row says its environment was the default one. The protocol's ``options`` is different: runner.py
+    has written it only when non-empty since its first commit, so inside a recorded protocol its absence is the record.
+    """
+
+    missing = [] if "env_options" in row else ["env_options"]
+    return missing if isinstance(row.get("protocol"), Mapping) else [*missing, "protocol"]
+
+
+def read_factories(registry_path: Path) -> tuple[dict[str, str], dict[tuple[str, str], str]]:
+    """``registry.ENV_FACTORIES`` (family -> "module:function") and ``MODEL_FACTORIES`` ((model, family) -> ...), read as
+    literals; empty when the file or a table is missing or not literal (the scope then falls back to the package)."""
+
+    tables: dict[str, Any] = {}
+    if registry_path.is_file():
+        for statement in _parse(registry_path).body:
+            if isinstance(statement, ast.AnnAssign) and isinstance(statement.target, ast.Name) and statement.value is not None:
+                name, value = statement.target.id, statement.value
+            elif isinstance(statement, ast.Assign) and len(statement.targets) == 1 and isinstance(statement.targets[0], ast.Name):
+                name, value = statement.targets[0].id, statement.value
+            else:
+                continue
+            if name in ("ENV_FACTORIES", "MODEL_FACTORIES"):
+                try:
+                    tables[name] = ast.literal_eval(value)
+                except (ValueError, TypeError, SyntaxError, MemoryError, RecursionError):
+                    pass
+    envs = tables.get("ENV_FACTORIES") if isinstance(tables.get("ENV_FACTORIES"), dict) else {}
+    models = tables.get("MODEL_FACTORIES") if isinstance(tables.get("MODEL_FACTORIES"), dict) else {}
+    return ({str(family): str(target) for family, target in envs.items()},
+            {(str(key[0]), str(key[1])): str(target) for key, target in models.items() if isinstance(key, tuple) and len(key) == 2})
+
+
 def is_privileged(row: Mapping[str, Any], families: Mapping[str, str]) -> bool:
     """``gallery._privileged``: privileged by the curriculum's spec OR by the input the run recorded it read."""
 
@@ -559,6 +668,11 @@ class _GraspingProjector:
         self.package = bench / PACKAGE
         self.curriculum_path = self.package / "curriculum.py"
         self.evaluator = Evaluator(repo, roots)
+        self.env_factories, self.model_factories = read_factories(self.package / "registry.py")
+        self._code: CodeIndex | None = None
+        self._runner_files: set[str] | None = None
+        self._runner_scope: list[str] | None = None
+        self._row_scopes: dict[tuple[str, str], list[str]] = {}
         self.warnings: list[str] = []
         tables = curriculum.tables
         self.tiers = self._tiers(tables["TIERS"])
@@ -712,7 +826,7 @@ class _GraspingProjector:
             "edges": edges,
             "work": [],
             "unresolved": proof.unresolved_list(rungs),
-            "scopes": {},
+            "scopes": {RUNNER_SCOPE[1:]: self.runner_scope()},
         }
 
     def _link_at(self, kind: str, path: Path, line: int | None, *, label: str | None = None) -> dict[str, Any]:
@@ -734,7 +848,8 @@ class _GraspingProjector:
     def _sources(self) -> list[dict[str, Any]]:
         rows = []
         for path, role in ((self.curriculum_path, "curriculum"), (self.package / "contracts.py", "contracts"),
-                           (self.package / "runner.py", "frozen protocol"), (self.ledger, "ledger")):
+                           (self.package / "runner.py", "frozen protocol"), (self.package / "registry.py", "factories"),
+                           (self.ledger, "ledger")):
             entry = links.link("file", str(path), self.roots)
             entry.update({"role": role, "sha256": file_sha256(path) if path.is_file() else None})
             rows.append(entry)
@@ -820,6 +935,74 @@ class _GraspingProjector:
         found["pointer"] = pointer
         return found
 
+    # ------------------------------------------------------------ freshness scope (Codex V02)
+    @property
+    def code(self) -> CodeIndex:
+        if self._code is None:
+            self._code = CodeIndex(self.repo)
+        return self._code
+
+    def _relative(self, path: Path) -> str:
+        return path.relative_to(self.repo.root).as_posix()
+
+    def _closure(self, seeds: list[str]) -> tuple[set[str], list[str]]:
+        """The tracked files ``seeds`` import, transitively, and the package folders that stand in when that is too many."""
+
+        files, truncated = self.code.closure(seeds)
+        if not truncated:
+            return files, []
+        return set(), sorted({f"{root}/" for root in (self.code.package_root(path) for path in files) if root})
+
+    def runner_scope(self) -> list[str]:
+        """What every measured row ran and was scored by: runner.py (it drives the episodes and computes the Wilson bound
+        through stats.py), everything it imports (contracts, the canonical grasp, the ledger, the registry), and the
+        package's environment (pyproject.toml, uv.lock). Stored once as the document's ``scopes["runner"]``.
+
+        WHY the runner and not the CLI or the gallery: the CLI only parses arguments into ``run_cells``, and the gallery
+        reads rows after the fact (this projector restates its rule); neither can change a number a row recorded.
+        Reversible: a narrower or wider scope is this function and ``_row_scope``.
+        """
+
+        if self._runner_scope is None:
+            runner = self._relative(self.package / "runner.py")
+            files, folders = self._closure([runner]) if runner in self.code.tracked else (set(), [])
+            self._runner_files = files
+            root = self.code.package_root(runner) or self._relative(self.bench)
+            environment = [f"{root}/{name}" for name in ("pyproject.toml", "uv.lock") if f"{root}/{name}" in self.code.tracked]
+            if not files and not folders:
+                folders = [f"{self._relative(self.package)}/"]  # nothing could be traced: the whole package, the safe side
+            self._runner_scope = sorted(set(self.code.compress(files)) | set(folders) | set(environment))
+        return self._runner_scope
+
+    def _row_scope(self, row: Mapping[str, Any]) -> list[str]:
+        """A row's scope: the runner's (``@runner``) plus the env and model implementations ``registry.py`` names for its
+        cell, with what they import. A row whose factories the registry does not name is scoped to the whole package."""
+
+        model_id, env_id = str(row.get("model")), str(row.get("env"))
+        key = (model_id, env_family(env_id))
+        if key in self._row_scopes:
+            return self._row_scopes[key]
+        self.runner_scope()
+        seeds: list[str] = []
+        for target in (self.env_factories.get(key[1]), self.model_factories.get(key)):
+            module = (target or "").split(":", 1)[0].replace(".", "/")
+            found = [self._relative(path) for path in (self.package / f"{module}.py", self.package / module / "__init__.py")
+                     if module and self._relative(path) in self.code.tracked]
+            if not found:
+                seeds = []
+                break
+            seeds += found
+        if not seeds:
+            scope = [RUNNER_SCOPE, f"{self._relative(self.package)}/"]
+        else:
+            files, folders = self._closure(seeds)
+            scope = [RUNNER_SCOPE, *sorted(set(self.code.compress(files - (self._runner_files or set()))) | set(folders))]
+        self._row_scopes[key] = scope
+        return scope
+
+    def _expand(self, scope: Sequence[str]) -> list[str]:
+        return [path for entry in scope for path in (self.runner_scope() if entry == RUNNER_SCOPE else [entry])]
+
     def _ungated_text(self, env: Mapping[str, Any]) -> str:
         rule = self.curriculum.comments.get("PUBLISHED_AP") if env.get("metric") == "ap" else ""
         base = f"no gate in curriculum.GATES for {env['id']}: measured ({env.get('metric')}), never beaten"
@@ -841,9 +1024,13 @@ class _GraspingProjector:
         target_link.pop("pointer")
         spec = {"rule": "wilson_lb", "gate": gate, "metric": GATED_METRIC, "protocol": frozen, "privileged_counts": False,
                 "via": "grasp_bench gallery.env_verdict"}
+        # The run must have been made under the frozen protocol (is_frozen already keeps any other run out of the gate).
+        context = {"frozen_protocol": frozen}
+        row: Mapping[str, Any] | None = None
         if verdict["winners"]:
             judged = [(row, self._judge(row, "passed", f"{row.get('run_id')} ({row.get('model')}): Wilson LB "
-                                                       f"{_number(row.get('ci_lo')):.4f} >= {gate:g} over n={row.get('n')}"))
+                                                       f"{_number(row.get('ci_lo')):.4f} >= {gate:g} over n={row.get('n')}",
+                                        context))
                       for row in verdict["winners"]]
             row, judgement = min(judged, key=lambda pair: (proof.standing(pair[1]), not pair[1].placed,
                                                            model.STRENGTHS.index(pair[1].strength) if pair[1].strength else 9,
@@ -856,22 +1043,33 @@ class _GraspingProjector:
                                                                _number(row.get("value")) or 0.0))
             ci_lo = _number(row.get("ci_lo"))
             judgement = self._judge(row, "failed", f"best frozen run {row.get('run_id')} ({row.get('model')}): Wilson LB "
-                                                   f"{f'{ci_lo:.4f}' if ci_lo is not None else 'none'} < {gate:g}")
+                                                   f"{f'{ci_lo:.4f}' if ci_lo is not None else 'none'} < {gate:g}", context)
             evidence = [book.add(self._run_item(row, "failed"), key=("run", str(row.get("run_id"))))]
         else:
             why = f"no non-privileged run on the frozen {frozen['name']} protocol yet"
             if verdict["provisional"]:
                 why += "; a smoke or re-seeded run clears it (provisional, not proof)"
             judgement, evidence = Judgement("unknown", None, [], why), []
-        target = proof.target_entry(target_link, judgement, evidence, spec=spec)
+        scope = self._row_scope(row) if row is not None else [RUNNER_SCOPE]
+        target = proof.target_entry(target_link, judgement, evidence, scope=scope, context=context, spec=spec)
         return proof.reduce(f"{rung_id}#gate", "gate_run", "test", f"Wilson LB >= {gate:g} on {frozen['name']}", text,
                             source, [target], empty_reason="")
 
-    def _judge(self, row: Mapping[str, Any], result: str, note: str) -> Judgement:
-        """One ledger row at the commit its own ``git_sha`` names, capped by its own ``git_dirty`` (Codex G04, H02)."""
+    def _judge(self, row: Mapping[str, Any], result: str, note: str, context: Mapping[str, Any]) -> Judgement:
+        """One ledger row at the commit its own ``git_sha`` names, capped by its own ``git_dirty`` (Codex G04, H02) and by
+        what it recorded (Codex V01), stale when the code it ran and was scored by changed after it (Codex V02)."""
 
         binding = git_record_binding({"sha": row.get("git_sha") or None, "dirty": row.get("git_dirty")}, f"{row.get('run_id')}'s ledger row")
-        return self.evaluator.finish(result, "record", binding.commit, (), {}, notes=[note, binding.note], source=binding.source)
+        judgement = self.evaluator.finish(result, "record", binding.commit, self._expand(self._row_scope(row)), context,
+                                          notes=[note, binding.note], source=binding.source)
+        missing = unrecorded_configuration(row)
+        if missing:
+            # WHY a cap and not a refusal: the evidence earns only what the run recorded. The loop's own verdict (the
+            # gallery reads a missing env_options as the default env) stays the claim; the row cannot prove it.
+            judgement.strength = capped(judgement.strength, None)
+            judgement.note += (f"; {row.get('run_id')}'s ledger row records no {' or '.join(missing)}, so its frozen "
+                               "protocol is the loop's word, not the row's")
+        return judgement
 
     def _measured_criterion(self, env: Mapping[str, Any], rung_id: str, text: str, source: dict) -> dict[str, Any]:
         """An ungated env: what is measured, as a ``stated`` criterion that stays unknown.
@@ -918,7 +1116,8 @@ class _GraspingProjector:
                  "latency_ms_p50": _number(row.get("latency_ms_p50")), "latency_ms_p95": _number(row.get("latency_ms_p95")),
                  "lost_in_conversion": row.get("lost_in_conversion"), "ledger_line": row.get(LINE_KEY),
                  "episodes": (row.get("artifacts") or {}).get("episodes") if isinstance(row.get("artifacts"), Mapping) else None}
-        return {**item, "result": result, "strength": capped("record", binding.source) if item["exists"] else "claim",
+        strength = capped("record", binding.source) if item["exists"] and not unrecorded_configuration(row) else "claim"
+        return {**item, "result": result, "strength": strength,
                 "commit": binding.commit, "ts": started if _TIMESTAMP.fullmatch(started) else None, "origin": "ledger",
                 "facts": facts, "run_id": run_id, "as_cited": None, "event": None, "commit_source": binding.source}
 

@@ -23,7 +23,7 @@ from pathlib import Path
 import pytest
 
 from vibetracks.roadmap.projector import ProjectionError, gitinfo, model, schema_check
-from vibetracks.roadmap.projector.grasping import project_grasping
+from vibetracks.roadmap.projector.grasping import project_grasping, read_curriculum
 from vibetracks.roadmap.projector.validate import validate_document
 from vibetracks.sources import load_sources
 
@@ -31,7 +31,8 @@ from .conftest import commit_all, git, write
 
 NOW = "2026-10-04T19:00:00+00:00"
 FIXTURES = Path(__file__).resolve().parent / "fixtures" / "grasping"
-PACKAGE_FILES = ("curriculum.py", "contracts.py", "runner.py", "gallery.py")
+PACKAGE_FILES = ("curriculum.py", "contracts.py", "runner.py", "gallery.py", "registry.py", "stats.py", "envs/toy.py",
+                 "models/simple.py", "models/bandit.py", "models/heatmap.py")
 #: The live loop today (the grasping session's worktree). ``grasp_bench_dir`` in the sources map, or
 #: ``BAM_GRASP_BENCH_DIR``, overrides it; the real-data test skips when it is not there.
 REAL_GRASP_BENCH_DIR = Path("/home/bam/bam_ws/.claude/worktrees/grasping-agent-roadmap-ab12d8/src/core/mdp/agent/actor/"
@@ -61,6 +62,7 @@ def make_bench(tmp_path: Path) -> tuple[Path, str]:
     for name in PACKAGE_FILES:
         write(bench / "src" / "grasp_bench" / name, (FIXTURES / name).read_text(encoding="utf-8"))
     write(bench / ".gitignore", "out/\n")
+    write(bench / "pyproject.toml", '[project]\nname = "grasp-bench"\n')
     sha = commit_all(repo, "fixture: grasp_bench")
     write_ledger(bench, fixture_rows(sha))
     return bench, sha
@@ -194,6 +196,98 @@ def test_a_clean_winner_is_preferred_over_a_dirty_one(tmp_path):
     assert evidence(document, "toy.x", gate["targets"][0]["evidence"][0])["run_id"] == "r09_dense_toy_x"
 
 
+def test_a_row_that_never_recorded_its_env_options_is_only_a_claim(tmp_path):
+    """Codex V01: an absent env_options is not a recorded empty one. The gallery's verdict stays the claim (green), but
+    the row cannot prove its frozen protocol from its own record, so the gate is met at claim strength."""
+
+    bench, sha = make_bench(tmp_path)
+    rows = fixture_rows(sha)
+    for row in rows:
+        if row["run_id"] == "r03_bandit_toy_x":
+            del row["env_options"]
+    write_ledger(bench, rows)
+    document = project(bench)
+    gate = criterion(document, "toy.x#gate")
+    (target,) = gate["targets"]
+    resting = evidence(document, "toy.x", target["evidence"][0])
+    assert resting["run_id"] == "r03_bandit_toy_x"
+    assert (gate["verdict"], gate["strength"]) == ("met", "claim")
+    assert (resting["commit_source"], resting["strength"]) == ("artifact", "claim")
+    assert "records no env_options" in target["note"]
+    assert rung(document, "toy.x")["claimed_status"] == "green" and rung(document, "toy.x")["status"] == "claimed"
+    assert document["summary"]["beaten"] == ["toy.x"]
+
+
+def test_recorded_empty_options_keep_record_strength(tmp_path):
+    """The other side of V01: ``env_options: {}`` is a record, and so is a protocol with no ``options`` key (runner.py
+    writes that key only when it is non-empty)."""
+
+    bench, _sha = make_bench(tmp_path)
+    document = project(bench)
+    gate = criterion(document, "toy.x#gate")
+    resting = evidence(document, "toy.x", gate["targets"][0]["evidence"][0])
+    assert resting["facts"]["protocol"].get("options") is None
+    assert (gate["verdict"], gate["strength"], resting["strength"]) == ("met", "record", "record")
+    assert "records no" not in gate["targets"][0]["note"]
+
+
+# ---------------------------------------------------------------- freshness: the code a run executed and was scored by
+def change(bench: Path, relative: str, message: str) -> str:
+    path = bench / "src" / "grasp_bench" / relative
+    write(path, path.read_text(encoding="utf-8") + "\n# changed\n")
+    return commit_all(bench.parents[2], message)
+
+
+def test_a_clean_run_goes_stale_when_its_scorer_changes_after_it(tmp_path):
+    """Codex V02: a clean row at an older commit is stale once the code it was scored with changed after it."""
+
+    bench, sha = make_bench(tmp_path)
+    change(bench, "stats.py", "stats: a different Wilson bound")
+    document = project(bench)
+    gate = criterion(document, "toy.x#gate")
+    (target,) = gate["targets"]
+    assert (gate["verdict"], gate["strength"]) == ("stale", "record")
+    assert target["changed_since"] and "a different Wilson bound" in target["changed_since"][0]
+    assert target["commit"] == sha
+    # The scope is kept on the target (the runner's path stored once, as kinsim stores its producer) with its context.
+    assert target["scope"][0] == "@runner"
+    package = "src/core/grasp_bench/src/grasp_bench"
+    assert {f"{package}/runner.py", f"{package}/stats.py", f"{package}/registry.py", f"{package}/contracts.py",
+            "src/core/grasp_bench/pyproject.toml"} <= set(document["scopes"]["runner"])
+    assert target["context"] == {"frozen_protocol": {"name": "eval-2000", "seed": 20261004, "episodes": 2000,
+                                                     "split": "test", "k": 1}}
+    assert rung(document, "toy.x")["status"] != "green"
+
+
+@pytest.mark.parametrize("relative, stale", [
+    ("envs/toy.py", True),          # the env implementation registry.py names for toy/*
+    ("models/bandit.py", True),     # the model implementation registry.py names for M3.bandit on toy
+    ("models/heatmap.py", True),    # what that model imports
+    ("runner.py", True),            # the runner itself
+    ("models/simple.py", False),    # another model's code: the bandit's run never ran it
+    ("gallery.py", False),          # reads rows after the fact; cannot change a recorded number
+])
+def test_the_scope_is_the_env_model_and_runner_the_row_ran(tmp_path, relative, stale):
+    bench, _sha = make_bench(tmp_path)
+    change(bench, relative, f"touch {relative}")
+    gate = criterion(project(bench), "toy.x#gate")
+    assert gate["verdict"] == ("stale" if stale else "met")
+    scope = gate["targets"][0]["scope"]
+    assert ("src/core/grasp_bench/src/grasp_bench/models/bandit.py" in scope) and \
+        ("src/core/grasp_bench/src/grasp_bench/models/simple.py" not in scope)
+
+
+def test_a_row_whose_factories_the_registry_does_not_name_is_scoped_to_the_whole_package(tmp_path):
+    bench, sha = make_bench(tmp_path)
+    registry = bench / "src" / "grasp_bench" / "registry.py"
+    write(registry, registry.read_text(encoding="utf-8").replace('    ("M3.bandit", "toy"): "models.bandit:make_bandit",\n', ""))
+    sha = commit_all(bench.parents[2], "registry: drop the bandit")
+    write_ledger(bench, fixture_rows(sha))
+    gate = criterion(project(bench), "toy.x#gate")
+    assert gate["verdict"] == "met"
+    assert gate["targets"][0]["scope"] == ["@runner", "src/core/grasp_bench/src/grasp_bench/"]
+
+
 # ---------------------------------------------------------------- ungated environments
 def test_an_ungated_env_is_measured_but_never_green(tmp_path):
     bench, _sha = make_bench(tmp_path)
@@ -271,6 +365,43 @@ def test_a_missing_ledger_projects_with_nothing_measured(tmp_path):
     assert all(item["verdict"] == "unknown" for item in (criterion(document, "toy.x#gate"), criterion(document, "toy.xy#gate")))
     assert document["summary"]["frontier"] == ["toy.x", "toy.xy"]
     assert any("no ledger" in warning for warning in document["warnings"])
+
+
+# ---------------------------------------------------------------- bounded allocation (Codex V12)
+@pytest.mark.parametrize("expression, why", [
+    ("list(range(500001))", "a range of 500001"),                      # Codex's reproductions, refused before they allocate
+    ('"x" * 1000001', "a repeated sequence of 1000001"),
+    ('f"{1:1000001}"', "format width of 1000001"),
+    ('"%1000001d" % 1', "format width of 1000001"),                   # printf-style formatting pads the same way
+    ("[list(range(20000)) for _ in range(60)]", "items and characters in all"),  # each one small, the sum is not
+    ("(1, 2) * 20001", "a repeated sequence of 40002"),
+])
+def test_the_reader_refuses_allocation_past_its_limits(tmp_path, expression, why):
+    bench, _sha = make_bench(tmp_path)
+    curriculum = bench / "src" / "grasp_bench" / "curriculum.py"
+    write(curriculum, curriculum.read_text(encoding="utf-8") + f"\nBIG = {expression}\n")
+    read = read_curriculum(curriculum, bench / "src" / "grasp_bench" / "contracts.py")
+    assert "BIG" not in read.tables and why in read.skipped["BIG"]
+    assert set(read.tables) >= {"TIERS", "ENVS", "MODELS", "CELLS", "GATES"}  # the rest of the file still reads
+
+
+def test_integers_from_repeated_multiplication_are_bounded(tmp_path):
+    bench, _sha = make_bench(tmp_path)
+    curriculum = bench / "src" / "grasp_bench" / "curriculum.py"
+    squares = "".join(f"I{index + 1} = I{index} * I{index}\n" for index in range(9))
+    write(curriculum, curriculum.read_text(encoding="utf-8") + "\nI0 = 1000000007\n" + squares)
+    read = read_curriculum(curriculum, bench / "src" / "grasp_bench" / "contracts.py")
+    assert read.tables["I7"].bit_length() <= 4096
+    assert "integer" in read.skipped["I8"] and "I9" in read.skipped
+
+
+def test_allocation_within_the_limits_still_reads(tmp_path):
+    bench, _sha = make_bench(tmp_path)
+    curriculum = bench / "src" / "grasp_bench" / "curriculum.py"
+    write(curriculum, curriculum.read_text(encoding="utf-8")
+          + '\nOK = (list(range(20000)), "x" * 20000, f"{1:>20000}", [i for i in range(5000)])\n')
+    read = read_curriculum(curriculum, bench / "src" / "grasp_bench" / "contracts.py")
+    assert [len(part) for part in read.tables["OK"]] == [20000, 20000, 20000, 5000]
 
 
 # ---------------------------------------------------------------- the live loop

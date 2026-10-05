@@ -1,8 +1,12 @@
-"""Fixture: grasp_bench's runner.py frozen-protocol table (read as literals, never imported)."""
+"""Fixture: grasp_bench's runner.py frozen-protocol table (read as literals, never imported), and its imports (the
+runner's freshness scope: what it runs and scores with)."""
 
 from __future__ import annotations
 
 import numpy as np
+
+from . import registry, stats
+from .contracts import EnvSpec, EvalProtocol
 
 DEFAULT_PROTOCOLS: dict[str, tuple[str, int]] = {
     "toy": ("eval-2000", 2000),
