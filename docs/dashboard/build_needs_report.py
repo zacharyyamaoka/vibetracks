@@ -26,6 +26,7 @@ import importlib.util
 import io
 import json
 import re
+import subprocess
 from collections import Counter
 import sys
 from pathlib import Path
@@ -466,8 +467,10 @@ def shared_html() -> str:
         word, cls = STATUS_WORD[status]
         # A round-2 capture labelled 'Still open' shows a fault round 3 fixed; it is dropped rather than shown as current.
         r2_stills = [x for x in f["stills"] if not (r3 and r3[0] == "fixed" and x[1].startswith("Still open"))]
+        # WHY quality 64 for a round-2 capture under a round-3 card: it is the record of an older state, UI text on white
+        # that reads the same at 64, and the bytes it frees keep round 3 of Codex's audit inside the 9 MB budget.
         figs = "".join(still(*x) for x in (r3[2] if r3 else [])) + "".join(
-            still(x[0], ("Round 2 · " + x[1]) if r3 else x[1], x[2]) for x in r2_stills)
+            still(x[0], ("Round 2 · " + x[1]) if r3 else x[1], x[2], None, 64 if r3 else None) for x in r2_stills)
         grid = f'<div class="stills two-up">{figs}</div>' if figs else ""
         if r3:
             r3_html = f'<p class="r3"><b>Round 3:</b> {inline_md(r3[1])}</p>'
@@ -562,8 +565,8 @@ def audit2_html(stills: list[tuple[str, str, str]], r1_stills: list[tuple[str, s
 returned <b>{esc(AUDIT2_VERDICT)}</b>: round-1 findings {partly} were only partly fixed, and it found {len(AUDIT2_ROWS)} new ones
 ({SEV2_LINE}). Three lanes fixed them on the uncommitted tree ({esc(AUDIT2['tree_after'])}). Then {esc(AUDIT2['verifier'])} re-probed
 all {N_IN_SCOPE}: <b>{AUDIT2_PASS + len(AUDIT2_PARTLY)} of {N_IN_SCOPE} pass</b>, each with a test at the consumer that fails on
-<code>{esc(AUDIT2['audited_sha'])}</code>. <b>Codex round 3 reads this tree next</b>; until it returns, "fixed" is our own measurement,
-not Codex's.</p>
+<code>{esc(AUDIT2['audited_sha'])}</code>. Codex round 3 then re-read them on 56c75c0: {esc(AUDIT3_R2_LINE)} (the round-3
+table above).</p>
 <p class="small dim">Audit file: <code>{esc(str(AUDIT2_FILE))}</code><br>After the fixes: pytest {esc(c['pytest'])}; unittest
 {esc(c['unittest'])}; backend {esc(c['backend'])}; tsc {esc(c['tsc'])}; node checks {esc(c['node_checks'])}; browser checks
 {esc(c['browser_checks'])}. On {esc(AUDIT2['audited_sha'])}: {esc(c['fails_on_old'])}; and {esc(c['mutation'])}. Report videos:
@@ -712,24 +715,50 @@ assert (R6_PASS, len(R6_PARTLY)) == (5, 1), (R6_PASS, len(R6_PARTLY))
 REPO = Path(__file__).resolve().parents[2]
 
 
-def check_open_probes() -> int:
-    """Refuse to build if the tree no longer shows an item the page calls open.
+R6_TREE = "56c75c0"  # the commit round 6's tree became, and the snapshot Codex round 3 audited
+
+
+def _probe_text(probe: dict, at: str | None) -> str | None:
+    """The probed file's text in the working tree (at=None) or in commit `at`; None when it does not exist there."""
+    name = probe["file"]
+    if at is None or name.startswith("/"):
+        f = Path(name) if name.startswith("/") else REPO / name
+        return f.read_text(encoding="utf-8") if f.exists() else None
+    shown = subprocess.run(["git", "-C", str(REPO), "show", f"{at}:{name}"], capture_output=True, text=True)
+    return shown.stdout if shown.returncode == 0 else None
+
+
+def check_open_probes(probes: list[dict], at: str | None = None, source: str = "round6-fixes.json",
+                      closed: frozenset[str] = frozenset()) -> int:
+    """Refuse to build if a tree no longer shows an item the page calls open.
     WHY: a report built after a peer fixes one of these would still list it as open; a stale 'open' is as untrue as a
-    stale 'fixed'. Each probe names the exact text that makes the claim true."""
-    for probe in R6["open_probes"]:
-        f = REPO / probe["file"]
-        if probe.get("missing"):
-            assert not f.exists(), f"{probe['claim']}: {f} exists again; re-measure and update round6-fixes.json"
+    stale 'fixed'. Each probe names the exact text that makes the claim true.
+    WHY `at`: round 6's 'still open' lines describe the tree Codex round 3 read (56c75c0), and most of them were closed
+    in e0bd8e5 since; the page now says so beside each one, so those probes check the commit they describe, while the
+    current round's open list is checked against the working tree."""
+    where = at or "the working tree"
+    for probe in probes:
+        text = _probe_text(probe, at)
+        if probe["claim"] in closed:
+            # WHY: verify-7 measured these on the uncommitted tree and the commit itself closed them; the page says so,
+            # so the probe must now read closed there, not open.
+            assert text is not None and probe.get("contains") and probe["contains"] not in text, \
+                f"{probe['claim']}: listed as closed by {where} but still open there"
             continue
-        text = f.read_text(encoding="utf-8")
+        if probe.get("missing"):
+            assert text is None, f"{probe['claim']}: {probe['file']} exists in {where}; re-measure and update {source}"
+            continue
+        assert text is not None, f"{probe['claim']}: {probe['file']} is missing in {where}; update {source}"
         if "contains" in probe:
-            assert probe["contains"] in text, f"looks fixed now: {probe['claim']} ({f}); re-measure and update round6-fixes.json"
+            assert probe["contains"] in text, f"looks fixed in {where}: {probe['claim']} ({probe['file']}); update {source}"
         if "absent" in probe:
-            assert probe["absent"] not in text, f"looks fixed now: {probe['claim']} ({f}); re-measure and update round6-fixes.json"
-    return len(R6["open_probes"])
+            assert probe["absent"] not in text, f"looks fixed in {where}: {probe['claim']} ({probe['file']}); update {source}"
+    return len(probes)
 
 
-R6_PROBES = check_open_probes()
+# WHY AUDIT3 is read here, ahead of its section: it records which of round 6's open claims the 56c75c0 commit closed.
+AUDIT3 = json.loads((MEDIA / "r7" / "audit-r3-fixes.json").read_text())
+R6_PROBES = check_open_probes(R6["open_probes"], at=R6_TREE, closed=frozenset(AUDIT3["r6_closed_by_commit"]))
 LIVE_MEDIA = Path("/home/bam/vibetracks/reports/media/vibetracks-live-tracks-2026-10-04")
 # WHY no home still here: home is the live-tracks report's page (it carries the 04:35 re-capture); this page stays
 # under 9 MB by showing only what round 6 changed on the needs page and in media.
@@ -747,26 +776,31 @@ def round6_html() -> str:
     items = "".join(
         f'<li class="arow"><span class="an">{esc(i["n"])}</span><span class="asev">{esc(i["lane"])}</span>'
         f'<div class="abody"><b>{esc(i["title"])}</b><p>{esc(i["short"])}</p>'
-        + (f'<p class="asib"><b>Still open beside it:</b> {esc(i["still_open"])}</p>' if i["still_open"] else "")
+        # WHY the 'Now' beside verify-7's words: most of these were closed in e0bd8e5 or this wave; the page keeps what
+        # verify-7 saw at 56c75c0 and says what became of it, rather than calling a closed item open.
+        + (f'<p class="asib"><b>Still open beside it at {R6_TREE}:</b> {esc(i["still_open"])} <b>Now:</b> '
+           f'{esc(AUDIT3["r6_still_now"][i["n"]])}</p>' if i["still_open"] else "")
         + '<details><summary>verify-7\'s evidence, and the test that fails when the old behaviour returns</summary>'
         f'<p class="averb">{esc(i["verifier"])}</p><p class="averb"><b>Test left ({esc(i["lane"])} lane):</b> {esc(i["tests"])}</p>'
         f'</details></div><span class="afix">{"fixed · verified" if i["pass"] is True else "partly · 2 doc gaps"}</span></li>'
         for i in R6_ITEMS)
-    found = "".join(f"<li><b>{esc(t)}.</b> <span>{esc(x)}</span></li>" for t, x in R6["new_found"])
+    found = "".join(f"<li><b>{esc(t)}.</b> <span>{esc(x)}</span> <b>Now:</b> {esc(AUDIT3['r6_found_now'][t])}</li>"
+                    for t, x in R6["new_found"])
     c = R6["checks"]
     figs = '<div class="stills">' + "".join(still(*x) for x in R6_STILLS) + "</div>"
     return f"""
 <p class="lead">verify-6 left a short list beside its fixed findings. Two lanes closed it on the uncommitted tree over
 <code>{esc(R6['base_sha'])}</code>; then {esc(R6['verifier'])} re-measured each item: <b>{R6_PASS} of {len(R6_ITEMS)} closed, the docs
-partly</b>, each with a test that fails without the fix. Variants B and C are gone at your pick of A (recoverable from git,
-see Decision). <b>Codex round 3 reads this tree next</b>; until it returns, "fixed" is our own measurement, not Codex's.</p>
+partly</b>, each with a test that fails without the fix. Variants B and C were retired at your pick of A (recoverable from git).
+This tree was committed as <code>{R6_TREE}</code>, and Codex round 3 audited it (above).</p>
 <p class="small dim">After the fixes: pytest {esc(c['pytest'])}; unittest {esc(c['unittest'])}; backend {esc(c['backend'])}; tsc
 {esc(c['tsc'])}; node checks {esc(c['node_checks'])}; browser checks {esc(c['browser_checks'])}. Counts, unchanged: {esc(c['counts'])}.
-Each "still open" line below was re-read from the tree when this page was built ({R6_PROBES} probes).</p>
+Each "still open" line below was re-read from {R6_TREE} when this page was built ({R6_PROBES} probes); its "Now" says what
+became of it since.</p>
 <div class="ahead"><span>#</span><span>Lane</span><span>What was left · what verify-7 measured after the fix</span><span>Closed?</span></div>
 <ol class="audit">{items}</ol>
 {figs}
-<h4>New, found by verify-7 (not fixed in this round)</h4>
+<h4>New, found by verify-7 (not fixed in round 6)</h4>
 <ul class="open">{found}</ul>"""
 
 
@@ -797,6 +831,121 @@ DECISION_R6 = f"""
       <li><b>Commit the wave</b> on <code>claude/vibetracks-dashboard</code>? Recommendation: yes, once a Codex round passes, so a peer's <code>stash -u</code> cannot take it (the B and C deletion included). Default: left uncommitted.</li>
     </ol></li>
   <li><strong>Deliberately not done:</strong> no re-judge of N6, so its scores are the judges' round 2. Nothing is sent; answers only copy out. No commits, no vault edits. verify-7's open items were not fixed in this pass; the reports only record them.</li>
+</ul>
+"""
+
+
+# ---- Codex round 3: its re-read of earlier findings, its five new findings, and their fixes ----------------------
+# WHY the same split as rounds 1 and 2: the status words, severities and titles are parsed from Codex's own file, and
+# the fix evidence is verify-8's (e0bd8e5) and verify-9's (this wave), kept in a JSON beside the captures; the
+# live-tracks report renders the same rows from the same files, so the two pages cannot tell the round differently.
+AUDIT3_FILE = Path("/home/bam/vibetracks/reports/media/audits/2026-10-05-vibetracks-live-needs-r3.md")
+_AUDIT3_TEXT = AUDIT3_FILE.read_text()
+AUDIT3_VERDICT = _AUDIT3_TEXT.splitlines()[0].strip()
+AUDIT3_EARLIER = re.findall(r"^- \*\*(r\d+-\d+): (fixed|partly)\*\* — (.+?)\s*$", _AUDIT3_TEXT, re.M)
+AUDIT3_ROWS = [(int(n), sev, title) for n, sev, title in
+               re.findall(r"^(\d+)\. \*\*\[(high|medium|low)\] (.+?)\*\*\s*$", _AUDIT3_TEXT, re.M)]
+assert AUDIT3_VERDICT == "VERDICT: FAIL", AUDIT3_VERDICT
+assert len(AUDIT3_EARLIER) == 10, "round 3's re-read of the earlier findings changed: re-read the file"
+AUDIT3_PARTLY = [k for k, w, _x in AUDIT3_EARLIER if w == "partly"]
+assert AUDIT3_PARTLY == ["r2-1", "r2-4", "r1-9"] and sorted(AUDIT3["earlier_now"]) == sorted(AUDIT3_PARTLY), AUDIT3_PARTLY
+assert [n for n, _s, _t in AUDIT3_ROWS] == [1, 2, 3, 4, 5], "the round-3 file's numbered findings changed"
+AUDIT3_FIX = {f["n"]: f for f in AUDIT3["findings"]}
+assert set(AUDIT3_FIX) == {n for n, _s, _t in AUDIT3_ROWS}
+AUDIT3_PASS = sum(1 for n, _s, _t in AUDIT3_ROWS if AUDIT3_FIX[n]["pass"] is True)
+AUDIT3_SEV = Counter(sev for _n, sev, _t in AUDIT3_ROWS)
+SEV3_LINE = ", ".join(f"{AUDIT3_SEV[k]} {k}" for k in ("high", "medium", "low") if AUDIT3_SEV[k])
+AUDIT3_WHERE = {w: [n for n in sorted(AUDIT3_FIX) if AUDIT3_FIX[n]["where"] == w] for w in ("e0bd8e5", "this wave")}
+assert AUDIT3_WHERE == {"e0bd8e5": [3, 4], "this wave": [1, 2, 5]}, AUDIT3_WHERE
+R2_IN_R3 = [(k, w) for k, w, _x in AUDIT3_EARLIER if k.startswith("r2-")]
+AUDIT3_R2_LINE = (f"{sum(1 for _k, w in R2_IN_R3 if w == 'fixed')} of {len(R2_IN_R3)} fixed, "
+                  + " and ".join(k.replace("r2-", "finding ") for k, w in R2_IN_R3 if w == "partly") + " only partly")
+# WHY probed against the working tree: these are the items this round's page calls open now.
+R7_PROBES = check_open_probes(AUDIT3["open_probes"], source="r7/audit-r3-fixes.json")
+
+
+def _nums(ns: list[int]) -> str:
+    return ", ".join(map(str, ns[:-1])) + f" and {ns[-1]}" if len(ns) > 1 else str(ns[0])
+
+
+# WHY one still: the page sits under its 9 MB budget; the needs-side fix (finding 1) is a link that shows the file you
+# reviewed, so the still is that link on N6's first card. The track-page stills live in the live-tracks report.
+R7_STILLS = [
+    (str(LIVE_MEDIA / "verify-9" / "v9-n6-fold-1440x900-kinsim.png"), "N6's first card: its evidence link is the document's",
+     "verify-9's capture of kinsim T47 at 1440 × 900. 'evidence research/w3-bt1-belt.md' opens /needs/evidence with this "
+     "document's eid and revision, never /media; verify-9 clicked every N6 link on kinsim and rig (9 of 9): one tab each, "
+     "serving the reviewed bytes. Cropped to the card.", (500, 165, 1225, 470), 62),
+]
+
+
+def audit3_html() -> str:
+    earlier = "".join(
+        f'<li class="r1row r3"><span class="an">{esc(k)}</span><span class="r1w{" partly" if w == "partly" else ""}">{esc(w)}</span>'
+        f'<span class="r1note">{inline_md(note)}</span>'
+        f'<span class="r1now">{esc(AUDIT3["earlier_now"][k]) if w == "partly" else ""}</span></li>'
+        for k, w, note in AUDIT3_EARLIER)
+    items = "".join(
+        f'<li class="arow"><span class="an">{n}</span><span class="asev">{esc(sev)}</span>'
+        f'<div class="abody"><b>{esc(title)}</b><p>{esc(AUDIT3_FIX[n]["short"])}</p>'
+        f'<details><summary>The verifier\'s evidence, and the test that fails when the old behaviour returns</summary>'
+        f'<p class="averb">{esc(AUDIT3_FIX[n]["verifier"])}</p>'
+        f'<p class="averb"><b>Test left ({esc(AUDIT3_FIX[n]["lane"])} lane):</b> {esc(AUDIT3_FIX[n]["tests"])}</p>'
+        f'</details></div><span class="afix">fixed · verified<br><small>'
+        f'{"in e0bd8e5" if AUDIT3_FIX[n]["where"] == "e0bd8e5" else "this wave"}</small></span></li>'
+        for n, sev, title in AUDIT3_ROWS)
+    also = "".join(f"<li><b>{esc(t)}.</b> <span>{esc(x)}</span></li>" for t, x in AUDIT3["also_in_e0bd8e5"])
+    left = "".join(f"<li><b>{esc(t)}.</b> <span>{esc(x)}</span></li>" for t, x in AUDIT3["open"])
+    notes = "".join(f"<li><b>{esc(t)}.</b> <span>{esc(x)}</span></li>" for t, x in AUDIT3["observations"])
+    c = AUDIT3["checks"]
+    figs = '<div class="stills">' + "".join(still(*x) for x in R7_STILLS) + "</div>"
+    return f"""
+<p class="lead"><b>{esc(AUDIT3['auditor'])}</b>, round {AUDIT3['round']}, read-only, audited {esc(AUDIT3['snapshot'])}, and
+returned <b>{esc(AUDIT3_VERDICT)}</b>: {len(AUDIT3_PARTLY)} earlier findings were only partly fixed, and it found {len(AUDIT3_ROWS)}
+new ones ({SEV3_LINE}). Findings {_nums(AUDIT3_WHERE['e0bd8e5'])} were fixed in <code>e0bd8e5</code>; {_nums(AUDIT3_WHERE['this wave'])}
+in this wave, uncommitted on it. Then {esc(AUDIT3['verifier'])} re-probed all {len(AUDIT3_ROWS)} Codex's way or harder:
+<b>{AUDIT3_PASS} of {len(AUDIT3_ROWS)} pass</b>, each with a test at the consumer that fails on the tree before its fix, and no
+regressions. <b>Codex round 4 reads this tree next</b>; until it returns, "fixed" is our own measurement, not Codex's.</p>
+<p class="small dim">Audit file: <code>{esc(str(AUDIT3_FILE))}</code><br>After the fixes: pytest {esc(c['pytest'])}; unittest
+{esc(c['unittest'])}; backend {esc(c['backend'])}; tsc {esc(c['tsc'])}; node checks {esc(c['node_checks'])}; browser checks
+{esc(c['browser_checks'])}. Before the fixes: {esc(c['fails_on_old'])}. Counts: {esc(c['counts'])}.</p>
+<h4>The earlier findings, as Codex round 3 re-read them <small>({len(AUDIT3_EARLIER) - len(AUDIT3_PARTLY)} fixed, {len(AUDIT3_PARTLY)} partly; each partly one is completed by a new finding's fix)</small></h4>
+<ol class="r1s">{earlier}</ol>
+<h4>Round 3's {len(AUDIT3_ROWS)} new findings</h4>
+<div class="ahead"><span>#</span><span>Severity</span><span>Codex's finding · what the verifier measured after the fix</span><span>Fixed?</span></div>
+<ol class="audit">{items}</ol>
+{figs}
+<h4>Also closed in e0bd8e5: verify-7's open items</h4>
+<ul class="open">{also}</ul>
+<h4>Still open (none blocking; each re-read from the tree when this page was built, {R7_PROBES} probes)</h4>
+<ul class="open">{left}</ul>
+<h4>What verify-9 noticed but did not count as a failure</h4>
+<ul class="open">{notes}</ul>"""
+
+
+DECISION_R7 = f"""
+<ul>
+  <li><strong>Done and proved</strong> (verify-8 for e0bd8e5 and verify-9 for this wave, measure-only re-checks by separate Claude agents; neither made product edits):
+    <ul>
+      <li><b>Codex round 3:</b> all {len(AUDIT3_ROWS)} new findings fixed, {_nums(AUDIT3_WHERE['e0bd8e5'])} in e0bd8e5 and {_nums(AUDIT3_WHERE['this wave'])} in this wave, and the {len(AUDIT3_PARTLY)} partly fixed earlier findings completed by them. Each re-probed Codex's way or harder, each with a test at the consumer that fails without its fix. Table at the top.</li>
+      <li><b>For this page:</b> every evidence link opens only the file this Needs document recorded (/needs/evidence with its eid and revision), never /media; a changed document answers 409 and shows the reload line. verify-9 clicked all 9 N6 links on kinsim and rig, and an HTTP pass served the reviewed bytes for 36 of 36 servable entries. Video and large files now seek (Range) and have no size cap.</li>
+      <li><b>Current product:</b> variant A is the only dashboard (B and C retired in 56c75c0) and N6 is the default Needs page, N1–N5 still selectable. VARIANTS.md, BRIEF.md and VARIANT-KIT.md mark the older proposals archived; NEEDS-KIT.md describes A + N6.</li>
+      <li><b>Regressions checked:</b> {esc(AUDIT3['checks']['counts'])}; {esc(AUDIT3['checks']['overflow'])}; {esc(AUDIT3['checks']['rename'])}.</li>
+      <li><b>Build:</b> pytest {esc(AUDIT3['checks']['pytest'])}; unittest {esc(AUDIT3['checks']['unittest'])}; backend {esc(AUDIT3['checks']['backend'])}; tsc clean; node checks {esc(AUDIT3['checks']['node_checks'])}; browser checks {esc(AUDIT3['checks']['browser_checks'])}.</li>
+    </ul></li>
+  <li><strong>Left</strong> (next; none blocked on you):
+    <ul>
+      <li><b>Codex round 4</b> on this tree ({esc(AUDIT3['tree_after'])}). It runs next; both reports are re-shared before it starts.</li>
+      <li>Still open, none blocking: PROJECTION.md's stale '413' line; <code>scripts/shoot.mjs</code>'s dead <code>--variant</code>; the track pages' /media URLs still take their revision from one shared map; a 404 or 403 keeps 'Open in new tab'; two switcher comments; the roadmap worktree's V1 bridge test.</li>
+      <li>From earlier rounds, not re-measured: on N6 at 1280 × 800 rig T2's note box loses its bottom 8 px; N6's deployment lane says 'loop' twice.</li>
+    </ul></li>
+  <li><strong>Needs you</strong> (each has the default I take if you say nothing):
+    <ol>
+      <li><b>Fix the still-open items before Codex round 4 reads the tree?</b> Recommendation: yes for the shared revision map on the track pages, which Codex would read as the same class as finding 1, and the two doc lines; the rest can ride. Default: round 4 runs on this tree, with them listed for it.</li>
+      <li><b>Commit the wave</b> on <code>claude/vibetracks-dashboard</code>? Recommendation: yes, now, so a peer's <code>stash -u</code> cannot take 30 uncommitted paths; round 4 can audit the commit. Default: left uncommitted.</li>
+      <li><b>Retire N2–N5 from the chooser</b> the way B and C went? Recommendation: yes, keep N1 as the calm comparison. Default: all six stay selectable.</li>
+      <li><b>Your existing drafts still show the stale notice.</b> Recommendation: discard them and answer again on N6. Default: they stay stale and are never copied.</li>
+    </ol></li>
+  <li><strong>Deliberately not done:</strong> no re-judge of N6, so its scores are the judges' round 2 ({MEAN2['N6']:.0f} against N1's {MEAN2['N1']:.0f}). Nothing is sent; answers only copy out. No commits, no vault edits. The still-open items were not fixed in this pass; the reports only record them.</li>
 </ul>
 """
 
@@ -1031,6 +1180,8 @@ ol.r1s{list-style:none;margin:0 0 18px;padding:0;max-width:1080px}
   border-bottom:1px solid var(--line);font-size:13px}
 .r1w{color:var(--dim)} .r1w.partly{color:var(--fg);font-weight:700} .r1note{color:var(--dim);min-width:0;overflow-wrap:anywhere}
 .r1now{color:var(--fg)}
+.r1row.r3{grid-template-columns:3.4em 5.5em minmax(0,1fr) 12em} .afix small{font-weight:400;color:var(--dim2)}
+@media(max-width:700px){.r1row.r3{grid-template-columns:3.4em minmax(0,1fr)}}
 @media(max-width:700px){.r1row{grid-template-columns:2.2em minmax(0,1fr);row-gap:2px}.r1note,.r1now{grid-column:1 / -1}}
 """
 
@@ -1140,14 +1291,14 @@ def build() -> str:
 
     if N6_LEADS:
         verdict = (
-            f"verify-6's leftovers are closed: {R6_PASS} of {len(R6_ITEMS)} re-measured by verify-7, with the docs partly. "
-            f"A title's edge spaces and markup now copy out exactly (168 of 168 cases), /needs is read once per page, "
-            f"/media links answer only for the revision you are looking at, and variants B and C are gone at your pick of A "
-            f"(recoverable from git). Still open: /projection is read 4 times per first load, the real-and-sim video pair "
-            f"shows dead players on a 409, and grasping's gallery media always 404. N6 stays the default ({MEAN2['N6']:.0f} vs "
-            f"N1's {MEAN2['N1']:.0f}). Codex round 3 runs next; nothing here is Codex-approved yet."
+            f"Codex round 3 ({AUDIT3['auditor']}, on a frozen snapshot of {AUDIT3['audited_sha']}) returned FAIL with "
+            f"{len(AUDIT3_ROWS)} new findings; all {AUDIT3_PASS} are fixed and re-measured, {_nums(AUDIT3_WHERE['e0bd8e5'])} in "
+            f"e0bd8e5 and {_nums(AUDIT3_WHERE['this wave'])} in this wave (uncommitted). On this page every evidence link now "
+            f"opens only the file the Needs document recorded, never a newer one through /media, and grasping's verdict and "
+            f"rows come from the same ledger bytes. Variant A is the only dashboard (B and C retired) and N6 is the default "
+            f"({MEAN2['N6']:.0f} vs N1's {MEAN2['N1']:.0f}). Codex round 4 runs next; nothing here is Codex-approved yet."
         )
-        h1 = "Vibe Tracks Needs-you: verify-6's leftovers are closed, Codex round 3 next"
+        h1 = "Vibe Tracks Needs-you: Codex round 3's findings are fixed, round 4 next"
     else:
         verdict = (
             f"N6 · {D.N6['name']} still scores below N1: {MEAN2['N6']:.0f} against {MEAN2['N1']:.0f} (N2 "
@@ -1159,11 +1310,13 @@ def build() -> str:
     # N6 leading. If a re-judge flips the order, the brief's rule applies (make N1 the default page, keep N6
     # selectable) and the ask, the recommendation and the numbers in it all need rewriting, not one phrase.
     assert N6_LEADS, "N6 trails N1: rewrite DECISION_R2's first ask to 'make N1 the default page and keep N6 selectable'"
-    decision = DECISION_R6
-    # WHY round 6 leads and Codex round 2 folds under it: this round is what Codex round 3 will read; round 2's table
-    # is the record of how the tree got here, one click deeper (calm first screen).
-    audit = (round6_html() + '<details class="limits"><summary>Codex round 2: its findings on b53567e, their fixes and '
-             "verify-6's evidence</summary>" + audit2_html(AUDIT2_STILLS, AUDIT_STILLS) + "</details>")
+    decision = DECISION_R7
+    # WHY round 3 leads and the older rounds fold under it: this round is what Codex round 4 will read; round 6 (the tree
+    # Codex round 3 audited) and round 2 are the record of how the tree got here, one click deeper (calm first screen).
+    audit = (audit3_html()
+             + f'<details class="limits"><summary>Round 6: verify-6\'s leftovers, the tree Codex round 3 audited ({R6_TREE})</summary>'
+             + round6_html() + '<details class="limits"><summary>Codex round 2: its findings on b53567e, their fixes and '
+             "verify-6's evidence</summary>" + audit2_html(AUDIT2_STILLS, AUDIT_STILLS) + "</details></details>")
     # grid first, so GRID_USED is known when the details pick their extra stills; the page below places them in order.
     videos = videos_html()
     grid = grid_html()
@@ -1181,17 +1334,17 @@ def build() -> str:
 <body><div class="wrap">
 
 <header class="top">
-  <div class="date">2026-10-05 · round 6: verify-6's leftovers closed, before Codex round 3</div>
+  <div class="date">2026-10-05 · Codex round 3's findings fixed and re-measured, before Codex round 4</div>
   <h1>{esc(h1)}</h1>
   <p class="verdict">{esc(verdict)}</p>
-  <p class="built">Built on the live lane at 127.0.0.1:4390 against the real /needs data · answers only ever copy out, nothing is sent · branch claude/vibetracks-dashboard at d579e39 (the round-2 fixes, committed) plus this round's changes, uncommitted · N1–N5 scored by two judges in the first wave; N6 vs N1 vs N2 re-judged in round 2 (not since) · Codex round 1 audited 3e90b94 (FAIL, 13 findings), Codex round 2 audited b53567e (FAIL, 3 partly + 7 new; all fixed in d579e39) · verify-7 re-measured round 6's six items (5 closed, docs partly; 299 pytest, tsc clean) · Codex round 3 next · browser-only (over the desktop preview's size cap).</p>
+  <p class="built">Built on the live lane at 127.0.0.1:4390 against the real /needs data · answers only ever copy out, nothing is sent · branch claude/vibetracks-dashboard at e0bd8e5 (Codex round 3's findings 3 and 4, committed) plus this wave's fixes for 1, 2 and 5, uncommitted · variant A only (B and C retired in 56c75c0); N6 is the default Needs page, N1–N5 selectable · N1–N5 scored by two judges in the first wave; N6 vs N1 vs N2 re-judged in round 2 (not since) · Codex round 1 audited 3e90b94 (FAIL, 13 findings), round 2 audited b53567e (FAIL, 3 partly + 7 new; fixed in d579e39), round 3 audited 56c75c0 (FAIL, 3 partly + 5 new; fixed in e0bd8e5 and this wave) · verify-9 re-measured this wave (308 pytest, tsc clean, 8 of 8 browser checks) · Codex round 4 next · browser-only (over the desktop preview's size cap).</p>
   <div class="launch"><pre id="launch-cmd">{esc(LAUNCHER)}</pre><button id="copy-launch" type="button">Copy</button></div>
   <div class="reach">
     <h4>How to reach it</h4>
     <ol>
       <li>Run the launcher above. It starts or reuses this checkout's lane and opens the dashboard.</li>
       <li>Click a <strong>Needs you</strong> cell on home or a track page (one click lands on card 1 of N6), or paste <code>#vt?track=kinsim&amp;needs=1</code> after the dashboard URL (<code>{esc(DASH_URL)}</code>). <code>track=rig</code> gives the six rig asks, and no track gives all nine.</li>
-      <li>N6 opens unless you picked another. The pill in the review bar at the bottom right ("Needs you N6 · Lane + context ▾") switches between N1 and N6 and remembers the pick.</li>
+      <li>N6 opens unless you picked another. The pill at the bottom right ("Needs you N6 · Lane + context ▾") is the only one left now that the A · B · C layout pill is retired; it switches between N1–N6 and remembers the pick.</li>
     </ol>
   </div>
 </header>
@@ -1221,8 +1374,9 @@ def build() -> str:
 
 <section id="decide">
   <h2>Decision</h2>
-  <p class="lead">After verify-6's leftovers were closed, before Codex round 3. The first-wave sections for N1–N5 follow it.</p>
+  <p class="lead">After Codex round 3's findings were fixed and re-measured, before Codex round 4. The first-wave sections for N1–N5 follow it.</p>
   <div class="decide">{decision}</div>
+  <details class="limits"><summary>Round 6's decision packet, before Codex round 3 (superseded: round 3 ran, and its open items closed in e0bd8e5)</summary>{DECISION_R6}</details>
   <details class="limits"><summary>Round 5's decision packet, after Codex round 2 (superseded: its siblings and 390 px pages are closed)</summary>{DECISION_R5}</details>
   <details class="limits"><summary>Round 4's decision packet, after Codex round 1 (superseded)</summary>{DECISION_R4}</details>
   <details class="limits"><summary>Round 3's decision packet (superseded: its two 'Left' failures are fixed)</summary>{D.DECISION_R3}</details>

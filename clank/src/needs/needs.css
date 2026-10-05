@@ -2,8 +2,7 @@
    Proposals root their CSS in .vt-dash .vt-needs-n<k> inside their own folder. */
 @layer base {
   /* The chooser is one pill that opens its list upward. Docked (below), it sits in the review bar; floating (no bar),
-     it takes the A · B · C switcher's corner, which Dashboard.tsx leaves empty on the needs page (A · B · C has no
-     effect there), so the corner it covers stays small. */
+     it takes the bottom-right corner (the retired A · B · C switcher's), so the corner it covers stays small. */
   .vt-dash .vt-switcher.vt-needs-switcher {
     bottom: 14px;
     flex-direction: column;
@@ -32,8 +31,7 @@
     color: var(--vt-faint);
   }
   /* Docked in Dashboard.tsx's review bar (#vt-review-bar), the bar's own rules in calm.css place the pill: static,
-     left of A · B · C, hairline only, its list growing upward out of the fixed-height bar. Nothing here overrides
-     them, so the two pills read as one kind of control. */
+     hairline only, its list growing upward out of the fixed-height bar. Nothing here overrides them. */
   /* WHY 80px of bottom padding, only while the pill floats (no review bar): it then sits over the bottom-right corner
      (bottom 14px, ~31px tall, so its top edge is ~45px up). At max scroll the last answer control must sit above it,
      never under it (measured with elementFromPoint, every proposal × kinsim and rig). Docked, nothing covers the page

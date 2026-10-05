@@ -218,6 +218,50 @@ class RowDigestTest(unittest.TestCase):
             self.assertFalse((cache / grasp_bench_bridge.VERDICT_CACHE_NAME).exists())
 
 
+class SubsetsTest(unittest.TestCase):
+    """The additive parts the dashboard adapter uses: ``subsets`` named by line_sha256, ``clears_gate``, ``info``.
+
+    WHY content addresses (Codex r3 finding 2): the adapter names the rows it parsed and displays; a row changed since
+    its read has another digest, so the bench can only judge the bytes the page shows, or say they are ``missing``.
+    """
+
+    def test_a_subset_is_judged_over_exactly_its_digests_and_reports_what_the_snapshot_lacks(self) -> None:
+        with tempfile.TemporaryDirectory() as folder:
+            bench = make_bench(Path(folder) / "grasp_bench")
+            first, second = digests(bench / "out" / "ledger" / "runs.jsonl")
+            stranger = "0" * 64
+            info: dict = {}
+            result = grasp_bench_bridge.verdict(bench, cache_dir=Path(folder) / "cache", info=info,
+                                                subsets={"only-b": [second], "both": [first, second, stranger]})
+            self.assertIsNone(result["error"], result["error"])
+            only_b, both = result["snapshots"]["only-b"], result["snapshots"]["both"]
+            self.assertEqual(only_b["headline"], {"m@toy/b": "1"})
+            self.assertEqual((only_b["envs"]["toy/a"]["best_run"], only_b["envs"]["toy/a"]["beaten"]), (None, False))
+            self.assertEqual(only_b["missing"], [])
+            self.assertEqual((both["envs"]["toy/a"]["best_run"], both["envs"]["toy/a"]["beaten"]), ("0", True))
+            self.assertEqual(both["missing"], [stranger])
+            self.assertEqual([result["runs"][key]["clears_gate"] for key in ("0", "1")], [True, False])
+            self.assertEqual((info["cached"], info["computed_at"] is not None), (False, True))
+
+            again: dict = {}
+            self.assertEqual(grasp_bench_bridge.verdict(bench, cache_dir=Path(folder) / "cache", info=again,
+                                                        subsets={"only-b": [second], "both": [first, second, stranger]}),
+                             result)
+            self.assertTrue(again["cached"])
+
+    def test_without_subsets_the_document_is_unchanged_and_the_caches_do_not_evict_each_other(self) -> None:
+        with tempfile.TemporaryDirectory() as folder:
+            bench = make_bench(Path(folder) / "grasp_bench")
+            cache = Path(folder) / "cache"
+            counter = Counting()
+            with mock.patch.object(grasp_bench_bridge.subprocess, "run", side_effect=counter):
+                whole = grasp_bench_bridge.verdict(bench, cache_dir=cache)
+                grasp_bench_bridge.verdict(bench, cache_dir=cache, subsets={"T1": digests(bench / "out" / "ledger" / "runs.jsonl")})
+                self.assertEqual(grasp_bench_bridge.verdict(bench, cache_dir=cache), whole)
+            self.assertEqual(set(whole), {"schema", "envs", "runs", "headline", "bench_head", "error"})
+            self.assertEqual(counter.runs, 2, "the projector's whole-ledger entry survives a subset request")
+
+
 @unittest.skipUnless(LIVE_PYTHON.exists(), f"no bench venv at {LIVE_PYTHON}")
 class LiveBenchTest(unittest.TestCase):
     def test_the_verdict_is_what_the_bench_reports_itself(self) -> None:

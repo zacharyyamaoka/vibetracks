@@ -713,3 +713,57 @@ test('NEEDS-KIT.md documents every `exact …:` label the exporter writes, and i
   const stamp = /^(# Answers · Rig <can16> & bench · )\d{4}-\d\d-\d\d \d\d:\d\d(?: \S+)?$/m
   assert.equal(example.replace(stamp, '$1<time>'), markdown.replace(stamp, '$1<time>'))
 })
+
+test('NEEDS-KIT.md export examples (kinsim T47, rig T2, rig T2 with CRLF words) are the real exporter output', async () => {
+  // Codex audit 2026-10-05 round 3, finding 5: every example in the docs is regenerated from the real code. These are
+  // the live kinsim T47 and rig T2 as /needs served them on 2026-10-05 (title, recommendation, source, channel); the
+  // heading's local time and the row's ts are compared by shape only.
+  const { readFile } = await import('node:fs/promises')
+  const kit = await readFile(new URL('../../../docs/dashboard/NEEDS-KIT.md', import.meta.url), 'utf8')
+  const t47Words = "Keep the motor settings (your brief) and redefine BT4's gate as 'every object scored, 0 exceptions, every skip logged'; BT3's 1.0 m/s end follows the same rule, while its 0.5 m/s end keeps the ratchet. K1 already meets 'every object scored, 0 exceptions' (1000/1000 scored, exit 0)."
+  const t2Words = 'Approve the diff the first bench window shows you; until then RAM-only config with readback.'
+  const crlfWords = '  Approve the diff.\r\nThen read it back.  '
+  const withRecommendation = (id, title, words) =>
+    makeItem({
+      id,
+      local_id: id.split(':')[1],
+      title,
+      ask: title,
+      recommendation_md: words,
+      options: [option('accept_recommendation', 'Go with the recommendation', words), option('other', 'Something else (write it)', null, { needs_note: true })],
+    })
+  const kinsimDoc = (items) => ({
+    ...makeDoc(items, { target: '/home/bam/.local/share/bam_curriculum/triage_answers.jsonl' }),
+    source: { adapter: 'kinsim', paths: ['/x/triage.json'], commit: 'eff3ea86', live: true, note: null },
+  })
+  const rigDoc = (items) => ({
+    ...makeDoc(items, { kind: 'chat_paste', target: "the rig loop's integrator (/loop session)", row_schema: null }),
+    track: 'rig',
+    track_title: 'Sim to Real & Trajectory Tracking',
+    source: { adapter: 'rig', paths: ['/x/triage.json'], commit: '64380bbc', live: true, note: null },
+  })
+  const exportOne = (doc, item, note) => exporter.exportTrack(doc, () => rules.boundDraft(item, 'accept_recommendation', note, NOW), NOW).markdown
+  const shape = (text) =>
+    text.replace(/^(# Answers · .+ · )\d{4}-\d\d-\d\d \d\d:\d\d(?: \S+)?$/m, '$1<time>').replace(/"ts":"[^"]+"/g, '"ts":"<ts>"')
+  /** The fenced example in NEEDS-KIT.md that starts with `firstLine`, up to its closing ```` fence. */
+  const example = (firstLine, from = 0) => {
+    const start = kit.indexOf(firstLine, from)
+    assert.ok(start > 0, `NEEDS-KIT.md has an example starting ${JSON.stringify(firstLine)}`)
+    return { text: kit.slice(start, kit.indexOf('\n````', start)), start }
+  }
+  /** The exporter's output from the item's heading on (the docs show rig's examples from `## T2` down). */
+  const fromHeading = (markdown) => markdown.slice(markdown.indexOf('## '))
+
+  const t47 = withRecommendation('kinsim:T47', 'Should this robot be expected to pick at 1.0 m/s and above?', t47Words)
+  const kinsim = example('# Answers · Kinematic Sim · ')
+  assert.equal(shape(kinsim.text), shape(exportOne(kinsimDoc([t47]), t47, 'Keep the motor limits; also log the skip reason per object.')))
+
+  const title = 'Flash diff on controller 192551cb (plan D2)'
+  const t2 = withRecommendation('rig:T2', title, t2Words)
+  const plain = example(`## T2 · ${title}`)
+  assert.equal(plain.text, fromHeading(exportOne(rigDoc([t2]), t2, 'ok, but log the readback')))
+
+  const t2crlf = withRecommendation('rig:T2', title, crlfWords)
+  const crlf = example(`## T2 · ${title}`, plain.start + 1)
+  assert.equal(crlf.text, fromHeading(exportOne(rigDoc([t2crlf]), t2crlf, 'ok, but log\r\nthe readback')))
+})

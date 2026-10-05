@@ -1,4 +1,4 @@
-"""Both bridge caches re-run the bench when ANY module its verdict imported changes (audit 2026-10-04, finding 2).
+"""The bridge cache re-runs the bench when ANY module its verdict imported changes (audit 2026-10-04, finding 2).
 
 WHY a fake bench and not the live one: the live failure was registry.py, a module neither cache watched, moving the
 bench's own verdict from 6 beaten envs to 2. A tiny bench whose gallery imports a registry module reproduces exactly
@@ -121,7 +121,7 @@ class Counting:
         self.real = subprocess.run
 
     def __call__(self, args, *rest, **kwargs):
-        if any(arg in (grasp_bench_bridge.SCRIPT, grasp_bench_bridge.VERDICT_SCRIPT) for arg in args):
+        if grasp_bench_bridge.VERDICT_SCRIPT in args:
             self.runs += 1
         return self.real(args, *rest, **kwargs)
 
@@ -178,34 +178,6 @@ class VerdictV2DependencyTest(unittest.TestCase):
                 (bench / "out" / "ledger" / "attestations.jsonl").write_text("{}\n", encoding="utf-8")
                 grasp_bench_bridge.verdict(bench, cache_dir=cache)
             self.assertEqual(counter.runs, 2)
-
-
-class BenchVerdictV1DependencyTest(unittest.TestCase):
-    def paths(self, bench: Path, cache: Path) -> grasp_bench_bridge.BenchPaths:
-        code = bench / "src" / "grasp_bench"
-        return grasp_bench_bridge.BenchPaths(
-            python=str(bench / ".venv" / "bin" / "python"), ledger=str(bench / "out" / "ledger" / "runs.jsonl"),
-            attestations=str(bench / "out" / "ledger" / "attestations.jsonl"), gallery_py=str(code / "gallery.py"),
-            ledger_py=str(code / "ledger.py"), curriculum_py=str(code / "curriculum.py"),
-            runner_py=str(code / "runner.py"), contracts_py=str(code / "contracts.py"), cache_dir=str(cache))
-
-    def test_touching_only_an_imported_module_misses_the_cache_and_recomputes(self) -> None:
-        with tempfile.TemporaryDirectory() as folder:
-            bench = make_bench(Path(folder) / "grasp_bench")
-            paths = self.paths(bench, Path(folder) / "cache")
-            subsets = {"T1": ["r0", "r1"]}
-            first = grasp_bench_bridge.bench_verdict(paths, subsets)
-            self.assertTrue(first.ok, first.reason)
-            self.assertFalse(first.cached)
-            self.assertTrue(first.doc["snapshots"]["T1"]["envs"]["toy/a"]["beaten"])
-            self.assertTrue(grasp_bench_bridge.bench_verdict(paths, subsets).cached)
-
-            mutate(bench / "src" / "grasp_bench" / "registry.py", "0.5", "0.9")
-            second = grasp_bench_bridge.bench_verdict(paths, subsets)
-            self.assertTrue(second.ok, second.reason)
-            self.assertFalse(second.cached, "a changed registry.py must be a cache miss")
-            self.assertFalse(second.doc["snapshots"]["T1"]["envs"]["toy/a"]["beaten"])
-            self.assertTrue(grasp_bench_bridge.bench_verdict(paths, subsets).cached)
 
 
 if __name__ == "__main__":

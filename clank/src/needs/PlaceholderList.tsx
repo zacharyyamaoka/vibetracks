@@ -55,7 +55,7 @@ function TrackBlock({ doc, ...props }: Omit<NeedsProposalProps, 'doc'> & { doc: 
   )
 }
 
-function ItemRow({ doc, item, answers, backend, projection }: Omit<NeedsProposalProps, 'doc'> & { doc: NeedsDoc; item: NeedsItem }) {
+function ItemRow({ doc, item, answers, backend }: Omit<NeedsProposalProps, 'doc'> & { doc: NeedsDoc; item: NeedsItem }) {
   const draft = answers.get(doc.track, item.local_id)
   const choose = (choice: Choice) => answers.set(doc.track, item.local_id, { choice: draft?.choice === choice ? null : choice })
   return (
@@ -78,7 +78,7 @@ function ItemRow({ doc, item, answers, backend, projection }: Omit<NeedsProposal
       {item.evidence.length ? (
         <p className="vt-small vt-needs-evidence-row">
           {item.evidence.map((_, index) => (
-            <EvidenceLink key={index} backend={backend} doc={doc} item={item} index={index} projection={projection} />
+            <EvidenceLink key={index} backend={backend} doc={doc} item={item} index={index} />
           ))}
         </p>
       ) : null}

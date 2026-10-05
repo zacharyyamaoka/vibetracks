@@ -275,8 +275,8 @@ export default function NeedsN2(props: NeedsProposalProps) {
     }
   }
 
-  // WHY capture phase + preventDefault: the dashboard's own window listener turns 1/2/3 into the A · B · C layout
-  // switch; here they answer, and the dashboard skips a key that was already handled.
+  // WHY capture phase + preventDefault: 1/2/3 answer here, and a window listener elsewhere (Clank's, or the dashboard's
+  // A · B · C switch while it existed, retired 2026-10-05) skips a key that was already handled.
   const keyHandler = useRef(onKeyDown)
   keyHandler.current = onKeyDown
   useEffect(() => {
@@ -535,7 +535,7 @@ interface ItemPaneProps extends NeedsProposalProps {
   onNext(): void
 }
 
-function ItemPane({ entry, answers, backend, projection, noteRef, later, onChoose, onLater, onNext, docs }: ItemPaneProps) {
+function ItemPane({ entry, answers, backend, noteRef, later, onChoose, onLater, onNext, docs }: ItemPaneProps) {
   const { doc, item } = entry
   const titleRef = useRef<HTMLHeadingElement>(null)
   const draft = answers.get(doc.track, item.local_id)
@@ -732,7 +732,7 @@ function ItemPane({ entry, answers, backend, projection, noteRef, later, onChoos
           <ul className="n2-evidence vt-small" data-testid="n2-evidence">
             {item.evidence.map((_, index) => (
               <li key={index}>
-                <EvidenceLink backend={backend} doc={doc} item={item} index={index} projection={projection} />
+                <EvidenceLink backend={backend} doc={doc} item={item} index={index} />
               </li>
             ))}
           </ul>

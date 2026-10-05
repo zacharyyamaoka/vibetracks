@@ -6,19 +6,24 @@ The adapter no longer decides any verdict: grasp_bench_bridge runs the bench's o
 hand it a FAKE bridge (no bench venv needed) whose verdict table is written out by hand below, one row per rule: a
 frozen run that clears its gate (beaten), a smoke run that clears it (provisional, not beaten), an oracle that clears
 it (cannot beat an env), a floor below gate, a second training seed (its own phase), and a "needs" cell that asks for a
-download approval. The fake also asserts the adapter asks for exactly the cumulative phase subsets. The live test
-checks the real bridge's answer against the bench's gallery run independently.
+download approval. The fake also asserts the adapter asks for exactly the cumulative phase subsets, named by each
+row's line_sha256. RaceTest runs the REAL adapter and the REAL bridge on a verbatim copy of the live bench while a
+writer enriches a sparse row between the adapter's read and the bench's (Codex r3 finding 2). The live test checks the
+real bridge's answer against the bench's gallery run independently.
 """
 
 from __future__ import annotations
 
+import hashlib
 import json
 import os
 import subprocess
 import tempfile
 import unittest
 from pathlib import Path
+from unittest import mock
 
+from tests.test_grasp_bench_bridge_snapshot import ENRICHED, SPARSE, make_real_bench
 from vibetracks.dashboard import registry
 from vibetracks.benches import grasp_bench_bridge
 from vibetracks.dashboard.adapters import base, grasping
@@ -134,41 +139,64 @@ PHASES = {
 }
 
 
-def _brief(index: int | None) -> dict | None:
-    if index is None:
-        return None
-    r = ROWS[index]
-    return {"run_id": r["run_id"], "cell_id": r["cell_id"], "model": r["model"], "env": r["env"], "value": r["value"],
-            "ci_lo": r["ci_lo"], "n": r["n"], "started_at": r["started_at"], "frozen": JUDGED[index][0],
-            "privileged": JUDGED[index][1]}
+def _digest(index: int) -> str:
+    """The bridge's line_sha256 of ROWS[index] as the fixture ledger writes it (json.dumps + "\\n")."""
+    return hashlib.sha256(json.dumps(ROWS[index]).encode("utf-8")).hexdigest()
 
 
-def fixture_doc() -> dict:
+def _ref(index: int | None) -> str | None:
+    return None if index is None else str(index)
+
+
+def fixture_doc(present: set[str], subsets: dict) -> dict:
+    """grasp-bench-verdict/2 over ROWS, as verdict(subsets=...) prints it; ``present`` = the digests in its snapshot."""
+
     return {
-        "schema": grasp_bench_bridge.SCHEMA, "modules": {}, "attestations_path": "", "ledger_rows": len(ROWS),
-        "duplicate_run_ids": [], "gated": ["toy/x", "mujoco/stage0", "mujoco/stage1"],
-        "runs": {_rid(i): {"frozen": f, "privileged": p, "clears_gate": c, "provenance_gap": g, "schema_version": 2}
-                 for i, (f, p, c, g) in JUDGED.items()},
-        "snapshots": {pid: {"heads": {ROWS[i]["cell_id"]: _brief(i) for i in spec["heads"]}, "missing": [],
-                            "envs": {env: {"beaten": b, "provisional": pv, "best_run": _brief(best)}
-                                     for env, (b, pv, best) in spec["envs"].items()}}
+        "schema": grasp_bench_bridge.VERDICT_SCHEMA, "bench_head": None, "error": None,
+        "runs": {str(i): {"frozen": f, "privileged": p, "clears_gate": c, "gap": g, "line_sha256": _digest(i),
+                          "env": ROWS[i]["env"], "model": ROWS[i]["model"], "started_at": ROWS[i]["started_at"]}
+                 for i, (f, p, c, g) in JUDGED.items() if _digest(i) in present},
+        "envs": {env: {"beaten": b, "provisional": pv, "best_run": _ref(best)}
+                 for env, (b, pv, best) in PHASES["T1-s1"]["envs"].items()},
+        "headline": {ROWS[i]["cell_id"]: str(i) for i in PHASES["T1-s1"]["heads"]},
+        "snapshots": {pid: {"headline": {ROWS[i]["cell_id"]: str(i) for i in spec["heads"]},
+                            "envs": {env: {"beaten": b, "provisional": pv, "best_run": _ref(best)}
+                                     for env, (b, pv, best) in spec["envs"].items()},
+                            "missing": sorted(set(subsets.get(pid, [])) - present)}
                       for pid, spec in PHASES.items()},
     }
 
 
 class FakeBridge:
-    """Stands in for grasp_bench_bridge.bench_verdict: a canned verdict, or a canned reason it is unavailable."""
+    """Stands in for grasp_bench_bridge.verdict: a canned verdict over the ledger bytes it finds, or a canned error."""
 
     def __init__(self, test: unittest.TestCase, reason: str | None = None) -> None:
         self.test, self.reason, self.calls = test, reason, []
 
-    def __call__(self, paths: grasp_bench_bridge.BenchPaths, subsets: dict) -> grasp_bench_bridge.BridgeResult:
+    def __call__(self, bench: Path, *, cache_dir: str, subsets: dict, info: dict) -> dict:
         self.calls.append(subsets)
+        info.update(cached=False, seconds=0.0, bench_seconds=0.0, computed_at=None)
         if self.reason is not None:
-            return grasp_bench_bridge.BridgeResult(None, self.reason, seconds=0.0)
-        # The adapter must ask the bench about exactly the cumulative rows of each phase.
-        self.test.assertEqual(subsets, {pid: [_rid(i) for i in spec["rows"]] for pid, spec in PHASES.items()})
-        return grasp_bench_bridge.BridgeResult(fixture_doc(), seconds=0.0, run_seconds=0.0)
+            return {"schema": grasp_bench_bridge.VERDICT_SCHEMA, "envs": {}, "runs": {}, "headline": {},
+                    "bench_head": None, "error": self.reason}
+        # The adapter must ask the bench about exactly the cumulative rows of each phase, named by their digests.
+        self.test.assertEqual(subsets, {pid: [_digest(i) for i in spec["rows"]] for pid, spec in PHASES.items()})
+        ledger = Path(bench) / "out" / "ledger" / "runs.jsonl"
+        present = {hashlib.sha256(line).hexdigest() for line in ledger.read_bytes().splitlines()}
+        return fixture_doc(present, subsets)
+
+
+def bench_sources(root: Path) -> dict[str, str]:
+    """Every sources.py key the adapter declares, laid out as the bench lays them out under ``root``."""
+
+    code = root / "src" / "grasp_bench"
+    return {"grasping_ledger": str(root / "out" / "ledger" / "runs.jsonl"),
+            "grasping_curriculum": str(code / "curriculum.py"), "grasping_out_dir": str(root / "out"),
+            "grasping_bench_python": str(root / ".venv" / "bin" / "python"),
+            "grasping_attestations": str(root / "out" / "ledger" / "attestations.jsonl"),
+            "grasping_gallery_py": str(code / "gallery.py"), "grasping_ledger_py": str(code / "ledger.py"),
+            "grasping_runner_py": str(code / "runner.py"), "grasping_contracts_py": str(code / "contracts.py"),
+            "grasping_bench_src": str(code), "grasping_verdict_cache": str(root / "cache")}
 
 
 def work_track() -> WorkTrack:
@@ -188,8 +216,8 @@ class FixtureTest(unittest.TestCase):
         self.ledger = root / "out" / "ledger" / "runs.jsonl"
         self.ledger.write_text("".join(json.dumps(r) + "\n" for r in ROWS) + "not json\n", encoding="utf-8")
         self.out = root / "out"
-        self.sources = {"grasping_ledger": str(self.ledger), "grasping_curriculum": str(self.curriculum),
-                        "grasping_out_dir": str(self.out)}
+        self.root = root
+        self.sources = bench_sources(root)
 
     def tearDown(self) -> None:
         self.tmp.cleanup()
@@ -370,109 +398,161 @@ class FixtureTest(unittest.TestCase):
         self.assertNotIn("provisional", statuses)
 
     def test_the_real_bridge_without_a_venv_says_so(self) -> None:
-        sources = dict(self.sources, grasping_bench_python=str(self.out / "no-venv" / "python"),
-                       grasping_attestations=str(self.ledger.parent / "attestations.jsonl"),
-                       grasping_gallery_py=str(self.curriculum), grasping_ledger_py=str(self.curriculum),
-                       grasping_runner_py=str(self.curriculum), grasping_contracts_py=str(self.curriculum),
-                       grasping_verdict_cache=str(self.out / "cache"))
-        track = grasping.build_track(work_track(), sources)   # the real bench_verdict, no fake
+        track = grasping.build_track(work_track(), self.sources)   # the real verdict(), no fake
         self.assertEqual(base.problems(track), [])
         self.assertEqual(self.kpi(track, "envs_beaten")["values"][-1]["note"],
-                         f"bench verdict unavailable: bench venv missing: {self.out / 'no-venv' / 'python'}")
-        undeclared = grasping.build_track(work_track(), self.sources)
-        self.assertIn("vibe-sources lacks", self.kpi(undeclared, "envs_beaten")["values"][-1]["note"])
+                         f"bench verdict unavailable: bench venv missing: {self.root / '.venv' / 'bin' / 'python'}")
+        undeclared = dict(self.sources)
+        del undeclared["grasping_bench_src"]
+        track = grasping.build_track(work_track(), undeclared)
+        self.assertIn("vibe-sources lacks grasping_bench_src", self.kpi(track, "envs_beaten")["values"][-1]["note"])
+
+    def test_a_declared_input_outside_the_bench_is_refused(self) -> None:
+        # WHY: verdict() reads the bench's own gallery.py by layout; a declared copy elsewhere would be the file the
+        # build watches while the bench decided with another.
+        elsewhere = self.root / "elsewhere.py"
+        elsewhere.write_text("", encoding="utf-8")
+        track = self.build(FakeBridge(self))
+        self.assertTrue(track["source"]["bench_verdict"]["ok"])
+        track = grasping.build_track(work_track(), dict(self.sources, grasping_gallery_py=str(elsewhere)),
+                                     bridge=FakeBridge(self))
+        self.assertIn(f"grasping_gallery_py {elsewhere} is not the bench's", track["source"]["problems"][0])
+        self.assertIsNone(self.kpi(track, "envs_beaten")["values"][-1]["value"])
 
     def test_a_verdict_that_misses_rows_is_not_used(self) -> None:
         class Partial(FakeBridge):
-            def __call__(self, paths, subsets):
-                result = super().__call__(paths, subsets)
-                del result.doc["runs"][_rid(8)]
-                return result
-        track = self.build(Partial(self))
+            def __call__(self, *args, **kwargs):
+                doc = super().__call__(*args, **kwargs)
+                del doc["runs"]["8"]
+                return doc
+        bridge = Partial(self)
+        track = self.build(bridge)
         self.assertIsNone(self.kpi(track, "envs_beaten")["values"][-1]["value"])
         self.assertIn("the bench did not judge 1 ledger rows", track["source"]["problems"][0])
+        # The ledger did not move between the two reads, so this is not "changed during read": the bench is wrong.
+        self.assertNotIn(grasping.LEDGER_CHANGED, track["source"]["problems"][0])
+        self.assertEqual(len(bridge.calls), 2)
+
+    def test_a_row_replaced_after_the_read_is_re_read_once_then_judged_whole(self) -> None:
+        # The fake bench finds the ledger as it is when called. First call: row 8 has been rewritten (a new digest),
+        # so the snapshot lacks a row the adapter read and the adapter must read again rather than mix versions.
+        original = self.ledger.read_bytes()
+        bridge = FakeBridge(self)
+        real_call = FakeBridge.__call__
+        state = {"calls": 0}
+
+        def racing(fake, bench, **kwargs):
+            state["calls"] += 1
+            if state["calls"] == 1:
+                self.ledger.write_bytes(original.replace(b'"tier": 1, "protocol"', b'"tier": 1,  "protocol"', 1))
+                doc = real_call(fake, bench, **kwargs)
+                self.ledger.write_bytes(original)   # the writer puts it back before the adapter's second read
+                return doc
+            return real_call(fake, bench, **kwargs)
+
+        with mock.patch.object(FakeBridge, "__call__", racing):
+            track = self.build(bridge)
+        self.assertEqual(state["calls"], 2)
+        self.assertEqual(track["source"]["bench_verdict"]["attempts"], 2)
+        self.assertEqual(self.series(track, "envs_beaten"), [1.0, 2.0, 2.0])
 
 
-class BridgeTest(unittest.TestCase):
-    """grasp_bench_bridge's own seams, with a stand-in interpreter that prints a canned document."""
+#: True when every run row the page shows as clearing a gate carries the measurements that clearing needs.
+def gate_claims_have_measurements(test: unittest.TestCase, track: dict) -> None:
+    runs = [item for items in track["evidence"]["by_iteration"].values() for item in items if item["kind"] == "run"]
+    for item in runs:
+        if item["status"] in ("pass", "provisional"):
+            test.assertIsNotNone(item["metrics"].get("top-1 (%)"), item)
+            test.assertIsNotNone(item["metrics"].get("Wilson LB (%)"), item)
+    for point in next(k for k in track["kpis"] if k["id"] == "envs_beaten")["values"]:
+        if point["measured"] and point["value"]:
+            beaten = [item for item in runs if item["status"] == "pass" and item["id"] in point["evidence"]]
+            test.assertTrue(beaten, f"{point['value']} beaten with no passing run row beside it: {point}")
+
+
+LIVE_BENCH = Path("/home/bam/bam_ws/.claude/worktrees/grasping-agent-roadmap-ab12d8/src/core/mdp/agent/actor/policy/grasp_bench")
+
+
+@unittest.skipUnless((LIVE_BENCH / ".venv" / "bin" / "python").exists(), f"no bench venv at {LIVE_BENCH}")
+class RaceTest(unittest.TestCase):
+    """Codex r3 finding 2 through the REAL adapter and the REAL bridge, on a verbatim copy of the live bench.
+
+    The ledger holds one legacy sparse row (no value, no ci_lo); its enriched form clears toy/x on the frozen protocol.
+    A writer swaps one form for the other just before the bench's subprocess starts, i.e. between the adapter's read and
+    the bench's. On e0bd8e5 the adapter showed the sparse row (no Top-1, no Wilson LB) beside the bench's "toy/x
+    beaten" for the enriched one. The page may show either version, or no verdict, but never one beside the other.
+    """
 
     def setUp(self) -> None:
         self.tmp = tempfile.TemporaryDirectory()
-        root = Path(self.tmp.name)
-        src = root / "bench" / "src" / "grasp_bench"
-        src.mkdir(parents=True)
-        self.files = {}
-        for name in ("gallery", "ledger", "curriculum", "runner", "contracts"):
-            self.files[name] = src / f"{name}.py"
-            self.files[name].write_text("# stand-in\n", encoding="utf-8")
-        (root / "bench" / "out" / "ledger").mkdir(parents=True)
-        self.ledger = root / "bench" / "out" / "ledger" / "runs.jsonl"
-        self.ledger.write_text(json.dumps(ROWS[0]) + "\n", encoding="utf-8")
-        self.calls = root / "calls.log"
-        doc = {"schema": grasp_bench_bridge.SCHEMA,
-               "modules": {name: str(path) for name, path in self.files.items()},
-               "dependencies": sorted(str(path) for path in self.files.values()),
-               "attestations_path": str(self.ledger.parent / "attestations.jsonl"), "runs": {}, "snapshots": {}}
-        python = root / "bench" / ".venv" / "bin" / "python"
-        python.parent.mkdir(parents=True)
-        # WHY a shell script: the bridge's contract is "run this interpreter, read the last stdout line"; a stand-in
-        # proves caching and checks without the bench's real venv. It logs each call so the cache can be counted.
-        python.write_text("#!/bin/sh\ncat >/dev/null\necho call >> " + str(self.calls) + "\necho 'noise'\necho '"
-                          + json.dumps(doc) + "'\n", encoding="utf-8")
-        python.chmod(0o755)
-        self.paths = grasp_bench_bridge.BenchPaths(
-            python=str(python), ledger=str(self.ledger), attestations=str(self.ledger.parent / "attestations.jsonl"),
-            gallery_py=str(self.files["gallery"]), ledger_py=str(self.files["ledger"]),
-            curriculum_py=str(self.files["curriculum"]), runner_py=str(self.files["runner"]),
-            contracts_py=str(self.files["contracts"]), cache_dir=str(root / "cache"))
+        self.bench = make_real_bench(Path(self.tmp.name) / "bench")
+        self.sources = bench_sources(self.bench)
+        self.ledger = Path(self.sources["grasping_ledger"])
+        self.sparse = json.dumps(SPARSE).encode("utf-8") + b"\n"
+        self.enriched = json.dumps(ENRICHED).encode("utf-8") + b"\n"
+        self.ledger.write_bytes(self.sparse)
+        self.real_run = subprocess.run
 
     def tearDown(self) -> None:
         self.tmp.cleanup()
 
-    def ran(self) -> int:
-        return len(self.calls.read_text().splitlines()) if self.calls.exists() else 0
+    def build(self, rewrite) -> dict:
+        """build_track with ``rewrite(call_number)`` run just before each bench subprocess (git calls untouched)."""
 
-    def test_cached_until_an_input_changes(self) -> None:
-        first = grasp_bench_bridge.bench_verdict(self.paths, {"T1": ["a"]})
-        self.assertTrue(first.ok, first.reason)
-        self.assertFalse(first.cached)
-        second = grasp_bench_bridge.bench_verdict(self.paths, {"T1": ["a"]})
-        self.assertTrue(second.cached)
-        self.assertEqual(self.ran(), 1)
-        for changed in (self.ledger, self.files["gallery"], Path(self.paths.attestations)):
-            with open(changed, "a", encoding="utf-8") as handle:
-                handle.write("\n")
-            self.assertFalse(grasp_bench_bridge.bench_verdict(self.paths, {"T1": ["a"]}).cached, changed)
-        self.assertEqual(self.ran(), 4)
-        self.assertFalse(grasp_bench_bridge.bench_verdict(self.paths, {"T1": ["a", "b"]}).cached)  # a new request
+        calls = {"n": 0}
 
-    def test_a_verdict_without_its_module_list_is_returned_but_never_cached(self) -> None:
-        python = Path(self.paths.python)
-        python.write_text(python.read_text(encoding="utf-8").replace('"dependencies": ', '"unreported": '),
-                          encoding="utf-8")
-        first = grasp_bench_bridge.bench_verdict(self.paths, {"T1": ["a"]})
-        self.assertTrue(first.ok, first.reason)
-        self.assertIn("did not report the module files", first.info()["uncached"])
-        self.assertFalse(grasp_bench_bridge.bench_verdict(self.paths, {"T1": ["a"]}).cached)
-        self.assertEqual(self.ran(), 2)
+        def writer(args, *rest, **kwargs):
+            if "-c" in args and str(args[0]).endswith("python"):
+                calls["n"] += 1
+                rewrite(calls["n"])
+            return self.real_run(args, *rest, **kwargs)
 
-    def test_a_bench_importing_other_code_is_refused(self) -> None:
-        other = Path(self.tmp.name) / "elsewhere.py"
-        other.write_text("", encoding="utf-8")
-        paths = grasp_bench_bridge.BenchPaths(**{**self.paths.__dict__, "gallery_py": str(other)})
-        result = grasp_bench_bridge.bench_verdict(paths, {})
-        self.assertFalse(result.ok)
-        self.assertIn("imports gallery.py from", result.reason)
+        with mock.patch("vibetracks.benches.grasp_bench_bridge.subprocess.run", side_effect=writer):
+            track = grasping.build_track(work_track(), dict(self.sources))
+        self.assertEqual(base.problems(track), [])
+        return track
 
-    def test_failures_name_the_reason(self) -> None:
-        python = Path(self.paths.python)
-        python.write_text("#!/bin/sh\necho 'ImportError: no module named grasp_bench' >&2\nexit 1\n", encoding="utf-8")
-        result = grasp_bench_bridge.bench_verdict(self.paths, {})
-        self.assertEqual(result.reason, "the bench's gallery exited 1: ImportError: no module named grasp_bench")
-        python.write_text("#!/bin/sh\nexec sleep 5\n", encoding="utf-8")
-        result = grasp_bench_bridge.bench_verdict(self.paths, {}, timeout=0.5)
-        self.assertFalse(result.ok)
-        self.assertIn("did not answer within", result.reason)
+    def kpi(self, track: dict, kpi_id: str) -> dict:
+        return next(k for k in track["kpis"] if k["id"] == kpi_id)
+
+    def test_the_two_forms_differ_in_the_bench_verdict(self) -> None:
+        # The fixture must discriminate: undisturbed, the sparse row beats nothing and the enriched one beats toy/x.
+        sparse = self.build(lambda n: None)
+        self.ledger.write_bytes(self.enriched)
+        enriched = self.build(lambda n: None)
+        self.assertEqual(self.kpi(sparse, "envs_beaten")["values"][-1]["value"], 0.0)
+        self.assertEqual(self.kpi(enriched, "envs_beaten")["values"][-1]["value"], 1.0)
+        for track in (sparse, enriched):
+            gate_claims_have_measurements(self, track)
+
+    def test_a_row_enriched_after_the_read_never_shows_a_verdict_beside_the_sparse_row(self) -> None:
+        def enrich_once(call: int) -> None:
+            if call == 1:
+                self.ledger.write_bytes(self.enriched)
+
+        track = self.build(enrich_once)
+        gate_claims_have_measurements(self, track)
+        # The adapter read again and judged the enriched bytes it then displayed.
+        last = self.kpi(track, "envs_beaten")["values"][-1]
+        self.assertEqual(last["value"], 1.0, last)
+        run = next(item for items in track["evidence"]["by_iteration"].values() for item in items if item["kind"] == "run")
+        self.assertEqual((run["status"], run["metrics"]["top-1 (%)"]), ("pass", 100.0))
+        self.assertEqual(track["source"]["bench_verdict"]["attempts"], 2)
+
+    def test_a_ledger_that_keeps_moving_gives_no_verdict_rather_than_a_mixed_one(self) -> None:
+        def flip(call: int) -> None:
+            current = self.ledger.read_bytes()
+            self.ledger.write_bytes(self.enriched if current == self.sparse else self.sparse)
+
+        track = self.build(flip)
+        gate_claims_have_measurements(self, track)
+        north = self.kpi(track, track["north_star"])
+        self.assertEqual(track["north_star"], "envs_beaten")
+        for point in north["values"]:
+            self.assertIsNone(point["value"], point)
+            self.assertFalse(point["measured"])
+            self.assertIn(grasping.LEDGER_CHANGED, point["note"])
+        self.assertEqual(north["status"], {"word": "bench verdict unavailable", "tone": "warn"})
 
 
 class NoReplicaTest(unittest.TestCase):

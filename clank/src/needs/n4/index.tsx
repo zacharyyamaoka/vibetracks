@@ -373,7 +373,6 @@ function Card({
   entry,
   answers,
   backend,
-  projection,
   multiTrack,
   skipped,
   onChoose,
@@ -436,8 +435,8 @@ function Card({
     [entry, onChoose, openOther],
   )
 
-  // Live shortcuts. WHY capture phase + preventDefault: the dashboard binds 1/2/3 to its A · B · C layouts on window;
-  // on this page the numbers mean "choose option n", and the dashboard's handler honours defaultPrevented.
+  // Live shortcuts. WHY capture phase + preventDefault: on this page the numbers mean "choose option n", and any other
+  // window listener honours defaultPrevented (the dashboard's 1/2/3 A · B · C switch did, until retired 2026-10-05).
   useEffect(() => {
     const onKey = (event: KeyboardEvent) => {
       if (event.defaultPrevented || event.altKey || event.ctrlKey || event.metaKey) return
@@ -664,7 +663,7 @@ function Card({
               <ul className="n4-evidence">
                 {item.evidence.map((_, index) => (
                   <li key={index}>
-                    <EvidenceLink backend={backend} doc={doc} item={item} index={index} projection={projection} />
+                    <EvidenceLink backend={backend} doc={doc} item={item} index={index} />
                   </li>
                 ))}
               </ul>

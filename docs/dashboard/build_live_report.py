@@ -33,6 +33,7 @@ import html
 import io
 import json
 import re
+import subprocess
 import sys
 from collections import Counter
 from datetime import datetime
@@ -163,23 +164,47 @@ assert all(sh["switchers"] == 0 and sh["dataVariant"] is None and not sh["abcTex
 REPO = Path(__file__).resolve().parents[2]
 
 
-def check_open_probes() -> int:
-    """Refuse to build if the tree no longer shows an item the page calls open (same probes as the needs report).
-    WHY: a stale 'still open' is as untrue as a stale 'fixed'; each probe names the exact text that makes the claim true."""
-    for probe in R6["open_probes"]:
-        f = REPO / probe["file"]
-        if probe.get("missing"):
-            assert not f.exists(), f"{probe['claim']}: {f} exists again; re-measure and update round6-fixes.json"
+R6_TREE = "56c75c0"  # the commit round 6's tree became, and the snapshot Codex round 3 audited
+
+
+def _probe_text(probe: dict, at: str | None) -> str | None:
+    """The probed file's text in the working tree (at=None) or in commit `at`; None when it does not exist there."""
+    name = probe["file"]
+    if at is None or name.startswith("/"):
+        f = Path(name) if name.startswith("/") else REPO / name
+        return f.read_text(encoding="utf-8") if f.exists() else None
+    shown = subprocess.run(["git", "-C", str(REPO), "show", f"{at}:{name}"], capture_output=True, text=True)
+    return shown.stdout if shown.returncode == 0 else None
+
+
+def check_open_probes(probes: list[dict], at: str | None = None, source: str = "round6-fixes.json",
+                      closed: frozenset[str] = frozenset()) -> int:
+    """Refuse to build if a tree no longer shows an item the page calls open (same probes as the needs report).
+    WHY: a stale 'still open' is as untrue as a stale 'fixed'; each probe names the exact text that makes the claim true.
+    WHY `at`: round 6's 'still open' lines describe the tree Codex round 3 read (56c75c0), and most were closed in
+    e0bd8e5 since; the page says so beside each, so those probes check the commit they describe, while this round's
+    open list is checked against the working tree. `closed` lists round-6 claims the 56c75c0 commit itself closed."""
+    where = at or "the working tree"
+    for probe in probes:
+        text = _probe_text(probe, at)
+        if probe["claim"] in closed:
+            assert text is not None and probe.get("contains") and probe["contains"] not in text, \
+                f"{probe['claim']}: listed as closed by {where} but still open there"
             continue
-        text = f.read_text(encoding="utf-8")
+        if probe.get("missing"):
+            assert text is None, f"{probe['claim']}: {probe['file']} exists in {where}; re-measure and update {source}"
+            continue
+        assert text is not None, f"{probe['claim']}: {probe['file']} is missing in {where}; update {source}"
         if "contains" in probe:
-            assert probe["contains"] in text, f"looks fixed now: {probe['claim']} ({f}); re-measure and update round6-fixes.json"
+            assert probe["contains"] in text, f"looks fixed in {where}: {probe['claim']} ({probe['file']}); update {source}"
         if "absent" in probe:
-            assert probe["absent"] not in text, f"looks fixed now: {probe['claim']} ({f}); re-measure and update round6-fixes.json"
-    return len(R6["open_probes"])
+            assert probe["absent"] not in text, f"looks fixed in {where}: {probe['claim']} ({probe['file']}); update {source}"
+    return len(probes)
 
 
-R6_PROBES = check_open_probes()
+# WHY AUDIT3 is read here: it records which of round 6's open claims the 56c75c0 commit closed (and round 3's own rows).
+AUDIT3 = json.loads((NEEDS_MEDIA / "r7" / "audit-r3-fixes.json").read_text())
+R6_PROBES = check_open_probes(R6["open_probes"], at=R6_TREE, closed=frozenset(AUDIT3["r6_closed_by_commit"]))
 
 # ---- media -----------------------------------------------------------------------------------------------------
 _inlined: set[str] = set()
@@ -579,73 +604,82 @@ NPARTLY = sum(1 for f in FIXES if f[2] == "partly")
 
 
 ISSUES = [
-    ("First loads read /projection four times", "The sibling of round 6's single /needs fetch: every first load (home, a track "
-     "page, the needs page) starts 4 /projection reads, 2 aborted and 2 completed and overlapping, so the backend runs 2 live "
-     "builds; a reload click reads it twice. Same React double effect that needs/share.ts fixed for /needs (verify-7)."),
-    ("The real-and-sim video pair has no reload line", "VideoPair on item pages renders its own players and 'open in new tab' "
-     "links instead of going through MediaView. On a 409 it shows two dead players at 0:00 and two links to a JSON error, not "
-     "'This changed since you opened it: reload' (verify-7, captured below)."),
-    ("Grasping's gallery media always answer 404", "The adapter names them `grasping:gallery-preview` and "
-     "`grasping:gallery-preview-png`; the server's media id pattern refuses ':', so the gallery item reads 'Could not load: "
-     "HTTP 404' beside an 'Open in new tab' link that goes nowhere. Older than this round; no test runs adapter ids through "
-     "the server (verify-7)."),
-    ("Snapshot mode: a retargeted link keeps its revision", "With a stored projection.json (not the live lane), retargeting "
-     "a symlink without changing that file keeps the same media_rev, so the link answers 409 forever and its reload line cannot "
-     "recover it. It never serves the wrong file. PROJECTION.md's 'digest taken when that answer was built' is false in this mode."),
-    ("A 404 or 403 still offers 'Open in new tab'", "MediaView drops the link only on a 409, so other refusals keep a link "
-     "to an error page."),
-    ("`tests/browser/media_switch.mjs` fails", "Its route glob ends at the media id and misses the new `?rev=` query. A copy "
-     "with only that glob changed to end in `?**` passes 6 of 6. It was outside both lanes' write sets."),
-    ("Leftovers of B and C outside the product code", "`scripts/shoot.mjs` still clicks `vt-switch-<x>`, so its `--variant` "
-     "flag now fails; VARIANTS.md and VARIANT-KIT.md still describe three proposals; comments in shared/route.ts, "
-     "shared/types.ts (its unused key 'a' | 'b' | 'c') and needs/NeedsShell.tsx still name the switcher. The stills from fix "
-     "waves 1-3 and round 3 below show the pill, as they were."),
-    ("NEEDS-KIT.md lacks the new exact lines", "It documents 'exact:' and 'exact option words:' but not 'exact title', 'exact "
-     "id', 'exact option label' or 'exact track title'. The lossy test also flags '&' and '_' in ordinary text, so 10 of 84 live "
-     "titles get a twin line they do not need ('Sim to Real & Trajectory Tracking')."),
-    ("One media-revision map for two viewers (read, not reproduced)", "The revision of the projection on screen is kept per "
-     "backend, so if Clank mounts a second viewer, a re-render in one reads whichever viewer rendered last. Only one viewer "
-     "stays mounted on the lane."),
-    ("A peer worktree shares the grasping verdict cache", "`/home/bam/vibetracks-roadmap` (branch `claude/vibetracks-roadmap`) "
-     "still runs the old `grasp_bench_bridge.py` and writes the same `~/.local/share/vibetracks/dashboard/grasping-bench-verdict` "
-     "folder; at 00:49:17 it rewrote verdict-v2.json with no module list. The fixed bridge reads such an entry as a miss, so "
-     "this dashboard stays correct, but the two keep overwriting each other until the roadmap branch gets the fix (verify-5)."),
-    ("Some fixes guarded by probes, not tests", "Narrow pages (narrow.mjs), the single /needs fetch (needs_once.mjs) and "
-     "media switching are browser checks now. Finding 10 (the UI fold) is still checked by headless probes in the media folders."),
-    ("Rename is exact now, with no length cap", "The 80-character limit went with the trimming: only an empty, whitespace-only "
-     "or line-broken title is refused (the request body is still capped at 64 KB). A 409 carries only the revision, so the "
-     "editor reads the other title from a re-fetched projection ('reading the other version…') before it can offer the choice."),
-    ("Grasping's columns read T0, T1, T2, T3, T5, T1-s1, T1-s2, T4", "Ledger order, as tested, but T4 ('Harder real clutter, "
-     "offline', 3 runs) is the 'latest' column while the frontier rung is Tier 2. Not a truth violation; a reader may find "
-     "it confusing. Flagged for the audit."),
-    ("Duplicate `#vt-review-bar` ids", "Clank's dockview keeps a detached dashboard alive, so two bars with one id can exist. "
-     "NeedsShell now looks the bar up inside its own `.vt-dash`; an instance-unique id would remove the trap."),
-    ("Proven subline not yet seen on live data", "Its hover text is pinned by proven.check, but the subline was checked only against a patched stub. Re-check once the real widget from "
-     "`claude/vibetracks-roadmap-r3` lands; proven.ts already accepts its `{document}` wrapper. With '(not current)' the home "
-     "Progress cell runs to 4-5 lines, so rows get taller."),
-    ("Scorecard at narrow widths", "At 390 px nothing scrolls sideways now, but kinsim's scorecard still shows KPI | Status and "
-     "no wave columns; at a 900 px viewport the kinsim and rig scorecards showed no iteration columns (seen in verify-5, not "
+    ("A 404 or 403 still offers 'Open in new tab'",
+     "MediaView drops the link only on a 409, so other refusals keep a link to an error page."),
+    ("PROJECTION.md still lists a 413 for /needs/evidence",
+     "Line 173 says the route answers '413 over the size cap'; that cap is gone, and the route now answers Range "
+     "with 206 and 416 like /media."),
+    ("Two copies of the Range grammar",
+     "needs.py carries its own `parse_range`, a copy of server.py's with a WHY comment, because server.py is the "
+     "backend's entry script and cannot be imported. A shared helper (for example in vibetracks/safe_open.py) "
+     "would remove the copy."),
+    ("HEAD on /needs/evidence answers 501",
+     "The page checks a link with a one-byte GET, so nothing on screen depends on it; /media answers HEAD 200 "
+     "(verify-9's backend probe)."),
+    ("Leftovers of B and C outside the product code",
+     "`scripts/shoot.mjs` still clicks `vt-switch-<x>`, so its `--variant` flag fails; comments in shared/route.ts"
+     " and shared/types.ts (its unused key 'a' | 'b' | 'c') still name the switcher. VARIANTS.md, BRIEF.md and "
+     "VARIANT-KIT.md now mark B and C archived (Codex round 3, finding 5). The older stills below show the pill, as they were."),
+    ("The track pages' /media URLs read their revision from one shared map",
+     "`mediaUrl()` takes the revision of the projection on screen from a per-backend WeakMap. Codex's fix line for"
+     " round 3's finding 1 asked for revisions passed explicitly; the Needs page now does that, the track pages do"
+     " not. If Clank mounts a second viewer, a re-render in one reads whichever rendered last. One viewer stays "
+     "mounted on the lane, so nothing wrong was reproduced."),
+    ("A peer worktree shares the grasping verdict cache",
+     "`/home/bam/vibetracks-roadmap` (branch `claude/vibetracks-roadmap`) runs its own copy of the bridge and "
+     "writes the same `~/.local/share/vibetracks/dashboard/grasping-bench-verdict` folder. This bridge keeps its "
+     "per-digest answers in a separate verdict-v3-subsets.json, so the projector's verdict-v3.json is never "
+     "evicted, and reads a foreign entry as a miss. That worktree's copy of tests/test_grasp_bench_bridge_deps.py "
+     "still tests the V1 `bench_verdict()` deleted here: when the lanes merge, `BenchVerdictV1DependencyTest` must"
+     " go, or it fails on the merged bridge."),
+    ("Some fixes guarded by probes, not tests",
+     "Narrow pages, the single /needs and /projection reads, media switching, the video pair's 409 and the Needs "
+     "evidence binding are browser checks now (8 of 8 pass in verify-9; media_pair_stale timed out once on its 5 s"
+     " wait, then passed 3 of 3). Finding 10 (the UI fold) is still checked by headless probes in the media "
+     "folders."),
+    ("Rename is exact now, with no length cap",
+     "The 80-character limit went with the trimming: only an empty, whitespace-only or line-broken title is "
+     "refused (the request body is still capped at 64 KB). A 409 carries only the revision, so the editor reads "
+     "the other title from a re-fetched projection ('reading the other version…') before it can offer the choice."),
+    ("Grasping's columns read T0, T1, T2, T3, T5, T1-s1, T1-s2, T4",
+     "Ledger order, as tested, but T4 ('Harder real clutter, offline', 3 runs) is the 'latest' column while the "
+     "frontier rung is Tier 2. Not a truth violation; a reader may find it confusing. Flagged for the audit."),
+    ("Duplicate `#vt-review-bar` ids",
+     "Clank's dockview keeps a detached dashboard alive, so two bars with one id can exist. NeedsShell now looks "
+     "the bar up inside its own `.vt-dash`; an instance-unique id would remove the trap."),
+    ("Proven subline not yet seen on live data",
+     "Its hover text is pinned by proven.check, but the subline was checked only against a patched stub. Re-check "
+     "once the real widget from `claude/vibetracks-roadmap-r3` lands; proven.ts already accepts its `{document}` "
+     "wrapper. With '(not current)' the home Progress cell runs to 4-5 lines, so rows get taller."),
+    ("Scorecard at narrow widths",
+     "At 390 px nothing scrolls sideways now, but kinsim's scorecard still shows KPI | Status and no wave columns;"
+     " at a 900 px viewport the kinsim and rig scorecards showed no iteration columns (seen in verify-5, not "
      "re-measured). Long words wrap mid-word at a 152 px dashboard ('scorebo|ard'); no character is lost."),
-    ("Needs-you page (detail in that report)", "Round 6 there: an item title's edge spaces and markup copy out exactly, and "
-     "/needs is read once per page. Left there: on N6 at 1280 × 800 rig T2's note box loses 8 px at the bottom; N6's deployment "
-     "page says 'loop' twice; a settled draft's copy line offers a Reconfirm that does not exist."),
-    ("Roadmap widget is a stub (expected)", "Every Roadmap section says 'Roadmap widget pending (roadmap session)' and "
-     "`GET /api/plugins/vibetracks/roadmap/<id>` answers 404 until its branch merges. The home rung cell uses each loop's own "
-     "`rung` meanwhile."),
-    ("This round is uncommitted", "HEAD is d579e39 (the round-2 fixes, committed). Round 6 is 30 uncommitted paths in "
-     "/home/bam/vibetracks-dashboard (plus the two report builders), the B and C deletions and new files such as needs/share.ts and tests/browser/narrow.mjs "
-     "among them; a peer's `git stash -u` there would take them."),
-    ("The V1 bench verdict", "The V1 `bench_verdict()` the grasping adapter uses refuses modules outside the package but does "
-     "not yet require all nine witnesses, because `tests/test_dashboard_adapter_grasping.py` pins the old fixture."),
-    ("The hero video predates round 3", "It was recorded after fix wave 1: its home rows show grasping at 6 / 10 from the "
-     "adapter's old copy of the rules, '7 blocking', the pre-one-source Needs-you counts, a zoneless 'read 2026-10-04 20:53' "
-     "and the switcher as three buttons, which are now gone. Re-record it if the video should be current too."),
-    ("Sources in agent worktrees", "Kinsim, rig and grasping still read from agent worktrees a sweep could delete. The row would "
-     "then say 'not reporting', truthfully."),
-    ("Clank shell errors (not the dashboard)", "The shell's usual .clank/*.json 404s and fs mkdir requests (refused by the "
-     "read-only captures). No error came from the dashboard code."),
-    ("Bridge edits need a backend restart", "The build reloads grasping.py when it changes, but not grasp_bench_bridge.py; a "
-     "change to the bridge's script text still invalidates its cache on its own."),
+    ("Needs-you page (detail in that report)",
+     "Codex round 3 there: every evidence link opens only the file the Needs document recorded, through "
+     "/needs/evidence with that document's revision, never /media. From earlier rounds, not re-measured: on N6 at "
+     "1280 × 800 rig T2's note box loses 8 px at the bottom; N6's deployment page says 'loop' twice."),
+    ("Roadmap widget is a stub (expected)",
+     "Every Roadmap section says 'Roadmap widget pending (roadmap session)' and `GET "
+     "/api/plugins/vibetracks/roadmap/<id>` answers 404 until its branch merges. The home rung cell uses each "
+     "loop's own `rung` meanwhile."),
+    ("This wave is uncommitted",
+     "HEAD is e0bd8e5 (Codex round 3's findings 3 and 4, committed). The fixes for 1, 2 and 5 are 30 uncommitted "
+     "paths in /home/bam/vibetracks-dashboard (plus the two report builders), new files such as needs/evidence.ts "
+     "and tests/test_dashboard_needs_evidence_bound.py among them; a peer's `git stash -u` there would take them."),
+    ("The hero video predates round 3",
+     "It was recorded after fix wave 1: its home rows show grasping at 6 / 10 from the adapter's old copy of the "
+     "rules, '7 blocking', the pre-one-source Needs-you counts, a zoneless 'read 2026-10-04 20:53' and the "
+     "switcher as three buttons, which are now gone. Re-record it if the video should be current too."),
+    ("Sources in agent worktrees",
+     "Kinsim, rig and grasping still read from agent worktrees a sweep could delete. The row would then say 'not "
+     "reporting', truthfully."),
+    ("Clank shell errors (not the dashboard)",
+     "The shell's usual .clank/*.json 404s and fs mkdir requests (refused by the read-only captures). No error "
+     "came from the dashboard code."),
+    ("Bridge edits need a backend restart",
+     "The build reloads grasping.py when it changes, but not grasp_bench_bridge.py; a change to the bridge's "
+     "script text still invalidates its cache on its own."),
 ]
 
 
@@ -898,6 +932,8 @@ ol.r1s{list-style:none;margin:0 0 18px;padding:0;max-width:1080px}
   border-bottom:1px solid var(--line);font-size:13px}
 .r1w{color:var(--dim)} .r1w.partly{color:var(--fg);font-weight:700} .r1note{color:var(--dim);min-width:0;overflow-wrap:anywhere}
 .r1now{color:var(--fg)}
+.r1row.r3{grid-template-columns:3.4em 5.5em minmax(0,1fr) 12em} .afix small{font-weight:400;color:var(--dim2)}
+@media(max-width:700px){.r1row.r3{grid-template-columns:3.4em minmax(0,1fr)}}
 @media(max-width:700px){.r1row{grid-template-columns:2.2em minmax(0,1fr);row-gap:2px}.r1note,.r1now{grid-column:1 / -1}}
 /* phone-width captures sit four across, so a portrait still is not a full screen tall */
 .g4{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:20px;margin-top:20px}
@@ -1011,8 +1047,8 @@ def audit2_html() -> str:
 returned <b>{esc(AUDIT2_VERDICT)}</b>: round-1 findings {partly} were only partly fixed, and it found {len(AUDIT2_ROWS)} new ones
 ({SEV2_LINE}). Three lanes fixed them on the uncommitted tree ({esc(AUDIT2['tree_after'])}). Then {esc(AUDIT2['verifier'])} re-probed
 all {N_IN_SCOPE}: <b>{AUDIT2_PASS + len(AUDIT2_PARTLY)} of {N_IN_SCOPE} pass</b>, each with a test at the consumer that fails on
-<code>{esc(AUDIT2['audited_sha'])}</code>. <b>Codex round 3 reads this tree next</b>; until it returns, "fixed" is our own measurement,
-not Codex's.</p>
+<code>{esc(AUDIT2['audited_sha'])}</code>. Codex round 3 then re-read them on 56c75c0: {esc(AUDIT3_R2_LINE)} (the round-3
+table above).</p>
 <p class="small dim">Audit file: <code>{esc(str(AUDIT2_FILE))}</code><br>After the fixes: pytest {esc(c['pytest'])}; unittest
 {esc(c['unittest'])}; backend {esc(c['backend'])}; tsc {esc(c['tsc'])}; node checks {esc(c['node_checks'])}; browser checks
 {esc(c['browser_checks'])}. On {esc(AUDIT2['audited_sha'])}: {esc(c['fails_on_old'])}; and {esc(c['mutation'])}. Report videos:
@@ -1069,12 +1105,16 @@ def round6_html() -> str:
     items = "".join(
         f'<li class="arow"><span class="an">{esc(i["n"])}</span><span class="asev">{esc(i["lane"])}</span>'
         f'<div class="abody"><b>{esc(i["title"])}</b><p>{esc(i["short"])}</p>'
-        + (f'<p class="asib"><b>Still open beside it:</b> {esc(i["still_open"])}</p>' if i["still_open"] else "")
+        # WHY the 'Now' beside verify-7's words: most of these were closed in e0bd8e5 or this wave; the page keeps what
+        # verify-7 saw before 56c75c0 and says what became of it, rather than calling a closed item open.
+        + (f'<p class="asib"><b>Still open beside it at {R6_TREE}:</b> {esc(i["still_open"])} <b>Now:</b> '
+           f'{esc(AUDIT3["r6_still_now"][i["n"]])}</p>' if i["still_open"] else "")
         + '<details><summary>verify-7\'s evidence, and the test that fails when the old behaviour returns</summary>'
         f'<p class="averb">{esc(i["verifier"])}</p><p class="averb"><b>Test left ({esc(i["lane"])} lane):</b> {esc(i["tests"])}</p>'
         f'</details></div><span class="afix">{"fixed · verified" if i["pass"] is True else "partly · 2 doc gaps"}</span></li>'
         for i in R6_ITEMS)
-    found = "".join(f"<li><b>{esc(t)}.</b> <span>{esc(x)}</span></li>" for t, x in R6["new_found"])
+    found = "".join(f"<li><b>{esc(t)}.</b> <span>{esc(x)}</span> <b>Now:</b> {esc(AUDIT3['r6_found_now'][t])}</li>"
+                    for t, x in R6["new_found"])
     c = R6["checks"]
     v7 = MEDIA / "verify-7"
     figs = '<div class="g4">' + "".join([
@@ -1092,27 +1132,28 @@ def round6_html() -> str:
         fig(str(v7 / "v7-media-stale-line.png"), "/media answering 409: one calm line",
             "verify-7 made /media answer 409 for kinsim's fast gate. MediaView shows 'This changed since you opened it: reload' "
             "with no player and no 'Open in new tab'; reload re-reads /projection and the view asks for the new revision."),
-        fig(str(v7 / "v7-media-409-video-pair.png"), "Still open: the video pair on a 409",
-            "The same 409 on a CAN 12 run: the real-and-sim pair does not go through MediaView, so it shows two dead players "
-            "at 0:00 and two 'open in new tab' links."),
-        fig(str(v7 / "v7-grasping-gallery-item.png"), "Still open: grasping's gallery media are always 404",
-            "Their ids contain ':', which the server's media id pattern refuses. 'Could not load: HTTP 404' sits beside a live "
-            "'Open in new tab'. Older than this round."),
+        fig(str(v7 / "v7-media-409-video-pair.png"), "Open at round 6, closed in e0bd8e5: the video pair on a 409",
+            "The same 409 on a CAN 12 run: the real-and-sim pair did not go through MediaView, so it showed two dead players "
+            "at 0:00 and two 'open in new tab' links. The round-3 section above shows it now."),
+        fig(str(v7 / "v7-grasping-gallery-item.png"), "Open at round 6, closed in e0bd8e5: grasping's gallery media 404",
+            "Their ids contain ':', which the server's media id pattern refused. 'Could not load: HTTP 404' sat beside a live "
+            "'Open in new tab'. Codex round 3 found it too (finding 3)."),
         fig(str(v7 / "v7-media-real-video.png"), "A real video under its revision",
             "The src carries ?rev=<media_rev>; it reaches readyState 4 and plays."),
     ]) + "</div>"
     return f"""
 <p class="lead">verify-6 left a short list beside its fixed findings. Two lanes closed it on the uncommitted tree over
 <code>{esc(R6['base_sha'])}</code>; then {esc(R6['verifier'])} re-measured each item: <b>{R6_PASS} of {len(R6_ITEMS)} closed, the docs
-partly</b>, each with a test that fails without the fix. Variants B and C are gone at your pick of A (recoverable from git,
-see Decision surface). <b>Codex round 3 reads this tree next</b>; until it returns, "fixed" is our own measurement, not Codex's.</p>
+partly</b>, each with a test that fails without the fix. Variants B and C were retired at your pick of A (recoverable from git).
+This tree was committed as <code>{R6_TREE}</code>, and Codex round 3 audited it (above).</p>
 <p class="small dim">After the fixes: pytest {esc(c['pytest'])}; unittest {esc(c['unittest'])}; backend {esc(c['backend'])}; tsc
 {esc(c['tsc'])}; node checks {esc(c['node_checks'])}; browser checks {esc(c['browser_checks'])}. Counts, unchanged: {esc(c['counts'])}.
-Each "still open" line was re-read from the tree when this page was built ({R6_PROBES} probes).</p>
+Each "still open" line was re-read from {R6_TREE} when this page was built ({R6_PROBES} probes); its "Now" says what
+became of it since.</p>
 <div class="ahead"><span>#</span><span>Lane</span><span>What was left · what verify-7 measured after the fix</span><span>Closed?</span></div>
 <ol class="audit">{items}</ol>
 {figs}
-<h3>New, found by verify-7 (not fixed in this round)</h3>
+<h3>New, found by verify-7 (not fixed in round 6)</h3>
 <ul class="ls">{found}</ul>
 <details class="raw"><summary>Codex round 2: its findings on b53567e, their fixes and verify-6's evidence</summary>
 {audit2_html()}</details>"""
@@ -1149,6 +1190,127 @@ DECISION_R6 = f"""
   <li><strong>Deliberately not done:</strong> no commits, no vault edits. verify-7's open items were not fixed in this pass; the
       reports only record them. Only home and kinsim's track page were re-captured; older stills keep the switcher they were taken
       with, and the hero video still predates round 3.</li>
+</ul>
+"""
+
+
+# ---- Codex round 3: its re-read of earlier findings, its five new findings, and their fixes ----------------------
+# WHY the same files as the Needs-you report: Codex's status words, severities and titles are parsed from its own file,
+# the evidence is verify-8's (e0bd8e5) and verify-9's (this wave) in one JSON, so the two reports cannot tell the round
+# differently.
+AUDIT3_FILE = Path("/home/bam/vibetracks/reports/media/audits/2026-10-05-vibetracks-live-needs-r3.md")
+_AUDIT3_TEXT = AUDIT3_FILE.read_text()
+AUDIT3_VERDICT = _AUDIT3_TEXT.splitlines()[0].strip()
+AUDIT3_EARLIER = re.findall(r"^- \*\*(r\d+-\d+): (fixed|partly)\*\* — (.+?)\s*$", _AUDIT3_TEXT, re.M)
+AUDIT3_ROWS = [(int(n), sev, title) for n, sev, title in
+               re.findall(r"^(\d+)\. \*\*\[(high|medium|low)\] (.+?)\*\*\s*$", _AUDIT3_TEXT, re.M)]
+assert AUDIT3_VERDICT == "VERDICT: FAIL", AUDIT3_VERDICT
+assert len(AUDIT3_EARLIER) == 10, "round 3's re-read of the earlier findings changed: re-read the file"
+AUDIT3_PARTLY = [k for k, w, _x in AUDIT3_EARLIER if w == "partly"]
+assert AUDIT3_PARTLY == ["r2-1", "r2-4", "r1-9"] and sorted(AUDIT3["earlier_now"]) == sorted(AUDIT3_PARTLY), AUDIT3_PARTLY
+assert [n for n, _s, _t in AUDIT3_ROWS] == [1, 2, 3, 4, 5], "the round-3 file's numbered findings changed"
+AUDIT3_FIX = {f["n"]: f for f in AUDIT3["findings"]}
+assert set(AUDIT3_FIX) == {n for n, _s, _t in AUDIT3_ROWS}
+AUDIT3_PASS = sum(1 for n, _s, _t in AUDIT3_ROWS if AUDIT3_FIX[n]["pass"] is True)
+AUDIT3_SEV = Counter(sev for _n, sev, _t in AUDIT3_ROWS)
+SEV3_LINE = ", ".join(f"{AUDIT3_SEV[k]} {k}" for k in ("high", "medium", "low") if AUDIT3_SEV[k])
+AUDIT3_WHERE = {w: [n for n in sorted(AUDIT3_FIX) if AUDIT3_FIX[n]["where"] == w] for w in ("e0bd8e5", "this wave")}
+assert AUDIT3_WHERE == {"e0bd8e5": [3, 4], "this wave": [1, 2, 5]}, AUDIT3_WHERE
+R2_IN_R3 = [(k, w) for k, w, _x in AUDIT3_EARLIER if k.startswith("r2-")]
+AUDIT3_R2_LINE = (f"{sum(1 for _k, w in R2_IN_R3 if w == 'fixed')} of {len(R2_IN_R3)} fixed, "
+                  + " and ".join(k.replace("r2-", "finding ") for k, w in R2_IN_R3 if w == "partly") + " only partly")
+# WHY probed against the working tree: these are the items this round's page calls open now.
+R7_PROBES = check_open_probes(AUDIT3["open_probes"], source="r7/audit-r3-fixes.json")
+
+
+def _nums(ns: list[int]) -> str:
+    return ", ".join(map(str, ns[:-1])) + f" and {ns[-1]}" if len(ns) > 1 else str(ns[0])
+
+
+def audit3_html() -> str:
+    earlier = "".join(
+        f'<li class="r1row r3"><span class="an">{esc(k)}</span><span class="r1w{" partly" if w == "partly" else ""}">{esc(w)}</span>'
+        f'<span class="r1note">{inline_md(note)}</span>'
+        f'<span class="r1now">{esc(AUDIT3["earlier_now"][k]) if w == "partly" else ""}</span></li>'
+        for k, w, note in AUDIT3_EARLIER)
+    items = "".join(
+        f'<li class="arow"><span class="an">{n}</span><span class="asev">{esc(sev)}</span>'
+        f'<div class="abody"><b>{esc(title)}</b><p>{esc(AUDIT3_FIX[n]["short"])}</p>'
+        f'<details><summary>The verifier\'s evidence, and the test that fails when the old behaviour returns</summary>'
+        f'<p class="averb">{esc(AUDIT3_FIX[n]["verifier"])}</p>'
+        f'<p class="averb"><b>Test left ({esc(AUDIT3_FIX[n]["lane"])} lane):</b> {esc(AUDIT3_FIX[n]["tests"])}</p>'
+        f'</details></div><span class="afix">fixed · verified<br><small>'
+        f'{"in e0bd8e5" if AUDIT3_FIX[n]["where"] == "e0bd8e5" else "this wave"}</small></span></li>'
+        for n, sev, title in AUDIT3_ROWS)
+    also = "".join(f"<li><b>{esc(t)}.</b> <span>{esc(x)}</span></li>" for t, x in AUDIT3["also_in_e0bd8e5"])
+    left = "".join(f"<li><b>{esc(t)}.</b> <span>{esc(x)}</span></li>" for t, x in AUDIT3["open"])
+    notes = "".join(f"<li><b>{esc(t)}.</b> <span>{esc(x)}</span></li>" for t, x in AUDIT3["observations"])
+    c = AUDIT3["checks"]
+    v8, v9 = MEDIA / "verify-8", MEDIA / "verify-9"
+    figs = '<div class="g4">' + "".join([
+        fig(str(v9 / "v9-n6-fold-1440x900-kinsim.png"), "Finding 1: a Needs link opens the document's file",
+            "Kinsim T47 on N6. 'evidence research/w3-bt1-belt.md' opens /needs/evidence with this document's eid and revision, "
+            "never /media. verify-9 clicked every N6 link on kinsim and rig (9 of 9): one tab each, serving the reviewed bytes."),
+        fig(str(v9 / "v9-1440-grasping.png"), "Finding 2: grasping's verdict and rows from the same bytes",
+            "North star 6 / 10 gated envs beaten, MuJoCo 2 / 6, hardest Wilson LB 87.4 % (n 200): equal to the bench's own "
+            "gallery over the same 166 ledger rows. No row marked pass lacks Top-1 or Wilson LB."),
+        fig(str(v8 / "v8-grasping-gallery-chip1.png"), "Finding 3: grasping's gallery opens",
+            "The gallery item with 'Gallery preview (PNG)' chosen: the PNG answers 206 under its revision (it was 404 at 56c75c0). "
+            "The card's own line says the gallery was written before the ledger's last write."),
+        fig(str(v8 / "v8-media-409-video-pair.png"), "Also in e0bd8e5: the video pair on a 409",
+            "The same CAN 12 run as round 6's capture below: one 'This changed since you opened it: reload' line, no dead players, "
+            "no links. Reload re-reads /projection once."),
+    ]) + "</div>"
+    return f"""
+<p class="lead"><b>{esc(AUDIT3['auditor'])}</b>, round {AUDIT3['round']}, read-only, audited {esc(AUDIT3['snapshot'])}, and
+returned <b>{esc(AUDIT3_VERDICT)}</b>: {len(AUDIT3_PARTLY)} earlier findings were only partly fixed, and it found {len(AUDIT3_ROWS)}
+new ones ({SEV3_LINE}). Findings {_nums(AUDIT3_WHERE['e0bd8e5'])} were fixed in <code>e0bd8e5</code>; {_nums(AUDIT3_WHERE['this wave'])}
+in this wave, uncommitted on it. Then {esc(AUDIT3['verifier'])} re-probed all {len(AUDIT3_ROWS)} Codex's way or harder:
+<b>{AUDIT3_PASS} of {len(AUDIT3_ROWS)} pass</b>, each with a test at the consumer that fails on the tree before its fix, and no
+regressions. <b>Codex round 4 reads this tree next</b>; until it returns, "fixed" is our own measurement, not Codex's.</p>
+<p class="small dim">Audit file: <code>{esc(str(AUDIT3_FILE))}</code><br>After the fixes: pytest {esc(c['pytest'])}; unittest
+{esc(c['unittest'])}; backend {esc(c['backend'])}; tsc {esc(c['tsc'])}; node checks {esc(c['node_checks'])}; browser checks
+{esc(c['browser_checks'])}. Before the fixes: {esc(c['fails_on_old'])}. Media: {esc(c['media'])}. Counts: {esc(c['counts'])}.</p>
+<h3>The earlier findings, as Codex round 3 re-read them <small>({len(AUDIT3_EARLIER) - len(AUDIT3_PARTLY)} fixed, {len(AUDIT3_PARTLY)} partly; each partly one is completed by a new finding's fix)</small></h3>
+<ol class="r1s">{earlier}</ol>
+<h3>Round 3's {len(AUDIT3_ROWS)} new findings</h3>
+<div class="ahead"><span>#</span><span>Severity</span><span>Codex's finding · what the verifier measured after the fix</span><span>Fixed?</span></div>
+<ol class="audit">{items}</ol>
+{figs}
+<h3>Also closed in e0bd8e5: verify-7's open items</h3>
+<ul class="ls">{also}</ul>
+<h3>Still open (none blocking; each re-read from the tree when this page was built, {R7_PROBES} probes)</h3>
+<ul class="ls">{left}</ul>
+<h3>What verify-9 noticed but did not count as a failure</h3>
+<ul class="ls">{notes}</ul>
+<details class="raw"><summary>Round 6: verify-6's leftovers, the tree Codex round 3 audited ({R6_TREE})</summary>
+{round6_html()}</details>"""
+
+
+DECISION_R7 = f"""
+<ul>
+  <li><strong>Done and proved</strong> (verify-8 for e0bd8e5 and verify-9 for this wave, measure-only re-checks by separate Claude agents; neither made product edits):
+    <ul>
+      <li><b>Codex round 3:</b> all {len(AUDIT3_ROWS)} new findings fixed, {_nums(AUDIT3_WHERE['e0bd8e5'])} in e0bd8e5 and {_nums(AUDIT3_WHERE['this wave'])} in this wave, and the {len(AUDIT3_PARTLY)} partly fixed earlier findings completed by them. Each re-probed Codex's way or harder, each with a test at the consumer that fails without its fix. Table at the top.</li>
+      <li><b>For the track pages:</b> grasping's north star and the rows beside it come from the same ledger bytes; if the ledger moves twice during a read the north star says 'ledger changed during read' rather than mixing versions. Live: {esc(AUDIT3['checks']['grasping'])}. Grasping's gallery opens; a snapshot-mode reload recovers after a retarget; one /projection read per load; the video pair shows the reload line on a 409.</li>
+      <li><b>Current product:</b> variant A is the only dashboard (B and C retired in 56c75c0); N6 is the default Needs page. VARIANTS.md, BRIEF.md and VARIANT-KIT.md mark the older proposals archived.</li>
+      <li><b>Regressions checked:</b> {esc(AUDIT3['checks']['counts'])}; {esc(AUDIT3['checks']['media'])}; {esc(AUDIT3['checks']['overflow'])}; {esc(AUDIT3['checks']['rename'])}.</li>
+      <li><b>Build:</b> pytest {esc(AUDIT3['checks']['pytest'])}; unittest {esc(AUDIT3['checks']['unittest'])}; backend {esc(AUDIT3['checks']['backend'])}; tsc clean; node checks {esc(AUDIT3['checks']['node_checks'])}; browser checks {esc(AUDIT3['checks']['browser_checks'])}.</li>
+    </ul></li>
+  <li><strong>Left</strong> (next; only the merges and the commit wait on you):
+    <ul>
+      <li><b>Codex round 4</b> on this tree ({esc(AUDIT3['tree_after'])}). It runs next; both reports are re-shared before it starts.</li>
+      <li>Still open, none blocking (Issues): the track pages' /media URLs take their revision from one shared map; a 404 or 403 keeps 'Open in new tab'; PROJECTION.md's stale '413' line; two copies of the Range grammar; <code>scripts/shoot.mjs</code>'s dead <code>--variant</code> and two switcher comments; the roadmap worktree's V1 bridge test.</li>
+      <li>Re-check the proven subline on the real roadmap widget once it lands; re-record the hero; the scorecard's missing wave columns at narrow widths.</li>
+    </ul></li>
+  <li><strong>Needs you</strong> (each has a default that keeps work moving if you say nothing):
+    <ol>
+      <li><b>Fix the still-open items before Codex round 4 reads the tree?</b> Recommendation: yes for the shared revision map on the track pages, which Codex would read as the same class as finding 1, and the two doc lines; the rest can ride. Default: round 4 runs on this tree, with them listed for it.</li>
+      <li><b>Commit this wave</b> on <code>claude/vibetracks-dashboard</code>? Recommendation: yes, now, so a peer's <code>stash -u</code> cannot take 30 uncommitted paths and round 4 audits a commit. Default: left uncommitted, as this task's rules require.</li>
+      <li><b>Merge the roadmap widget</b> (<code>claude/vibetracks-roadmap-r3</code>) into <code>claude/vibetracks-dashboard</code>? Recommendation: yes, after a Codex round passes, dropping its V1 bridge test in the same merge. Default: nothing is merged; the section keeps saying pending.</li>
+      <li><b>Durable homes for loop files</b> now in agent worktrees (rig loop, grasp ledger and bench venv, kinsim loop dir)? Recommendation: a stable path per loop. Default: unchanged; a sweep would turn a row 'not reporting' honestly.</li>
+    </ol></li>
+  <li><strong>Deliberately not done:</strong> no commits, no vault edits. The still-open items were not fixed in this pass; the reports only record them. No new captures beyond verify-8's and verify-9's; older stills keep the switcher they were taken with, and the hero video still predates round 3.</li>
 </ul>
 """
 
@@ -1357,18 +1519,21 @@ def build() -> str:
 <body><div class="wrap">
 
 <header class="top">
-  <div class="date">2026-10-05 · round 6: verify-6's leftovers closed and re-measured by verify-7, before Codex round 3</div>
+  <div class="date">2026-10-05 · Codex round 3's findings fixed and re-measured, before Codex round 4</div>
   <h1>Vibe Tracks: your five work tracks, live</h1>
-  <p class="verdict">verify-6's leftovers are closed: {R6_PASS} of {len(R6_ITEMS)} re-measured by verify-7, with the docs partly.
-  /media links answer only for the revision on screen, 0 of 698 pages scroll sideways at 390 px with Clank's panel open or closed,
-  and variants B and C are gone at your pick of A (recoverable from git); grasping still reads {G_STAR['value']:g} / {G_STAR['of']}, the
-  bench's own verdict. Still open: /projection is read 4 times per first load, the real-and-sim video pair shows dead players on a
-  409, and grasping's gallery media always 404. Codex round 3 runs next; nothing here is Codex-approved yet.</p>
+  <p class="verdict">Codex round 3 ({esc(AUDIT3['auditor'])}, on a frozen snapshot of {AUDIT3['audited_sha']}) returned FAIL with
+  {len(AUDIT3_ROWS)} new findings; all {AUDIT3_PASS} are fixed and re-measured, {_nums(AUDIT3_WHERE['e0bd8e5'])} in e0bd8e5 and
+  {_nums(AUDIT3_WHERE['this wave'])} in this wave (uncommitted). Grasping's north star and the rows beside it now come from the same
+  ledger bytes and still read {G_STAR['value']:g} / {G_STAR['of']}, the bench's own verdict; its gallery opens; a reload recovers a
+  retargeted link in snapshot mode; Needs links open only the file their document recorded. Variant A is the only dashboard. Still
+  open, none blocking: the track pages' /media URLs take their revision from one shared map. Codex round 4 runs next; nothing here
+  is Codex-approved yet.</p>
   <p class="built">Built against the projection the backend served at {esc(gen)}, with the bench's own gallery run the same minute in its
-  own venv ({ORACLE_NOW['n_runs']} ledger rows, {len(ORACLE_NOW['beaten'])} beaten: they agree). Tree: d579e39 (the round-2 fixes, committed)
-  plus round 6, uncommitted, in /home/bam/vibetracks-dashboard. verify-7, a measure-only pass by a separate Claude agent, re-measured
-  round 6's six items: pytest {esc(R6['checks']['pytest'])}, backend {esc(R6['checks']['backend'])}, tsc {esc(R6['checks']['tsc'])}. Home and
-  kinsim's track page were re-captured at 04:35; older stills show the switcher they were taken with.
+  own venv ({ORACLE_NOW['n_runs']} ledger rows, {len(ORACLE_NOW['beaten'])} beaten: they agree). Tree: e0bd8e5 (Codex round 3's findings 3 and 4,
+  committed) plus this wave's fixes for 1, 2 and 5, uncommitted, in /home/bam/vibetracks-dashboard. verify-9, a measure-only pass by a
+  separate Claude agent, re-measured them: pytest {esc(AUDIT3['checks']['pytest'])}, backend {esc(AUDIT3['checks']['backend'])}, tsc
+  {esc(AUDIT3['checks']['tsc'])}, browser {esc(AUDIT3['checks']['browser_checks'].split(';')[0])}. Home and kinsim's track page were
+  re-captured at 04:35 for round 6; the round-3 stills are verify-8's and verify-9's; older stills show the switcher they were taken with.
   {sum(c["match"] for c in CHECKS)} of {len(CHECKS)} KPI values matched their loops' own files at the first drive (the grasping ones have moved
   since, as its ledger grew). Nothing committed. This page is over the desktop preview's size cap, so open it in the browser. The
   Needs-you page has its own report: <code>{esc(NEEDS_REPORT)}</code>.</p>
@@ -1381,7 +1546,7 @@ def build() -> str:
   <a href="#issues">Issues</a><a href="#decide">Decide</a>
 </nav>
 
-{section("audit", "This round, and the independent audit", "", round6_html(), 1)}
+{section("audit", "This round, and the independent audit", "", audit3_html(), 1)}
 {section("grasping", "Grasping's north star is the bench's own verdict, and it moves with the ledger", "Round 3's headline correction, re-read now: same rules, more runs.", grasping_html(), 2)}
 {section("watch", "Watch first", "One recorded walk through the real app: pick a track, read its KPIs, open the roadmap section, go back, open the rig and CAN 16, rename a track. Recorded after fix wave 1, before round 3: its grasping 6 / 10 is the old rule copy's, not today's bench verdict.", hero, 3)}
 {section("fixwave", "What changed in the fix waves", "Each finding, re-measured independently after the lanes reported done (a-i in fix wave 1, b and j in fix wave 2, k-n in fix wave 3, o-t in round 3). The verifiers did not write the fixes. The A · B · C switcher these stills show was retired in round 6.", fw, 4)}
@@ -1396,7 +1561,8 @@ def build() -> str:
 
 <section id="decide">
   <h2>Decision surface</h2>
-  <div class="decide">{DECISION_R6}</div>
+  <div class="decide">{DECISION_R7}</div>
+  <details class="raw"><summary>Round 6's decision packet, before Codex round 3 (superseded: round 3 ran, and its open items closed in e0bd8e5)</summary><div class="decide">{DECISION_R6}</div></details>
   <details class="raw"><summary>Round 5's decision packet, after Codex round 2 (superseded: its siblings and 390 px pages are closed)</summary><div class="decide">{DECISION_R5}</div></details>
   <details class="raw"><summary>Round 4's decision packet, after Codex round 1 (superseded)</summary><div class="decide">{DECISION}</div></details>
   {FB.ui(REPORT_NAME, noun="section", total=12)}

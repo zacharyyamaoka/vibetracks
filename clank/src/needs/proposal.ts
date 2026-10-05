@@ -29,7 +29,8 @@ export interface NeedsProposalProps {
   /** Open the dashboard's settings page (the plain-text pointer beside a count of items this view leaves out). */
   openSettings(): void
   backend: PluginBackend
-  /** The dashboard projection when loaded (for <EvidenceLink projection>); may be null. */
+  /** The dashboard projection when loaded; may be null. Never used to build an evidence link: those are bound to the
+   * Needs document alone (evidence.ts, audit 2026-10-05 round 3 finding 1). */
   projection: Projection | null
   route: Route
   navigate(route: Route, mode?: 'push' | 'replace'): void

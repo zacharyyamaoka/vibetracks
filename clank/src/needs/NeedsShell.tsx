@@ -1,14 +1,12 @@
 // The "Needs you" page's shell: loads /needs for the routed track (or all), keeps the draft answers, and renders the
-// chosen proposal N1..N6. Route: `#vt?track=kinsim&needs=1` (any A/B/C variant; Dashboard.tsx checks `needs=1`).
-// WHY a chooser of its own in the A · B · C switcher's corner: they choose different things (the needs page vs the
-// dashboard layout), and A · B · C has no effect on this page, so Dashboard.tsx hides it here and this one pill
-// takes its place.
+// chosen proposal N1..N6 (N6 "Lane + context" unless a choice is stored). Route: `#vt?track=kinsim&needs=1`
+// (Dashboard.tsx checks `needs=1`; the dashboard itself is variant A only since 2026-10-05, 56c75c0).
 // WHY the chooser is in the app and remembered: Zach's prototype-switch rule (a drop-down bottom-right, live,
-// remembers the choice), the same as the A · B · C switcher.
-// WHY the chooser docks in the review bar: Dashboard.tsx renders `#vt-review-bar` as a sibling BELOW the scroll area,
-// so a pill there can never cover content (a floating pill covered the right end of "Something else (write it)" at
-// rest in N1 rig, N2 kinsim and N2 rig). The pill is portalled into that bar, left of A · B · C; only when the bar is
-// absent (an older Dashboard.tsx) does it float in the corner as before.
+// remembers the choice). It is the only pill left: the A · B · C layout switcher was retired when Zach chose A.
+// WHY the chooser docks in the review bar: Dashboard.tsx renders `#vt-review-bar` as a sibling BELOW the scroll area
+// (shown only on the needs page), so a pill there can never cover content (a floating pill covered the right end of
+// "Something else (write it)" at rest in N1 rig, N2 kinsim and N2 rig). Only when the bar is absent (an older
+// Dashboard.tsx) does it float in the corner as before.
 
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type RefObject } from 'react'
 import { createPortal } from 'react-dom'

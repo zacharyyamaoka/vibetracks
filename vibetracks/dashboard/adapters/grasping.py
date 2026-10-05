@@ -13,12 +13,14 @@ protocol or whose gates are not all beaten, never the tier of the newest run: th
 ran while tier 2's gates were still open), so "latest" and "current" are different rungs here.
 
 Verdicts are the bench's own: which run heads each cell, which runs are on the frozen protocol, which are
-privileged, which envs are beaten or provisional. grasp_bench_bridge.py runs ``grasp_bench.gallery`` in the bench's
-venv over exactly the ledger rows this adapter read, and caches the answer. WHY no copy of those rules here: the copy
-this module used to carry drifted the night the bench tightened "frozen" (provenance_gap, attestations.jsonl) and read
-6 of 10 gated envs beaten against the gallery's 2. When the bench cannot answer, the verdict KPIs are null with the
-reason ("bench verdict unavailable: ..."), never a guess. The bridge's inputs (``grasping_bench_python``,
-``grasping_attestations``, the bench's ``gallery.py`` / ``ledger.py`` / ``runner.py`` / ``contracts.py`` and the
+privileged, which envs are beaten or provisional. grasp_bench_bridge.verdict() runs ``grasp_bench.gallery`` in the
+bench's venv over exactly the ledger rows this adapter read, named by the sha256 of their raw lines (``judge``), and
+caches the answer. WHY no copy of those rules here: the copy this module used to carry drifted the night the bench
+tightened "frozen" (provenance_gap, attestations.jsonl) and read 6 of 10 gated envs beaten against the gallery's 2.
+When the bench cannot answer, the verdict KPIs are null with the reason ("bench verdict unavailable: ..."), never a
+guess; the same when the ledger kept changing under two reads ("ledger changed during read"), so a number is never
+shown beside rows of another ledger version. The bridge's inputs (``grasping_bench_python``, ``grasping_attestations``,
+the bench's ``gallery.py`` / ``ledger.py`` / ``runner.py`` / ``contracts.py``, the whole ``src/grasp_bench`` and the
 ``grasping_verdict_cache`` folder) are declared sources too, so the build reruns this adapter when any of them changes.
 
 Iteration: a **tier phase**, the rows of one curriculum tier under one training seed, in the order the ledger first saw
@@ -29,10 +31,12 @@ scripts), 60 per-row columns would be unreadable, and a tier is the rung Zach as
 
 from __future__ import annotations
 
+import hashlib
 import json
 import os
 import re
 import sys
+import time
 import types
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
@@ -159,6 +163,8 @@ class Run:
     tier: int
     started_at: str
     protocol: dict[str, Any] = field(default_factory=dict)
+    #: sha256 hex of this row's raw bytes in runs.jsonl without its one terminator (the bridge's ``line_sha256``).
+    digest: str = ""
 
     def get(self, key: str, default: Any = None) -> Any:
         return self.row.get(key, default)
@@ -170,23 +176,31 @@ class Run:
         return seed if isinstance(seed, int) else None
 
 
-def load_ledger(path: str | os.PathLike[str]) -> tuple[list[Run], int]:
-    """(runs in append order, unreadable line count)."""
+def read_ledger(path: str | os.PathLike[str]) -> tuple[list[Run], int, bytes]:
+    """(runs in append order, unreadable line count, the exact bytes they were parsed from), from ONE read.
 
+    WHY bytes and per-line digests: the bench judges rows named by ``line_sha256`` (grasp_bench_bridge.verdict), so
+    each Run carries the digest of its own raw line. ``bytes.splitlines`` splits on ``\\n``, ``\\r\\n`` and a lone
+    ``\\r`` exactly as a text-mode read does and drops that one terminator, which is the bridge's rule; a UTF-8
+    character never contains those bytes, so decoding line by line equals decoding the file.
+    """
+
+    data = Path(path).read_bytes()
     runs: list[Run] = []
     bad = 0
-    with open(path, encoding="utf-8") as handle:
-        for line in handle:
-            if not line.strip():
-                continue
-            try:
-                row = json.loads(line)
-                runs.append(Run(index=len(runs), row=row, run_id=str(row["run_id"]), cell_id=str(row["cell_id"]),
-                                model=str(row["model"]), env=str(row["env"]), tier=int(row["tier"]),
-                                started_at=str(row.get("started_at") or ""), protocol=dict(row.get("protocol") or {})))
-            except (ValueError, KeyError, TypeError):
-                bad += 1
-    return runs, bad
+    for raw in data.splitlines():
+        line = raw.decode("utf-8", errors="replace")
+        if not line.strip():
+            continue
+        try:
+            row = json.loads(line)
+            runs.append(Run(index=len(runs), row=row, run_id=str(row["run_id"]), cell_id=str(row["cell_id"]),
+                            model=str(row["model"]), env=str(row["env"]), tier=int(row["tier"]),
+                            started_at=str(row.get("started_at") or ""), protocol=dict(row.get("protocol") or {}),
+                            digest=hashlib.sha256(raw).hexdigest()))
+        except (ValueError, KeyError, TypeError):
+            bad += 1
+    return runs, bad, data
 
 
 def _family(env_id: str) -> str:
@@ -209,32 +223,61 @@ def _value(run: Run) -> float | None:
 
 
 class Verdict:
-    """What ``grasp_bench.gallery`` said about each run and each snapshot; this adapter never decides it itself."""
+    """What ``grasp_bench.gallery`` said about each run and each snapshot; this adapter never decides it itself.
+
+    Every lookup goes through a row's digest (``Run.digest`` = the bridge's ``line_sha256``), never its ledger
+    ``run_id``: a run id survives a row being enriched or replaced in place, the digest does not, so a judgement is
+    only ever attached to the very bytes the dashboard parsed and displays.
+    """
 
     def __init__(self, doc: dict[str, Any], runs: list[Run]) -> None:
         self.doc = doc
-        self.by_id = {run.run_id: run for run in runs}
-        self._runs: dict[str, dict[str, Any]] = doc.get("runs") or {}
+        self.by_digest: dict[str, Run] = {}
+        for run in runs:
+            self.by_digest.setdefault(run.digest, run)
+        self._digest_of: dict[str, str] = {}
+        self._judged: dict[str, dict[str, Any]] = {}
+        for bench_id, judged in (doc.get("runs") or {}).items():
+            if isinstance(judged, dict) and isinstance(judged.get("line_sha256"), str):
+                self._digest_of[str(bench_id)] = judged["line_sha256"]
+                self._judged.setdefault(judged["line_sha256"], judged)
 
     @classmethod
-    def problem(cls, doc: dict[str, Any], runs: list[Run], subsets: dict[str, list[str]], cur: Curriculum) -> str | None:
-        """Why ``doc`` cannot be used as the verdict over ``runs`` (None when it can)."""
+    def problem(cls, doc: dict[str, Any], runs: list[Run], subsets: dict[str, list[str]],
+                cur: Curriculum) -> tuple[str | None, bool]:
+        """``(why doc cannot be the verdict over runs, whether a re-read could fix it)``; ``(None, False)`` when usable.
 
-        unjudged = [run.run_id for run in runs if run.run_id not in (doc.get("runs") or {})]
+        The second half is True when the bench's snapshot and the dashboard's read hold different bytes for a row the
+        dashboard uses (enriched, replaced or gone in between): the caller re-reads once.
+        """
+
+        snapshots = doc.get("snapshots")
+        if not isinstance(snapshots, dict):
+            return "the bench returned no per-phase verdicts", False
+        verdict = cls(doc, runs)
+        unjudged = [run.run_id for run in runs if run.digest not in verdict._judged]
         if unjudged:
-            return f"the bench did not judge {len(unjudged)} ledger rows the dashboard read (first {unjudged[0]})"
+            return f"the bench did not judge {len(unjudged)} ledger rows the dashboard read (first {unjudged[0]})", True
         for snapshot_id in subsets:
-            data = (doc.get("snapshots") or {}).get(snapshot_id)
+            data = snapshots.get(snapshot_id)
             if not isinstance(data, dict):
-                return f"the bench returned no snapshot {snapshot_id}"
-            if data.get("missing"):
-                return f"the bench's ledger lacks {len(data['missing'])} rows of {snapshot_id} (first {data['missing'][0]})"
-        if sorted(doc.get("gated") or []) != sorted(cur.gates):
-            return "the bench's curriculum.GATES differ from the curriculum.py the dashboard read"
-        return None
+                return f"the bench returned no snapshot {snapshot_id}", False
+            missing = data.get("missing") or []
+            if missing:
+                first = next((run.run_id for run in runs if run.digest in set(missing)), missing[0])
+                return (f"{len(missing)} ledger rows the dashboard read are not in the bench's snapshot "
+                        f"(first {first})"), True
+            referenced = [*(data.get("headline") or {}).values(),
+                          *((entry or {}).get("best_run") for entry in (data.get("envs") or {}).values())]
+            for bench_id in referenced:
+                if bench_id is not None and verdict._run(bench_id) is None:
+                    return f"the bench's verdict for {snapshot_id} names row {bench_id}, which the dashboard did not read", True
+        if sorted(doc.get("envs") or {}) != sorted(cur.gates):
+            return "the bench's curriculum.GATES differ from the curriculum.py the dashboard read", False
+        return None, False
 
     def judged(self, run: Run) -> dict[str, Any]:
-        return self._runs.get(run.run_id) or {}
+        return self._judged.get(run.digest) or {}
 
     def frozen(self, run: Run) -> bool:
         return self.judged(run).get("frozen") is True
@@ -247,14 +290,15 @@ class Verdict:
 
     def gap(self, run: Run) -> str:
         """The bench's provenance_gap: why the row cannot vouch for an unchanged env and model ("" when it can)."""
-        return str(self.judged(run).get("provenance_gap") or "")
+        return str(self.judged(run).get("gap") or "")
 
-    def _run(self, brief: Any) -> Run | None:
-        return self.by_id.get(brief.get("run_id")) if isinstance(brief, dict) else None
+    def _run(self, bench_id: Any) -> Run | None:
+        digest = self._digest_of.get(str(bench_id)) if bench_id is not None else None
+        return self.by_digest.get(digest) if digest is not None else None
 
     def heads(self, snapshot_id: str) -> dict[str, Run]:
         data = self.doc["snapshots"][snapshot_id]
-        heads = {cell_id: self._run(brief) for cell_id, brief in (data.get("heads") or {}).items()}
+        heads = {cell_id: self._run(bench_id) for cell_id, bench_id in (data.get("headline") or {}).items()}
         return {cell_id: run for cell_id, run in heads.items() if run is not None}
 
     def envs(self, snapshot_id: str) -> dict[str, tuple[bool, bool, Run | None]]:
@@ -516,18 +560,94 @@ def _prov(ledger: str, derived: str, *, curriculum: str | None = None, pointer: 
     return {"snapshot": None, "pointer": pointer, "source": source, "derived": derived}
 
 
-def bench_paths(sources: dict[str, str]) -> grasp_bench_bridge.BenchPaths:
-    """The bridge's inputs, from the declared sources only (an undeclared key is None and the bridge says so)."""
+#: Where each declared bridge input must sit inside the bench (``grasping_bench_python`` = <bench>/.venv/bin/python
+#: names the bench). WHY checked: verdict() reads the bench's own files by layout, and the build reruns this adapter
+#: only when a DECLARED source changes, so a declared path elsewhere would be watched while the bench read another.
+BENCH_LAYOUT = {
+    "grasping_ledger": "out/ledger/runs.jsonl", "grasping_attestations": "out/ledger/attestations.jsonl",
+    "grasping_curriculum": "src/grasp_bench/curriculum.py", "grasping_gallery_py": "src/grasp_bench/gallery.py",
+    "grasping_ledger_py": "src/grasp_bench/ledger.py", "grasping_runner_py": "src/grasp_bench/runner.py",
+    "grasping_contracts_py": "src/grasp_bench/contracts.py", "grasping_bench_src": "src/grasp_bench",
+}
+BRIDGE_KEYS = ("grasping_bench_python", *BENCH_LAYOUT, "grasping_verdict_cache")
+LEDGER_CHANGED = "ledger changed during read"
 
-    return grasp_bench_bridge.BenchPaths(
-        python=sources.get("grasping_bench_python"), ledger=sources.get("grasping_ledger"),
-        attestations=sources.get("grasping_attestations"), gallery_py=sources.get("grasping_gallery_py"),
-        ledger_py=sources.get("grasping_ledger_py"), curriculum_py=sources.get("grasping_curriculum"),
-        runner_py=sources.get("grasping_runner_py"), contracts_py=sources.get("grasping_contracts_py"),
-        cache_dir=sources.get("grasping_verdict_cache"))
+
+def bench_dir(sources: dict[str, str]) -> tuple[Path | None, str | None]:
+    """``(the grasp_bench folder, None)`` from the declared sources, or ``(None, why the bridge cannot be asked)``."""
+
+    missing = [key for key in BRIDGE_KEYS if not sources.get(key)]
+    if missing:
+        return None, f"vibe-sources lacks {', '.join(missing)}"
+    bench = Path(sources["grasping_bench_python"]).parent.parent.parent
+    for key, relative in BENCH_LAYOUT.items():
+        if os.path.realpath(sources[key]) != os.path.realpath(bench / relative):
+            return None, f"{key} {sources[key]} is not the bench's {bench / relative}"
+    return bench, None
 
 
-Bridge = Callable[[grasp_bench_bridge.BenchPaths, dict[str, list[str]]], grasp_bench_bridge.BridgeResult]
+#: grasp_bench_bridge.verdict's shape; tests pass a fake (no bench venv needed).
+Bridge = Callable[..., dict[str, Any]]
+
+
+@dataclass
+class Judged:
+    """One read of runs.jsonl and the bench's verdict over exactly those bytes (``verdict`` None: ``unavailable`` says why)."""
+
+    runs: list[Run]
+    bad_lines: int
+    all_phases: list[Phase]
+    cumulative: list[list[Run]]
+    verdict: Verdict | None
+    unavailable: str | None
+    info: dict[str, Any] | None
+
+
+def judge(ledger_path: str, sources: dict[str, str], cur: Curriculum, bridge: Bridge | None) -> Judged:
+    """Read the ledger once, ask the bench to judge exactly those rows, and re-read once if the ledger moved between.
+
+    WHY one read and digests (Codex r3 finding 2, 2026-10-05): this adapter used to read runs.jsonl, then call
+    bench_verdict(), which read it again, and checked the two against each other by run id only. A legacy sparse row
+    enriched in place between the reads kept its id, so the page showed a measured "beaten" beside that run's row with
+    no Top-1 and no Wilson LB. Now every phase subset is named by the rows' ``line_sha256`` digests, the bench judges
+    one byte snapshot, and any row of this read that the snapshot does not hold byte for byte comes back ``missing``.
+    Then the ledger is read again and judged again, once; if it moved a second time the north star is null with
+    "ledger changed during read" rather than numbers from one version beside rows from another.
+    """
+
+    previous: bytes | None = None
+    started = time.monotonic()
+    for attempt in (1, 2):
+        runs, bad_lines, data = read_ledger(ledger_path)
+        all_phases = phases(runs, cur)
+        cumulative_runs: list[list[Run]] = []
+        cumulative: list[Run] = []
+        for phase in all_phases:
+            cumulative = sorted(cumulative + phase.runs, key=lambda run: run.index)
+            cumulative_runs.append(cumulative)
+        if not runs:
+            return Judged(runs, bad_lines, all_phases, cumulative_runs, None, None, None)
+        bench, unavailable = bench_dir(sources)
+        info: dict[str, Any] = {}
+        if bench is not None:
+            subsets = {phase.id: [run.digest for run in held] for phase, held in zip(all_phases, cumulative_runs)}
+            doc = (bridge or grasp_bench_bridge.verdict)(bench, cache_dir=sources["grasping_verdict_cache"],
+                                                         subsets=subsets, info=info)
+            if doc.get("error"):
+                unavailable = str(doc["error"])
+            else:
+                unavailable, moved = Verdict.problem(doc, runs, subsets, cur)
+                if unavailable is None:
+                    info.update(ok=True, reason=None, attempts=attempt, seconds=time.monotonic() - started)
+                    return Judged(runs, bad_lines, all_phases, cumulative_runs, Verdict(doc, runs), None, info)
+                if moved and attempt == 1:
+                    previous = data
+                    continue
+                if moved and previous != data:
+                    unavailable = f"{LEDGER_CHANGED} ({unavailable})"
+        info.update(ok=False, reason=unavailable, attempts=attempt, seconds=time.monotonic() - started)
+        return Judged(runs, bad_lines, all_phases, cumulative_runs, None, unavailable, info)
+    raise AssertionError("unreachable")
 
 
 def _unconfirmed(phase_id: str, evidence: list[str]) -> dict[str, Any]:
@@ -538,7 +658,7 @@ UNCONFIRMED_STATUS = {"word": UNCONFIRMED, "tone": "muted"}
 
 
 def build_track(work_track: Any, sources: dict[str, str], *, bridge: Bridge | None = None) -> dict[str, Any]:
-    """The Grasping track. ``bridge`` is grasp_bench_bridge.bench_verdict; tests pass a fake (no bench venv needed)."""
+    """The Grasping track. ``bridge`` is grasp_bench_bridge.verdict; tests pass a fake (no bench venv needed)."""
 
     ledger_path = sources.get("grasping_ledger")
     curriculum_path = sources.get("grasping_curriculum")
@@ -551,12 +671,13 @@ def build_track(work_track: Any, sources: dict[str, str], *, bridge: Bridge | No
         return not_reporting(work_track, f"ledger missing · {ledger_path}")
 
     cur = load_curriculum(curriculum_path)
-    runs, bad_lines = load_ledger(ledger_path)
+    judged = judge(ledger_path, sources, cur, bridge)
+    runs, bad_lines, all_phases, cumulative_runs = judged.runs, judged.bad_lines, judged.all_phases, judged.cumulative
+    verdict, unavailable, bridge_info = judged.verdict, judged.unavailable, judged.info
     ledger_file, curriculum_file = Path(ledger_path), Path(curriculum_path)
     ledger_mtime, curriculum_mtime = _mtime_iso(ledger_file), _mtime_iso(curriculum_file)
 
     track = skeleton(work_track, unit="wave")
-    all_phases = phases(runs, cur)
     labels = [phase.label for phase in all_phases]
     wave1_ids = {cell.id for cell in cur.wave1()}
     wave1_total = len(wave1_ids)
@@ -565,26 +686,6 @@ def build_track(work_track: Any, sources: dict[str, str], *, bridge: Bridge | No
     hardest = hardest_gated_env(cur)
     data_env = dataset_env(cur)
 
-    # ---- the bench's own verdict over each cumulative phase (grasp_bench_bridge)
-    cumulative_runs: list[list[Run]] = []
-    cumulative: list[Run] = []
-    for phase in all_phases:
-        cumulative = sorted(cumulative + phase.runs, key=lambda run: run.index)
-        cumulative_runs.append(cumulative)
-    subsets = {phase.id: [run.run_id for run in held] for phase, held in zip(all_phases, cumulative_runs)}
-    verdict: Verdict | None = None
-    unavailable: str | None = None
-    bridge_info: dict[str, Any] | None = None
-    if runs:
-        result = (bridge or grasp_bench_bridge.bench_verdict)(bench_paths(sources), subsets)
-        bridge_info = result.info()
-        if result.ok:
-            unavailable = Verdict.problem(result.doc, runs, subsets, cur)
-            verdict = None if unavailable else Verdict(result.doc, runs)
-        else:
-            unavailable = result.reason or "no reason given"
-        if unavailable:
-            bridge_info.update(ok=False, reason=unavailable)
     unavailable_note = f"{UNAVAILABLE}: {unavailable}" if unavailable else None
 
     # ---- iterations + cumulative snapshots

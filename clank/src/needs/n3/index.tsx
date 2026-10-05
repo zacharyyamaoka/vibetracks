@@ -552,7 +552,7 @@ function Card({ entry, ...ctx }: CardContext & { entry: Entry }) {
               <span className="vt-n3-evidence">
                 evidence{' '}
                 {item.evidence.map((_, index) => (
-                  <EvidenceLink key={index} backend={props.backend} doc={doc} item={item} index={index} projection={props.projection} />
+                  <EvidenceLink key={index} backend={props.backend} doc={doc} item={item} index={index} />
                 ))}
               </span>
             ) : null}

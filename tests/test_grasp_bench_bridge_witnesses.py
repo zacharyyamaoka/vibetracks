@@ -32,7 +32,7 @@ class Doctored:
 
     def __call__(self, args, *rest, **kwargs):
         done = self.real(args, *rest, **kwargs)
-        if not any(arg in (grasp_bench_bridge.SCRIPT, grasp_bench_bridge.VERDICT_SCRIPT) for arg in args):
+        if grasp_bench_bridge.VERDICT_SCRIPT not in args:
             return done
         doc = json.loads([line for line in done.stdout.splitlines() if line.strip()][-1])
         return subprocess.CompletedProcess(args, 0, "\n" + json.dumps(self.rewrite(doc, self.code)) + "\n", "")
@@ -136,39 +136,6 @@ class VerdictV2WitnessTest(unittest.TestCase):
                 # WHY a second, honest call: the refusal left nothing behind that could answer for the bench later.
                 honest = grasp_bench_bridge.verdict(bench, cache_dir=cache)
                 self.assertIsNone(honest["error"], f"{label}: {honest['error']}")
-
-
-class BenchVerdictV1WitnessTest(unittest.TestCase):
-    """The sibling reader: bench_verdict() checked its five declared modules, but took any other reported file on trust.
-
-    WHY only placement here and not the full REQUIRED_MODULES set: bench_verdict()'s contract (its five declared
-    modules exact, a missing dependency list "returned, never cached") is pinned by
-    tests/test_dashboard_adapter_grasping.py::BridgeTest, outside this lane. What it now refuses is a module or
-    dependency outside the bench's src/grasp_bench, which it used to accept and cache.
-    """
-
-    def paths(self, bench: Path, cache: Path) -> grasp_bench_bridge.BenchPaths:
-        code = bench / "src" / "grasp_bench"
-        return grasp_bench_bridge.BenchPaths(
-            python=str(bench / ".venv" / "bin" / "python"), ledger=str(bench / "out" / "ledger" / "runs.jsonl"),
-            attestations=str(bench / "out" / "ledger" / "attestations.jsonl"), gallery_py=str(code / "gallery.py"),
-            ledger_py=str(code / "ledger.py"), curriculum_py=str(code / "curriculum.py"),
-            runner_py=str(code / "runner.py"), contracts_py=str(code / "contracts.py"), cache_dir=str(cache))
-
-    def test_a_module_or_dependency_outside_the_package_is_refused_and_never_cached(self) -> None:
-        for label, rewrite in (("registry imported from outside src/grasp_bench", move_module("registry")),
-                               ("a dependency outside src/grasp_bench", add_outside_dependency)):
-            with self.subTest(label), tempfile.TemporaryDirectory() as folder:
-                bench = make_bench(Path(folder) / "grasp_bench")
-                cache = Path(folder) / "cache"
-                doctored = Doctored(rewrite, (bench / "src" / "grasp_bench").resolve())
-                with mock.patch.object(grasp_bench_bridge.subprocess, "run", side_effect=doctored):
-                    result = grasp_bench_bridge.bench_verdict(self.paths(bench, cache), {"T1": ["r0", "r1"]})
-                self.assertFalse(result.ok, f"{label}: accepted")
-                self.assertTrue(result.reason)
-                self.assertFalse((cache / grasp_bench_bridge.CACHE_NAME).exists(), f"{label}: cached")
-                honest = grasp_bench_bridge.bench_verdict(self.paths(bench, cache), {"T1": ["r0", "r1"]})
-                self.assertTrue(honest.ok, f"{label}: {honest.reason}")
 
 
 if __name__ == "__main__":

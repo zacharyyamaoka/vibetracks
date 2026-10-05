@@ -214,13 +214,14 @@ export default function NeedsN5(props: NeedsProposalProps) {
 
   // Fit the three columns to the dashboard's scroll area so the rail, the thread and the outbox scroll on their own
   // and the composer stays pinned at the bottom of the thread, as in any chat client.
-  // WHY a 96px reserve: while the needs pill floats (no review bar) it and the A · B · C switcher sit over the
+  // WHY a 96px reserve: while the needs pill floats (no review bar) it sits over the
   // bottom-right ~90px, and the composer and Copy answers must never be under them; docked in the review bar, the
   // kit keeps only a calm end margin.
   const height = useFitToScroller(rootRef, 96, 420)
 
   // Keys: J/K next/previous thread (Gmail, Superhuman), A = go with the recommendation, D = let the default apply,
-  // R = reply in your own words, S = skip. WHY letters and not 1/2/3: the dashboard owns 1/2/3 for the A · B · C switch.
+  // R = reply in your own words, S = skip. WHY letters and not 1/2/3: the dashboard owned 1/2/3 for the A · B · C switch
+  // when N5 was built (retired 2026-10-05); the letters stayed, as the reference apps use them.
   // WHY a listener on this page's own root (which keeps focus) and not on window: Clank's workbench consumes bare
   // letter keys while focus sits on <body> (measured: the keydown arrives at window already defaultPrevented), so a
   // window listener would show shortcuts that silently do nothing.
@@ -414,7 +415,7 @@ interface ThreadProps extends NeedsProposalProps {
 }
 
 function ThreadView(props: ThreadProps) {
-  const { thread, draft, skipped, composerRef, onReply, onSkip, onClear, backend, projection } = props
+  const { thread, draft, skipped, composerRef, onReply, onSkip, onClear, backend } = props
   const { doc, item } = thread
   const [fullContext, setFullContext] = useState(false)
   const [showEarlier, setShowEarlier] = useState(false)
@@ -517,7 +518,7 @@ function ThreadView(props: ThreadProps) {
               {item.evidence.map((entry, index) => (
                 <span key={index} className="n5-attachment">
                   <span className="n5-attachment-kind">{entry.kind === 'url' ? 'link' : entry.is_dir ? 'folder' : 'file'}</span>
-                  <EvidenceLink backend={backend} doc={doc} item={item} index={index} projection={projection} />
+                  <EvidenceLink backend={backend} doc={doc} item={item} index={index} />
                 </span>
               ))}
             </div>

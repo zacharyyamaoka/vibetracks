@@ -1,12 +1,14 @@
-# Building a variant
+# Building on the dashboard layout (variant A)
 
-Three proposals share one shell, one data contract and one kit. A variant owns **only its own folder**: `clank/src/variants/a/` for Drill-down pages, `b/` for Shared timeline, `c/` for Three panes. It must not edit `clank/src/shared/`, `Dashboard.tsx`, `plugin.tsx`, the backend or the adapter. Those are the frozen contract. If you need a change there, report it instead of making it.
+**Current product (2026-10-05):** one layout ships, A · Drill-down pages, in `clank/src/variants/a/`; `Dashboard.tsx` renders it directly and there is no layout switcher. What A does is in `VARIANTS.md` ("Current").
+
+> **Archived 2026-10-05: Zach chose A; B and C removed in 56c75c0.** This kit was written for three proposals sharing one shell (`a/` Drill-down pages, `b/` Shared timeline, `c/` Three panes, each owning only its own folder). B and C are gone (git keeps them at 8369c05). The contract below is still the one A builds on: A's own folder is `clank/src/variants/a/`, and `clank/src/shared/`, `Dashboard.tsx`, `plugin.tsx`, the backend and the adapters are shared code that other lanes edit too.
 
 ## Run it
 
 - **Lane (already running, Vite HMR):** `http://127.0.0.1:4390/?vtdash=Agent%20work.vtdash`. Edits under `clank/src` reload in place.
 - **Start or reuse it:** `/home/bam/vibetracks-dashboard/scripts/open-dashboard --no-open`.
-- **Headless proof:** `node /home/bam/vibetracks-dashboard/scripts/shoot.mjs --variant b --hash '#vt?track=kinsim' --out /abs/shot.png`. It prints JSON facts (the variant shown, console errors, failed requests).
+- **Headless proof:** `node /home/bam/vibetracks-dashboard/scripts/shoot.mjs --hash '#vt?track=kinsim' --out /abs/shot.png`. It prints JSON facts (the variant shown, console errors, failed requests). Do not pass `--variant`: it clicks the retired switcher's `vt-switch-<x>` button, which no longer exists. The consumer checks in `tests/browser/*.mjs` drive the real page the same way.
 - **The kit on real data:** add `#vt?kit=1` to the URL.
 - **Typecheck:** `/home/bam/clank-workbench/node_modules/.bin/tsc -p /home/bam/vibetracks-dashboard/clank`.
 - **A file created while Vite runs** may need `touch /home/bam/clank-workbench/src/styles/app.css` before Tailwind scans it (Clank CLAUDE.md §1.5). The kit's own CSS is plain (`calm.css`), so this matters only if you use Tailwind classes.
@@ -18,8 +20,8 @@ Three proposals share one shell, one data contract and one kit. A variant owns *
 | prop | what |
 |---|---|
 | `projection` | the whole projection (`docs/dashboard/PROJECTION.md`) |
-| `mediaUrl(id)` | same-origin URL for a media id: `<video src>`, `<iframe src>`, `<a href>` |
-| `route`, `navigate(route, 'push' \| 'replace')` | place, kept in the URL hash (`#vt?track=…&kpi=…&iteration=…&item=…`, plus any keys you add). Push for a deeper level so Back climbs a level; replace for a sideways move. All three variants share the route, so the switcher keeps the selection. |
+| `mediaUrl(id)` | same-origin URL for a media id, `/media/<id>?rev=<media_rev>` of the projection being drawn: `<video src>`, `<iframe src>`, `<a href>`. A 409 means the file changed since that projection; show the reload line (PROJECTION.md, Media). Never used on the Needs page, whose evidence goes through `/needs/evidence` (NEEDS-KIT.md) |
+| `route`, `navigate(route, 'push' \| 'replace')` | place, kept in the URL hash (`#vt?track=…&kpi=…&iteration=…&item=…`, plus any keys you add; `needs=1` opens the Needs page, `settings=1` the settings page). Push for a deeper level so Back climbs a level; replace for a sideways move. |
 | `reload({rebuild?})` | re-read the projection, or rerun the adapter first |
 | `title` | the .vtdash file's title ("Agent work") |
 | `backend` | `ctx.backend`, if you need it |
@@ -67,13 +69,14 @@ Zach, 2026-10-03: *"it's important that the tool bar is actually usable. This li
 |---|---|---|---|
 | `xAxis` | `'iteration' \| 'day'` | `'iteration'` | One column per iteration (the track's own wave, tick or session), or per calendar day. With `day`, iterations that share a date share a column, and an iteration with `date: null` (rig tick 2) is shown as undated, never dropped. |
 | `showDeltas` | boolean | `true` | Show each KPI's change beside its latest value (`deltaVsBaseline` / `deltaVsPrevious`, with the n = 1 wording). Off hides the delta text only; status words and exceptions stay. |
+| `needsIncludeDefaulting` | boolean | `false` | Titled "Needs you · Include questions whose default is already in effect". Queues the `defaulting` group in the Needs-you lane after the ones that still want Zach. Read by the Needs page (`includeDefaulting`, NEEDS-KIT.md), not by A. |
 
-To add one: add the field to `DashboardSettings` and `defaultDashboardSettings`, add an item to `DASHBOARD_SETTINGS_SECTION`, and document it in this table. These are shared files, so report the addition instead of making it from a variant folder.
+To add one: add the field to `DashboardSettings` and `defaultDashboardSettings`, add an item to `DASHBOARD_SETTINGS_SECTION`, and document it in this table.
 
 ## The roadmap widget
 
-`import { RoadmapWidget, useRoadmap } from '../../roadmap'`. Until the roadmap session lands, it is a stub with the agreed signatures (`clank/src/roadmap/index.tsx`): `RoadmapWidget` takes `{track, doc, state, onState, onOpenRung, onOpenEvidence, density, settings}` and renders one grey line, and `useRoadmap(backend, track)` returns `{doc: null, loading: false, error: null}`. Placement and routing are in `VARIANTS.md` ("Roadmap widget slot"). The backend gains its `/roadmap` routes through `clank/backend/mounts.py`.
+`import { RoadmapWidget, useRoadmap } from '../../roadmap'`. Until the roadmap session lands, it is a stub with the agreed signatures (`clank/src/roadmap/index.tsx`, owned by that session): `RoadmapWidget` takes `{track, doc, state, onState, onOpenRung, onOpenEvidence, density, settings}` and renders one grey line, "Roadmap widget pending (roadmap session)", and `useRoadmap(backend, track)` returns `{doc: null, loading: false, error: null, reload}`. A places it on the track page under the scorecard (`VARIANTS.md`, "Current"; the per-variant placements in its archived "Roadmap widget slot" are history). The backend gains its `/roadmap` routes through `clank/backend/mounts.py`.
 
 ## The criteria you are judged on
 
-These are in `BRIEF.md`. Three clean levels (L1 tracks, L2 that track's KPIs over iterations, L3 evidence), the research principles visibly applied, the calm language of The Table, KPI progress legible at a glance, and real, working evidence. The hard gates: truthful data (G1), no fake controls (G2), local only (G3), and one command (G4).
+These are in `BRIEF.md` (its three-proposal framing is archived; its criteria and gates still apply to A). Three clean levels (L1 tracks, L2 that track's KPIs over iterations, L3 evidence), the research principles visibly applied, the calm language of The Table, KPI progress legible at a glance, and real, working evidence. The hard gates: truthful data (G1), no fake controls (G2), local only (G3), and one command (G4).

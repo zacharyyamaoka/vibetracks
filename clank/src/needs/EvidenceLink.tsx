@@ -1,51 +1,36 @@
-// One evidence entry, calmly: a link when the file can be opened (the projection's media allowlist first, then the
-// /needs/evidence route, which serves only paths the backend itself extracted from that item's text), else the
-// absolute path as text with a Copy button. WHY never a dead link: "no fake controls" (G2) - a path the backend
-// will not serve (a directory, an unservable suffix) is shown as a path, not as a link that 404s.
+// One evidence entry, calmly: a link when the file can be opened (always the /needs/evidence route, which serves only
+// paths the backend itself extracted from that item's text), else the absolute path as text with a Copy button.
+// WHY never a dead link: "no fake controls" (G2) - a path the backend will not serve (a directory, an unservable
+// suffix) is shown as a path, not as a link that 404s.
 //
 // WHY a /needs/evidence link checks before it opens (audit 2026-10-05, finding 1): its URL carries the document
 // revision Zach was shown, and the backend answers 409 when the evidence changed since. The link says so in place
 // ("This changed since you opened it: reload") and waits for him; it never retries silently with a newer revision,
 // which would open a file he has not seen listed.
+//
+// WHY no projection and no /media here (audit 2026-10-05 round 3, finding 1): a path that was also in projection.media
+// opened through /media under the PROJECTION's revision, so an old Needs document beside a newer projection opened
+// the new file and skipped this refusal. Every href comes from evidence.ts, bound to the document alone.
 
 import { useState, type MouseEvent } from 'react'
 import type { PluginBackend } from '@clank/api'
-import type { Projection } from '../shared/model'
-import { mediaUrl } from '../shared/api'
-import { checkEvidence, evidencePath, evidenceUrl, requestNeedsReload } from './api'
+import { checkEvidence, evidenceHref, evidencePath, requestNeedsReload } from './api'
 import type { NeedsDoc, NeedsItem } from './types'
-
-const SERVED = /\.(html|png|jpe?g|webp|gif|svg|mp4|webm|md|txt|json|jsonl|py|toml|ya?ml|csv|log|tsx?)$/i
 
 export interface EvidenceLinkProps {
   backend: PluginBackend
   doc: NeedsDoc
   item: NeedsItem
   index: number
-  /** When given, a path that is also in projection.media opens through the media route (video seek, report frame). */
-  projection?: Projection | null
 }
 
-/** The href this entry opens, or null when it can only be shown as a path. */
-export function evidenceHref(backend: PluginBackend, doc: NeedsDoc, item: NeedsItem, index: number, projection?: Projection | null): string | null {
-  const entry = item.evidence[index]
-  if (!entry) return null
-  if (entry.kind === 'url') return entry.value
-  if (entry.path && projection) {
-    const media = Object.values(projection.media).find((candidate) => candidate.path === entry.path)
-    if (media) return mediaUrl(backend, media.id)
-  }
-  if (!entry.path || entry.is_dir || !SERVED.test(entry.path)) return null
-  return evidenceUrl(backend, doc, item, index)
-}
-
-export function EvidenceLink({ backend, doc, item, index, projection }: EvidenceLinkProps) {
+export function EvidenceLink({ backend, doc, item, index }: EvidenceLinkProps) {
   const entry = item.evidence[index]
   const [copied, setCopied] = useState(false)
   // The refusal for THIS href only: a reloaded doc gives a new href, which clears it.
   const [refused, setRefused] = useState<{ href: string; why: 'changed' | string } | null>(null)
   if (!entry) return null
-  const href = evidenceHref(backend, doc, item, index, projection)
+  const href = evidenceHref(backend, doc, item, index)
   const shown = entry.path ?? entry.value
   if (href) {
     const routePath = evidencePath(doc, item, index)

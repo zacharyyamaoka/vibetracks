@@ -522,8 +522,8 @@ export default function NeedsLaneContext(props: NeedsProposalProps) {
     if (key === 's') return handled(skip)
     if (key === 'n') return handled(() => note.current?.focus())
     const number = ['1', '2', '3', '4', '5', '6', '7', '8', '9'].indexOf(key)
-    // WHY capture + preventDefault on the digits: the dashboard's own 1/2/3 switch the A · B · C layout; in the lane
-    // they pick an option, and the dashboard's listener skips a defaultPrevented key.
+    // WHY capture + preventDefault on the digits: in the lane they pick an option, and any other window listener
+    // skips a defaultPrevented key (the dashboard's 1/2/3 A · B · C switch did, until it was retired on 2026-10-05).
     if (number >= 0 && current.item.options[number]) return handled(() => choose(current.item.options[number].key))
   }
   useEffect(() => {
@@ -729,7 +729,7 @@ function collapsedCount(total: number, cap: number): number {
  *  the question; "+2 more" opens the rest in place, the same pattern as the blocks. */
 const EVIDENCE_SHOWN = 2
 
-function EvidenceInline({ backend, doc, item, projection }: Pick<NeedsProposalProps, 'backend' | 'projection'> & { doc: NeedsDoc; item: NeedsItem }) {
+function EvidenceInline({ backend, doc, item }: Pick<NeedsProposalProps, 'backend'> & { doc: NeedsDoc; item: NeedsItem }) {
   const [all, setAll] = useState(false)
   const count = all ? item.evidence.length : collapsedCount(item.evidence.length, EVIDENCE_SHOWN)
   const hidden = item.evidence.length - count
@@ -737,7 +737,7 @@ function EvidenceInline({ backend, doc, item, projection }: Pick<NeedsProposalPr
     <span className="n6-evidence" data-testid="vt-n6-evidence">
       {' · evidence '}
       {item.evidence.slice(0, count).map((_, position) => (
-        <EvidenceLink key={position} backend={backend} doc={doc} item={item} index={position} projection={projection} />
+        <EvidenceLink key={position} backend={backend} doc={doc} item={item} index={position} />
       ))}
       {hidden > 0 ? (
         <>
@@ -788,7 +788,6 @@ function Card({
   entry,
   answers,
   backend,
-  projection,
   docs,
   keys,
   onChoose,
@@ -825,7 +824,7 @@ function Card({
         <span className="vt-num vt-strong">{item.local_id}</span>
         {docs.length > 1 ? <span> · {doc.track_title}</span> : null}
         {item.kind !== 'decision' ? <span> · {item.kind.replace(/_/g, ' ')}</span> : null}
-        {item.evidence.length ? <EvidenceInline backend={backend} doc={doc} item={item} projection={projection} /> : null}
+        {item.evidence.length ? <EvidenceInline backend={backend} doc={doc} item={item} /> : null}
       </p>
       <h1 className="n6-question">
         <Inline text={item.ask || item.title} />

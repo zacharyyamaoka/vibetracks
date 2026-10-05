@@ -5,7 +5,9 @@
     GET /needs/evidence?track=kinsim&item=T47&eid=<entry eid>&rev=<doc evidence_rev>
                                 -> the file recorded for that evidence entry when the document was built (only paths
                                    this module itself extracted from the item's text, only servable suffixes, only
-                                   regular files); 409 when the document's evidence changed since ``rev``
+                                   regular files); 409 when the document's evidence changed since ``rev``. Honours
+                                   ``Range`` (206 / 416) exactly as /media does, so a Needs page plays and seeks
+                                   video through this route and never needs /media
 
 Mounted by ``clank/backend/mounts.py`` (``('/needs', 'vibetracks.dashboard.needs:handle')``). Stdlib only.
 
@@ -103,7 +105,6 @@ SERVABLE: dict[str, str] = {
     ".yaml": "text/plain; charset=utf-8", ".yml": "text/plain; charset=utf-8", ".csv": "text/plain; charset=utf-8",
     ".log": "text/plain; charset=utf-8", ".ts": "text/plain; charset=utf-8", ".tsx": "text/plain; charset=utf-8",
 }
-MAX_EVIDENCE_BYTES = 64 * 1024 * 1024
 
 GROUP_ORDER = ["blocking", "no_default", "waiting", "defaulting", "answered", "done"]
 #: The groups that still want Zach: open, and their default is NOT already in effect. ``counts.wants_you`` counts
@@ -1034,8 +1035,46 @@ def _stream(handle: Any, chunk: int = 256 * 1024) -> Iterable[bytes]:
             yield data
 
 
-def serve_evidence(entry: Mapping[str, Any]) -> tuple[int, dict[str, str], Iterable[bytes]]:
-    """Stream the file recorded for one evidence entry, or refuse it.
+def parse_range(header: str | None, size: int) -> tuple[int, int] | None | str:
+    """(start, end) inclusive, None for no/ignored Range, 'unsatisfiable' for a range outside the file.
+
+    The same grammar as clank/backend/server.py ``parse_range`` (the /media route): one ``bytes=a-b``, ``a-`` or
+    ``-n`` range; a multi-range or malformed header is ignored and the whole file is answered (RFC 9110 allows it).
+    WHY a copy and not an import: server.py is the Clank backend entry script, not an importable package module, and
+    this mount must stay stdlib-only and importable on its own (mounts.py resolves it by module path)."""
+    if not header:
+        return None
+    match = re.fullmatch(r"\s*bytes=(\d*)-(\d*)\s*", header)
+    if not match or (not match.group(1) and not match.group(2)):
+        return None
+    first, last = match.group(1), match.group(2)
+    if first:
+        start = int(first)
+        end = min(int(last), size - 1) if last else size - 1
+    else:
+        length = int(last)
+        if length == 0:
+            return "unsatisfiable"
+        start, end = max(0, size - length), size - 1
+    if start >= size or start > end:
+        return "unsatisfiable"
+    return start, end
+
+
+def _stream_slice(handle: Any, start: int, length: int, chunk: int = 256 * 1024) -> Iterable[bytes]:
+    with handle:
+        handle.seek(start)
+        remaining = length
+        while remaining > 0:
+            data = handle.read(min(chunk, remaining))
+            if not data:
+                return
+            remaining -= len(data)
+            yield data
+
+
+def serve_evidence(entry: Mapping[str, Any], range_header: str | None = None) -> tuple[int, dict[str, str], Iterable[bytes]]:
+    """Stream the file recorded for one evidence entry (``range_header``: the request's ``Range``), or refuse it.
 
     404 when the entry names no absolute path or recorded no canonical ``target`` (it did not resolve, or names a
     directory), or that file is gone; 415 when the listed path's suffix is not served; 403 when the recorded target's
@@ -1066,11 +1105,23 @@ def serve_evidence(entry: Mapping[str, Any]) -> tuple[int, dict[str, str], Itera
     except OSError as error:
         return _json(403, {"error": f"the evidence file could not be opened: {error.strerror}", "path": str(path)})
     handle = os.fdopen(fd, "rb")
-    info = os.fstat(fd)
-    if info.st_size > MAX_EVIDENCE_BYTES:
+    size = os.fstat(fd).st_size
+    # WHY Range, and no size cap (audit 2026-10-05 round 3, finding 1): a Needs page opens EVERY evidence file through
+    # this route, bound to the document Zach reviewed, never through /media (which a newer projection can retarget).
+    # So this route must serve what /media served: a video that seeks (206 slices, as /media answers), and a file of
+    # any size /media would stream. The allowlist is unchanged: only extracted, recorded, symlink-free targets.
+    wanted = parse_range(range_header, size)
+    if wanted == "unsatisfiable":
         handle.close()
-        return _json(413, {"error": "file too large to serve here", "path": str(path), "bytes": info.st_size})
-    return 200, {"Content-Type": content_type, "Content-Length": str(info.st_size)}, _stream(handle)
+        return 416, {"Content-Range": f"bytes */{size}", "Content-Length": "0", "Accept-Ranges": "bytes"}, []
+    headers = {"Content-Type": content_type, "Accept-Ranges": "bytes"}
+    if wanted is None:
+        headers["Content-Length"] = str(size)
+        return 200, headers, _stream(handle)
+    start, end = wanted
+    headers["Content-Length"] = str(end - start + 1)
+    headers["Content-Range"] = f"bytes {start}-{end}/{size}"
+    return 206, headers, _stream_slice(handle, start, end - start + 1)
 
 
 def handle(method: str, subpath: str, query: Mapping[str, list[str]], headers: Mapping[str, str],
@@ -1106,7 +1157,8 @@ def handle(method: str, subpath: str, query: Mapping[str, list[str]], headers: M
         # WHY serve only what this module extracted from the item's own text: the route must not become a way to
         # read any file on the machine by naming it; the evidence list is the allowlist, and the entry's recorded
         # canonical target (bound into the revision just checked) is the one file it may serve.
-        return serve_evidence(entry)
+        range_header = next((value for key, value in (headers or {}).items() if key.lower() == "range"), None)
+        return serve_evidence(entry, range_header)
     return _json(404, {"error": f"no route {subpath!r} under /needs"})
 
 

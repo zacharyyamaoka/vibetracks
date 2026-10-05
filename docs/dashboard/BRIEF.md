@@ -1,5 +1,7 @@
 # Vibe Tracks dashboard: three-level proposals (brief and frozen criteria, 2026-10-03)
 
+> **Archived 2026-10-05: Zach chose A; B and C removed in 56c75c0.** This is the brief for the 2026-10-03 round, which asked for three proposals; it is kept as written. The research principles, the design language and the hard gates G1-G4 below still govern the one layout that ships, A · Drill-down pages. For what the product does now, read `VARIANTS.md` ("Current") and `NEEDS-KIT.md`.
+
 ## What Zach asked for (verbatim, 2026-10-03)
 > "These all still suck. I don't feel like you are implementing any of the ideas you got from the prior art research. The Numbers and the Table are the only proposals that seem a bit similar to prior art. One thing I do like is how minimal and clean and quiet it is. Keep that design language, but now the actual content needs to be improved. I like how in the prior art … people converged on seeing the data at 3 levels of resolution. … at the top level I am selecting between different agent loops… or work tracks… that top level can potentially be like different tabs… or honestly even just the table as you have. At the next level though now I probably want to see maybe like another table, and this one now has like the same thing but for each KPI! and perhaps now I see like how those KPIs are progressing over like some time period. … Please look at the principles you extract from this work and make sure we are using those ideas. Please come up with 3 more proposals. And build them as fully fleshed out apps I can open up."
 

@@ -296,8 +296,8 @@ export default function NeedsZen(props: NeedsProposalProps) {
     if (key === 's') return handled(skip)
     if (key === 'n') return handled(() => note.current?.focus())
     const number = ['1', '2', '3'].indexOf(key)
-    // WHY capture + preventDefault on 1-3: the dashboard's own 1/2/3 switch the A · B · C layout; in the lane they
-    // pick an option, and the dashboard's listener skips a defaultPrevented key.
+    // WHY capture + preventDefault on 1-3: in the lane they pick an option, and any other window listener skips a
+    // defaultPrevented key (the dashboard's 1/2/3 A · B · C switch did, until it was retired on 2026-10-05).
     if (number >= 0 && current.item.options[number]) return handled(() => choose(current.item.options[number].key))
   }
   useEffect(() => {
@@ -338,8 +338,9 @@ export default function NeedsZen(props: NeedsProposalProps) {
           <div className="zen-stage">{body}</div>
         </div>
         {queue.length ? (
-          // WHY a rail beside the card and not Sauna's bottom bar: the bottom-right corner belongs to the N1…N5 and
-          // A · B · C choosers, which would cover a bottom dock; the keys stay in view while the context scrolls.
+          // WHY a rail beside the card and not Sauna's bottom bar: the bottom-right corner belongs to the N chooser
+          // (then also the retired A · B · C one), which would cover a bottom dock; the keys stay in view while the
+          // context scrolls.
           <aside className="zen-rail">
             <Dock
               mode={atEnd || !current ? 'end' : noteFocused ? 'note' : 'card'}
@@ -436,7 +437,6 @@ function Card({
   entry,
   answers,
   backend,
-  projection,
   contextOpen,
   onToggleContext,
   onChoose,
@@ -612,7 +612,7 @@ function Card({
               <dt>Evidence</dt>
               <dd className="zen-evidence">
                 {item.evidence.length ? (
-                  item.evidence.map((_, position) => <EvidenceLink key={position} backend={backend} doc={doc} item={item} index={position} projection={projection} />)
+                  item.evidence.map((_, position) => <EvidenceLink key={position} backend={backend} doc={doc} item={item} index={position} />)
                 ) : (
                   <span className="vt-faint">none named in the item</span>
                 )}

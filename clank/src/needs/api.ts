@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import type { PluginBackend } from '@clank/api'
 import { sharedRequests, type SharedRequests } from './share'
-import { NEEDS_ALL_SCHEMA, NEEDS_SCHEMA, type NeedsAll, type NeedsDoc, type NeedsEvidence, type NeedsItem } from './types'
+import { NEEDS_ALL_SCHEMA, NEEDS_SCHEMA, type NeedsAll, type NeedsDoc } from './types'
 
 async function getJson(backend: PluginBackend, path: string, signal?: AbortSignal): Promise<unknown> {
   const response = await backend.fetch(path, { signal })
@@ -133,41 +133,20 @@ export function unreportedDoc(track: string, title: string, note: string): Needs
   }
 }
 
-/** needs.py stamps these on every doc and evidence entry (`bind_evidence`); read here without widening types.ts. */
-type BoundDoc = NeedsDoc & { evidence_rev?: string }
-type BoundEvidence = NeedsEvidence & { eid?: string }
-
-/** The backend path (`/needs/evidence?track&item&eid&rev`) for one evidence entry's file, or null when the backend
- * will not serve it (a URL, a directory, or a doc/entry without the identity needs.py binds).
- *
- * WHY eid + rev and never the list index (audit 2026-10-05, finding 1): the link must open the file Zach reviewed.
- * `eid` names the evidence as written (stable under reordering); `rev` is the document revision he was shown, and
- * the backend answers 409 instead of serving when the document's evidence, or what it resolves to, changed since. */
-export function evidencePath(doc: NeedsDoc, item: NeedsItem, index: number): string | null {
-  const entry: BoundEvidence | undefined = item.evidence[index]
-  const rev = (doc as BoundDoc).evidence_rev
-  if (!entry || entry.kind === 'url' || !entry.path || entry.is_dir) return null
-  if (typeof entry.eid !== 'string' || !entry.eid || typeof rev !== 'string' || !rev) return null
-  const query = new URLSearchParams({ track: doc.track, item: item.local_id, eid: entry.eid, rev })
-  return `/needs/evidence?${query.toString()}`
-}
-
-/** Same-origin URL serving one evidence entry's file (a URL entry is itself), or null when it cannot be opened. */
-export function evidenceUrl(backend: PluginBackend, doc: NeedsDoc, item: NeedsItem, index: number): string | null {
-  const entry: NeedsEvidence | undefined = item.evidence[index]
-  if (!entry) return null
-  if (entry.kind === 'url') return entry.value
-  const path = evidencePath(doc, item, index)
-  return path ? `${backend.baseUrl}${path}` : null
-}
+// The evidence link's URL builders are pure (evidence.ts), so plain node can check them; re-exported for the kit.
+export { evidenceHref, evidencePath, evidenceUrl, SERVED_EVIDENCE } from './evidence'
 
 /** Ask the backend whether an evidence path still opens, reading only its status: 'ok', 'changed' (409: the document
- * changed since it was shown), or the backend's refusal text. The body is never read (the abort drops it). */
+ * changed since it was shown), or the backend's refusal text. The body is never read (the abort drops it).
+ *
+ * WHY `Range: bytes=0-0`: evidence now includes videos (every Needs file link goes through this route, never /media),
+ * so the check asks for one byte instead of starting the whole file. 416 is still 'ok': the route answers it only
+ * after the revision matched and the recorded file opened, for an empty file. */
 export async function checkEvidence(backend: PluginBackend, path: string): Promise<'ok' | 'changed' | string> {
   const controller = new AbortController()
   try {
-    const response = await backend.fetch(path, { signal: controller.signal })
-    if (response.ok) return 'ok'
+    const response = await backend.fetch(path, { signal: controller.signal, headers: { Range: 'bytes=0-0' } })
+    if (response.ok || response.status === 416) return 'ok'
     if (response.status === 409) return 'changed'
     let message = `HTTP ${response.status}`
     try {
