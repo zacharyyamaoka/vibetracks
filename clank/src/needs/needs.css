@@ -1,0 +1,91 @@
+/* The "Needs you" kit's own few rules, rooted in .vt-dash .vt-needs, in @layer base (clank-workbench CLAUDE.md §1.5).
+   Proposals root their CSS in .vt-dash .vt-needs-n<k> inside their own folder. */
+@layer base {
+  /* WHY the chooser sits above the A · B · C switcher (bottom 14px, ~30px tall): both stay clickable. */
+  .vt-dash .vt-switcher.vt-needs-switcher {
+    bottom: 52px;
+  }
+  .vt-dash .vt-needs-back-row {
+    padding: 10px 48px 0;
+  }
+  .vt-dash .vt-needs-back-row .vt-btn:hover {
+    color: var(--vt-fg);
+  }
+  .vt-dash .vt-needs-placeholder .vt-needs-track {
+    margin-top: 28px;
+  }
+  .vt-dash .vt-needs-placeholder .vt-needs-group {
+    margin-top: 16px;
+  }
+  .vt-dash .vt-needs-placeholder .vt-needs-item {
+    padding: 10px 0;
+    border-bottom: 1px solid var(--vt-line);
+  }
+  .vt-dash .vt-needs-pre {
+    white-space: pre-wrap;
+    margin-top: 6px;
+  }
+  .vt-dash .vt-needs-evidence-row {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 4px 14px;
+    margin-top: 4px;
+  }
+  .vt-dash .vt-needs-evidence-path code {
+    font-family: var(--vt-mono);
+    font-size: 12px;
+    color: var(--vt-grey);
+    word-break: break-all;
+  }
+  .vt-dash .vt-needs-evidence-path .vt-btn {
+    margin-left: 6px;
+  }
+  .vt-dash .vt-needs-choices {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+    margin-top: 6px;
+  }
+  .vt-dash .vt-needs-choices .vt-chip-btn[aria-pressed='true'] {
+    background: var(--vt-press);
+    color: var(--vt-fg);
+    font-weight: 600;
+  }
+  .vt-dash .vt-needs-note,
+  .vt-dash .vt-needs-copy-area {
+    display: block;
+    width: 100%;
+    margin-top: 6px;
+    padding: 6px 8px;
+    border: 1px solid var(--vt-line);
+    border-radius: 5px;
+    background: transparent;
+    color: var(--vt-fg);
+    font: inherit;
+    font-size: 13px;
+    resize: vertical;
+  }
+  .vt-dash .vt-needs-copy-area {
+    font-family: var(--vt-mono);
+    font-size: 12px;
+  }
+  .vt-dash .vt-needs-copyout {
+    margin-top: 24px;
+  }
+  .vt-dash .vt-needs-copy-btn {
+    padding: 5px 12px;
+    border-radius: 5px;
+    box-shadow: 0 0 0 1px var(--vt-line);
+    font-weight: 500;
+  }
+  .vt-dash .vt-needs-copy-btn:hover {
+    background: var(--vt-hover);
+  }
+  .vt-dash .vt-needs-copy-btn[disabled] {
+    color: var(--vt-faint);
+    cursor: default;
+  }
+  .vt-dash .vt-needs-copy-result {
+    margin-top: 10px;
+  }
+}

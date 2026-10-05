@@ -41,7 +41,11 @@ export interface RoadmapDocState {
   doc: unknown | null
   loading: boolean
   error: string | null
+  /** Forces a server-side re-projection; the dashboard's own reload calls it so one refresh covers the page. */
+  reload: () => void
 }
+
+const noReload = (): void => {}
 
 export function RoadmapWidget(_props: RoadmapWidgetProps): JSX.Element {
   return (
@@ -53,7 +57,7 @@ export function RoadmapWidget(_props: RoadmapWidgetProps): JSX.Element {
 
 /** Loads one track's roadmap document through the plugin backend (the `/roadmap` mount, backend/mounts.py). */
 export function useRoadmap(_backend: unknown, _track: string): RoadmapDocState {
-  return { doc: null, loading: false, error: null }
+  return { doc: null, loading: false, error: null, reload: noReload }
 }
 
 /** The Roadmap section of the dashboard's settings page, in Clank's SettingsSection shape. */

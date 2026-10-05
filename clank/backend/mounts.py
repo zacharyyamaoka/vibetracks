@@ -25,4 +25,5 @@ from __future__ import annotations
 
 MOUNTS: list[tuple[str, str]] = [
     # roadmap session appends ('/roadmap', 'vibetracks.roadmap.api:handle') here
+    ('/needs', 'vibetracks.dashboard.needs:handle'),
 ]

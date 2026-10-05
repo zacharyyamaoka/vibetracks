@@ -3,7 +3,7 @@
 // WHY carry `rm` and `rmopen` on every route of a track: the roadmap widget's state lives in the hash (VARIANTS.md
 // "Roadmap widget slot"), and a drill into evidence and back must not reset the reader's roadmap view.
 
-import type { Route } from '../../shared'
+import type { Route, Track } from '../../shared'
 
 export interface Nav {
   route: Route
@@ -35,4 +35,16 @@ function clean(route: Route): Route {
   const out: Route = {}
   for (const [key, value] of Object.entries(route)) if (value) out[key] = value
   return out
+}
+
+/** A roadmap rung click (onOpenRung): the rung's latest judged run ("BT1 · regression r1"), else the latest note naming
+ * it, else a rung page that says there is no evidence (missing is explicit, never a dead click). */
+export function openRung(track: Track, nav: Nav, rungId: string): void {
+  const items = track.iterations.flatMap((it) => track.evidence.by_iteration[it.id] ?? [])
+  const pattern = new RegExp(`(^|[^A-Z0-9])${rungId.replace(/[^A-Za-z0-9]/g, '')}([^A-Z0-9]|$)`)
+  const runs = items.filter((item) => item.kind === 'run' && pattern.test(item.title))
+  const notes = items.filter((item) => item.kind === 'note' && (pattern.test(item.title) || pattern.test(item.note ?? '') || Object.keys(item.metrics).includes(rungId)))
+  const hit = runs[runs.length - 1] ?? notes[notes.length - 1]
+  if (hit) nav.item(track.id, hit.id)
+  else nav.go({ track: track.id, rm: nav.route.rm, rmopen: nav.route.rmopen, rung: rungId })
 }

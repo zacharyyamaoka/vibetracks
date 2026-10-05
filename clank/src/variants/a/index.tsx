@@ -1,8 +1,8 @@
 // Variant A · Drill-down pages (asv grid → benchmark page → regressions; PyTorch HUD; Statuspage).
 // One level per page, a breadcrumb on every page, and the place kept in the URL hash, so Back, Forward and the mouse
 // back button climb exactly one level:
-//   L1  Tracks table ("The Table")                         #vt
-//   L2  Track page: state, Needs you, the KPI scorecard     #vt?track=kinsim
+//   L1  Work tracks table ("The Table"), no deployments    #vt
+//   L2  Track page: state, Needs you →, KPIs, Roadmap       #vt?track=kinsim
 //   L3  Iteration page: what changed, KPI deltas, evidence  #vt?track=kinsim&iteration=W3[&kpi=…]
 //       → one item (run metrics + video, report, audit)    #vt?track=can16&item=…
 // WHY pages and not panes or a drawer: this is the composition under test (VARIANTS.md "A"); each level gets the whole
@@ -18,6 +18,7 @@ import { IterationPage } from './IterationPage'
 import { makeNav, type Nav } from './nav'
 import { TrackPage } from './TrackPage'
 import { TracksPage } from './TracksPage'
+import { useRenamer } from './rename'
 
 export const NAME = 'Drill-down pages'
 
@@ -28,6 +29,8 @@ export default function VariantA(props: VariantProps) {
   const xAxis = settings.dashboard.xAxis
   const showDeltas = settings.dashboard.showDeltas
   const track = trackById(projection, route.track)
+  const renamer = useRenamer(backend, projection, reload)
+  const cancelRename = renamer.cancel
 
   // WHY scroll to the top on a level change only: a new page starts at its top, but a sideways move inside a page
   // (open a video, expand Needs you) must not jump the reader away from what they just clicked.
@@ -35,14 +38,16 @@ export default function VariantA(props: VariantProps) {
   useEffect(() => {
     const scroller = root.current?.closest('.vt-scroll')
     if (scroller) scroller.scrollTop = 0
-  }, [page])
+    // An edit left open on the page you navigated away from must not reappear elsewhere.
+    cancelRename()
+  }, [page, cancelRename])
 
   let body: ReactNode
   if (!track) {
     body = route.track ? (
       <Missing title={title} nav={nav} what={`No track “${route.track}” in this projection.`} />
     ) : (
-      <TracksPage projection={projection} title={title} nav={nav} showDeltas={showDeltas} reload={() => reload()} />
+      <TracksPage projection={projection} title={title} nav={nav} showDeltas={showDeltas} reload={() => reload()} backend={backend} renamer={renamer} />
     )
   } else if (route.file) {
     body = <FilePage projection={projection} track={track} title={title} nav={nav} mediaUrl={mediaUrl} />
@@ -73,6 +78,7 @@ export default function VariantA(props: VariantProps) {
         showDeltas={showDeltas}
         backend={backend}
         roadmapSettings={settings.roadmap}
+        renamer={renamer}
       />
     )
   }

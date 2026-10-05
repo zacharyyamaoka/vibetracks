@@ -1,0 +1,405 @@
+/* N2 · Inbox + reading pane. Rooted in .vt-dash .vt-needs-n2, in @layer base (clank-workbench CLAUDE.md §1.5).
+   WHY no accent colour on the selected row or chosen option: the accent is data ink in The Table; selection is a
+   grey press, like Notion's sidebar, and only "blocking now" carries colour (an exception). */
+@layer base {
+  .vt-dash .vt-needs-n2 {
+    display: flex;
+    flex-direction: column;
+    min-height: 480px;
+    padding: 0 0 0 48px;
+    max-width: 1480px;
+    outline: none;
+  }
+  /* WHY no ring on the page root: it takes focus only so J/K work on entry; a ring around the whole page is noise. */
+  .vt-dash .vt-needs-n2[tabindex]:focus,
+  .vt-dash .vt-needs-n2[tabindex]:focus-visible {
+    outline: none;
+  }
+  .vt-dash .vt-needs-n2 .n2-head {
+    display: flex;
+    align-items: flex-end;
+    justify-content: space-between;
+    gap: 24px;
+    padding: 6px 32px 12px 0;
+    border-bottom: 1px solid var(--vt-line);
+  }
+  .vt-dash .vt-needs-n2 .n2-counts {
+    margin-top: 2px;
+  }
+  .vt-dash .vt-needs-n2 .n2-meter {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-end;
+    gap: 5px;
+    flex: none;
+    color: var(--vt-grey);
+  }
+  .vt-dash .vt-needs-n2 .n2-meter-bar {
+    display: block;
+    width: 160px;
+    height: 4px;
+    border-radius: 2px;
+    background: var(--vt-line);
+    overflow: hidden;
+  }
+  .vt-dash .vt-needs-n2 .n2-meter-bar > span {
+    display: block;
+    height: 100%;
+    background: var(--vt-grey);
+    transition: width 160ms ease;
+  }
+  .vt-dash .vt-needs-n2 .n2-error {
+    padding: 8px 0;
+  }
+
+  .vt-dash .vt-needs-n2 .n2-split {
+    flex: 1;
+    min-height: 0;
+    display: grid;
+    grid-template-columns: minmax(300px, 380px) minmax(0, 1fr);
+  }
+  .vt-dash .vt-needs-n2 .n2-list {
+    min-height: 0;
+    overflow: auto;
+    padding: 6px 12px 24px 0;
+    margin-left: -10px;
+    border-right: 1px solid var(--vt-line);
+  }
+  .vt-dash .vt-needs-n2 .n2-pane {
+    min-height: 0;
+    overflow: auto;
+    /* WHY 140px at the bottom: the N-chooser and the A · B · C switcher sit over the bottom-right corner. */
+    padding: 22px 40px 140px 44px;
+  }
+
+  /* ---- the list */
+  .vt-dash .vt-needs-n2 .n2-track + .n2-track {
+    margin-top: 14px;
+  }
+  .vt-dash .vt-needs-n2 .n2-track-title {
+    padding: 12px 10px 0;
+  }
+  .vt-dash .vt-needs-n2 .n2-group-title {
+    display: block;
+    padding: 14px 10px 4px;
+    font-weight: 500;
+  }
+  .vt-dash .vt-needs-n2 .n2-fold {
+    border-radius: 5px;
+  }
+  .vt-dash .vt-needs-n2 .n2-fold:hover {
+    color: var(--vt-fg);
+  }
+  .vt-dash .vt-needs-n2 .n2-row {
+    display: block;
+    width: 100%;
+    padding: 7px 10px 8px;
+    margin: 1px 0;
+    border-radius: 6px;
+  }
+  .vt-dash .vt-needs-n2 .n2-row:hover {
+    background: var(--vt-hover);
+  }
+  .vt-dash .vt-needs-n2 .n2-row[aria-current='true'] {
+    background: var(--vt-press);
+  }
+  .vt-dash .vt-needs-n2 .n2-row-line {
+    display: flex;
+    align-items: baseline;
+    gap: 8px;
+  }
+  .vt-dash .vt-needs-n2 .n2-row-id {
+    flex: none;
+    min-width: 28px;
+    font-size: 12px;
+    color: var(--vt-faint);
+  }
+  .vt-dash .vt-needs-n2 .n2-row-title {
+    flex: 1;
+    min-width: 0;
+    display: -webkit-box;
+    -webkit-line-clamp: 2;
+    -webkit-box-orient: vertical;
+    overflow: hidden;
+    line-height: 1.4;
+  }
+  .vt-dash .vt-needs-n2 .n2-row[aria-current='true'] .n2-row-title {
+    font-weight: 600;
+  }
+  .vt-dash .vt-needs-n2 .n2-row-settled .n2-row-title {
+    color: var(--vt-grey);
+  }
+  .vt-dash .vt-needs-n2 .n2-row-state {
+    flex: none;
+    white-space: nowrap;
+    color: var(--vt-grey);
+  }
+  .vt-dash .vt-needs-n2 .n2-row-meta {
+    display: block;
+    padding-left: 36px;
+    margin-top: 1px;
+  }
+  .vt-dash .vt-needs-n2 .n2-row-copy {
+    margin-top: 14px;
+    border-top: 1px solid var(--vt-line);
+    border-radius: 0 0 6px 6px;
+    padding-top: 12px;
+  }
+  .vt-dash .vt-needs-n2 .n2-row-copy .n2-row-title {
+    display: block;
+    font-weight: 500;
+  }
+  .vt-dash .vt-needs-n2 .n2-row-copy .n2-row-meta {
+    padding-left: 0;
+  }
+  .vt-dash .vt-needs-n2 .n2-keys {
+    padding: 14px 10px 0;
+    line-height: 1.9;
+  }
+  .vt-dash .vt-needs-n2 kbd {
+    display: inline-block;
+    min-width: 16px;
+    padding: 0 4px;
+    border: 1px solid var(--vt-line);
+    border-radius: 4px;
+    font-family: var(--vt-mono);
+    font-size: 11px;
+    line-height: 16px;
+    text-align: center;
+    color: var(--vt-grey);
+  }
+  .vt-dash .vt-needs-n2 .n2-empty {
+    padding: 10px 10px 4px;
+  }
+  .vt-dash .vt-needs-n2 .n2-empty-note {
+    margin-top: 4px;
+  }
+
+  /* ---- the reading pane */
+  .vt-dash .vt-needs-n2 .n2-card {
+    max-width: 780px;
+  }
+  /* WHY -22px: Chrome sticks inside the pane's padding box; this pins the strip to the pane's true top edge. */
+  .vt-dash .vt-needs-n2 .n2-sticky {
+    position: sticky;
+    top: -22px;
+    height: 0;
+    z-index: 2;
+  }
+  .vt-dash .vt-needs-n2 .n2-sticky-bar {
+    position: absolute;
+    top: 0;
+    left: -44px;
+    right: -40px;
+    padding: 9px 40px 9px 44px;
+    background: var(--vt-bg);
+    border-bottom: 1px solid var(--vt-line);
+    font-size: 13px;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    opacity: 0;
+    pointer-events: none;
+    transition: opacity 120ms ease;
+  }
+  .vt-dash .vt-needs-n2 .n2-sticky-bar.n2-sticky-on {
+    opacity: 1;
+  }
+  .vt-dash .vt-needs-n2 .n2-title {
+    margin-top: 4px;
+  }
+  .vt-dash .vt-needs-n2 .n2-props {
+    display: grid;
+    grid-template-columns: 128px minmax(0, 1fr);
+    gap: 7px 16px;
+    margin: 16px 0 0;
+    padding: 12px 0;
+    border-top: 1px solid var(--vt-line);
+    border-bottom: 1px solid var(--vt-line);
+  }
+  .vt-dash .vt-needs-n2 .n2-props dt {
+    color: var(--vt-faint);
+  }
+  .vt-dash .vt-needs-n2 .n2-props dd {
+    margin: 0;
+    line-height: 1.55;
+  }
+  .vt-dash .vt-needs-n2 .n2-section {
+    margin-top: 22px;
+  }
+  .vt-dash .vt-needs-n2 .n2-label {
+    margin-bottom: 6px;
+    font-size: 12.5px;
+    font-weight: 500;
+    color: var(--vt-faint);
+  }
+  .vt-dash .vt-needs-n2 .n2-saved {
+    font-weight: 400;
+    color: var(--vt-grey);
+  }
+  .vt-dash .vt-needs-n2 .n2-prose {
+    white-space: pre-wrap;
+    line-height: 1.62;
+  }
+  .vt-dash .vt-needs-n2 .n2-body {
+    color: var(--vt-fg);
+  }
+  .vt-dash .vt-needs-n2 code {
+    font-family: var(--vt-mono);
+    font-size: 0.88em;
+    padding: 0 3px;
+    border-radius: 3px;
+    background: var(--vt-band);
+  }
+  .vt-dash .vt-needs-n2 .n2-provenance {
+    margin-bottom: 6px;
+  }
+
+  .vt-dash .vt-needs-n2 .n2-options {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+  }
+  .vt-dash .vt-needs-n2 .n2-option {
+    display: flex;
+    gap: 12px;
+    padding: 10px 12px;
+    border-radius: 8px;
+    box-shadow: 0 0 0 1px var(--vt-line);
+  }
+  .vt-dash .vt-needs-n2 .n2-option:hover {
+    background: var(--vt-hover);
+  }
+  .vt-dash .vt-needs-n2 .n2-option-on,
+  .vt-dash .vt-needs-n2 .n2-option-on:hover {
+    background: var(--vt-press);
+    box-shadow: 0 0 0 1.5px var(--vt-grey);
+  }
+  .vt-dash .vt-needs-n2 .n2-option-key {
+    flex: none;
+    width: 20px;
+    height: 20px;
+    margin-top: 1px;
+    border-radius: 5px;
+    box-shadow: inset 0 0 0 1px var(--vt-line);
+    font-size: 11.5px;
+    line-height: 20px;
+    text-align: center;
+    color: var(--vt-grey);
+  }
+  .vt-dash .vt-needs-n2 .n2-option-on .n2-option-key {
+    background: var(--vt-fg);
+    box-shadow: none;
+    color: var(--vt-bg);
+  }
+  .vt-dash .vt-needs-n2 .n2-option-body {
+    min-width: 0;
+  }
+  .vt-dash .vt-needs-n2 .n2-option-label {
+    display: block;
+    font-weight: 500;
+  }
+  .vt-dash .vt-needs-n2 .n2-option-on .n2-option-label {
+    font-weight: 600;
+  }
+  .vt-dash .vt-needs-n2 .n2-option-detail {
+    display: block;
+    margin-top: 2px;
+    color: var(--vt-grey);
+    line-height: 1.55;
+  }
+  .vt-dash .vt-needs-n2 .n2-note {
+    display: block;
+    width: 100%;
+    margin-top: 10px;
+    padding: 7px 10px;
+    border: 1px solid var(--vt-line);
+    border-radius: 6px;
+    background: transparent;
+    color: var(--vt-fg);
+    font: inherit;
+    font-size: 13.5px;
+    resize: vertical;
+  }
+  .vt-dash .vt-needs-n2 .n2-note:focus {
+    outline: none;
+    border-color: var(--vt-grey);
+  }
+  .vt-dash .vt-needs-n2 .n2-actions {
+    display: flex;
+    align-items: baseline;
+    gap: 14px;
+    margin-top: 8px;
+  }
+  .vt-dash .vt-needs-n2 .n2-actions-right {
+    display: flex;
+    gap: 16px;
+    margin-left: auto;
+  }
+  .vt-dash .vt-needs-n2 .n2-link {
+    border-radius: 4px;
+  }
+  .vt-dash .vt-needs-n2 .n2-link:hover {
+    color: var(--vt-fg);
+  }
+  .vt-dash .vt-needs-n2 .n2-next {
+    font-weight: 500;
+  }
+
+  .vt-dash .vt-needs-n2 .n2-update + .n2-update,
+  .vt-dash .vt-needs-n2 .n2-earlier .n2-update {
+    margin-top: 10px;
+  }
+  .vt-dash .vt-needs-n2 .n2-earlier {
+    margin-top: 10px;
+  }
+  .vt-dash .vt-needs-n2 .n2-earlier summary {
+    cursor: pointer;
+  }
+  .vt-dash .vt-needs-n2 .n2-evidence li {
+    padding: 3px 0;
+  }
+  .vt-dash .vt-needs-n2 .n2-loop-answer {
+    padding: 10px 12px;
+    border-radius: 8px;
+    background: var(--vt-hover);
+  }
+  .vt-dash .vt-needs-n2 .n2-channel {
+    margin-top: 28px;
+    padding-top: 10px;
+    border-top: 1px solid var(--vt-line);
+  }
+
+  /* ---- the Copy answers pane */
+  .vt-dash .vt-needs-n2 .n2-review {
+    border-top: 1px solid var(--vt-line);
+  }
+  .vt-dash .vt-needs-n2 .n2-review li {
+    border-bottom: 1px solid var(--vt-line);
+  }
+  .vt-dash .vt-needs-n2 .n2-review-row {
+    display: flex;
+    gap: 8px;
+    width: 100%;
+    padding: 8px 6px;
+  }
+  .vt-dash .vt-needs-n2 .n2-review-row:hover {
+    background: var(--vt-hover);
+  }
+  .vt-dash .vt-needs-n2 .n2-review-text {
+    display: flex;
+    flex-direction: column;
+    min-width: 0;
+  }
+  .vt-dash .vt-needs-n2 .n2-inline-link {
+    text-decoration: underline;
+    text-decoration-color: var(--vt-line);
+    text-underline-offset: 2px;
+  }
+  .vt-dash .vt-needs-n2 .n2-inline-link:hover {
+    text-decoration-color: var(--vt-grey);
+  }
+  .vt-dash .vt-needs-n2 .n2-copyout {
+    margin-top: 26px;
+  }
+}

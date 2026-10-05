@@ -25,6 +25,7 @@ import {
 import { SettingsView } from './shared/SettingsView'
 import { ROADMAP_SETTINGS_SECTION, defaultRoadmapSettings } from './roadmap'
 import { VARIANTS } from './variants'
+import { NeedsShell } from './needs'
 
 /** The settings page's sections, in order. A new view option is an item in one of these, never a toolbar control. */
 const SETTINGS_SECTIONS: SettingsSection[] = [DASHBOARD_SETTINGS_SECTION, ROADMAP_SETTINGS_SECTION]
@@ -167,6 +168,9 @@ export function Dashboard({ session, panel, backend }: ViewerProps & { backend: 
             onReset={persistent.reset}
             onClose={closeSettings}
           />
+        ) : route.needs === '1' ? (
+          // The "Needs you" page (`#vt?track=<id>&needs=1`), whichever of A · B · C is chosen; it fetches /needs itself.
+          <NeedsShell backend={backend} route={route} navigate={navigate} projection={projection} />
         ) : projection && route.kit ? (
           <KitPreview projection={projection} mediaUrl={mediaUrl} route={route} navigate={navigate} />
         ) : projection ? (
