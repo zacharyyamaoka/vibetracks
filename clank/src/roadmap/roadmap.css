@@ -107,6 +107,10 @@
   .vt-dash .vt-rm-lead {
     font-weight: 500;
   }
+  /* "as of 14:05" and, only when a projection failed, the one not-current line: a quiet line, never a banner. */
+  .vt-dash .vt-rm-fresh {
+    margin: 0;
+  }
   .vt-dash .vt-rm-strip {
     display: flex;
     gap: 3px;

@@ -17,6 +17,8 @@ import { type Art, artFor } from './art'
 import type { RoadmapDoc } from './doc'
 import { cardLine, modelFromDoc, parseRoadmapDoc } from './docModel'
 import { FocusPanel } from './FocusPanel'
+import { freshness } from './freshness'
+import { createPoller } from './poll'
 import { KEYS_HINT, LENS_CAPTION, Legend, LensBar, RoadmapBoard } from './RoadmapBoard'
 import { edgeStyle, type RoadmapSettings } from './settings'
 import { type RoadView, type RoadmapWidgetState, resolveView } from './state'
@@ -58,7 +60,12 @@ export interface RoadmapDocState {
   doc: unknown | null
   loading: boolean
   error: string | null
+  /** Re-project now (`/roadmap/doc?...&refresh=1`): the dashboard's own reload calls this. Stable across renders. */
+  reload: () => void
 }
+
+/** How often an open roadmap asks the backend for its document. */
+export const ROADMAP_POLL_MS = 30_000
 
 const isRoadmapData = (value: unknown): value is RoadmapData =>
   Boolean(value) && typeof value === 'object' && 'document' in (value as object) && 'artNames' in (value as object)
@@ -85,6 +92,22 @@ export function RoadmapWidget(props: RoadmapWidgetProps): JSX.Element {
   }
   if (props.density === 'calm') return <CalmAnswer data={data} summary={built.summary} onOpenRung={props.onOpenRung} onOpenEvidence={props.onOpenEvidence} />
   return <FullRoadmap {...props} data={data} model={built.model} />
+}
+
+/** When the document was projected, quietly, and, only when the API served an older good document because the
+ * projection failed, one calm line saying so. WHY in both densities, in the faint style, with the warning colour only on
+ * the failure: a fresh document must not gain a badge (calm UI: colour only for exceptions), but a green "proven" count
+ * from a failed projection must never read as current (Codex V05). */
+function Freshness({ document }: { document: RoadmapDoc }) {
+  const { asOf, notCurrent, notCurrentFull } = freshness(document)
+  if (!asOf && !notCurrent) return null
+  return (
+    <p className="vt-rm-fresh vt-small" data-testid="vt-roadmap-fresh">
+      {asOf ? <span className="vt-faint" data-testid="vt-roadmap-asof">{asOf}</span> : null}
+      {asOf && notCurrent ? <span className="vt-faint"> · </span> : null}
+      {notCurrent ? <span className="vt-tone-warn" role="status" title={notCurrentFull ?? undefined} data-testid="vt-roadmap-not-current">{notCurrent}</span> : null}
+    </p>
+  )
 }
 
 /** The section's head, and its whole body at calm density: one sentence and a thin strip, nothing else
@@ -149,6 +172,7 @@ function CalmAnswer({ data, summary, onOpenRung, onOpenEvidence }: {
       <p className="vt-rm-answer" data-testid="vt-roadmap-answer" data-sentence={calmSentence(summary)}>
         {parts.map((part, i) => <span key={part.key}>{i ? <span className="vt-faint"> · </span> : null}{part.node}</span>)}
       </p>
+      <Freshness document={data.document} />
       <div className="vt-rm-strip" role="img" aria-label={summary.lanes.map((lane) => `${lane.title}: ${lane.proven} of ${lane.total} proven, ${lane.claimed} claimed`).join('; ')} data-testid="vt-roadmap-strip">
         {summary.lanes.map((lane) => (
           <span key={lane.axis} className="vt-rm-strip-lane" style={{ flexGrow: Math.max(1, lane.total) }} title={`${lane.title} · ${lane.proven} of ${lane.total} proven · ${lane.claimed} claimed`}>
@@ -198,6 +222,7 @@ function FullRoadmap({ state, onState, onOpenRung, onOpenEvidence, settings, dat
 
   return (
     <section className="vt-rm-full" data-testid="vt-roadmap">
+      <Freshness document={data.document} />
       <div className="vt-rm-toprow">
         <LensBar view={view} onView={onView} hasWaves={model.hasWaves} />
         <Legend />
@@ -251,35 +276,63 @@ async function fetchJson(backend: PluginBackend, path: string, signal: AbortSign
   return body
 }
 
-/** Loads one track's roadmap document through the plugin backend (the `/roadmap` mount, backend/mounts.py). */
+/** Loads one track's roadmap document through the plugin backend (the `/roadmap` mount, backend/mounts.py), then keeps
+ * it current: a poll every ROADMAP_POLL_MS while mounted, one at a time, aborted on unmount and on a track change.
+ * A refresh keeps the previous document on screen (loading is true only for a track's first load); `reload()` forces a
+ * re-projection. WHY polling and not a stream: the backend has no event stream yet, and projection is cached
+ * server-side, so a poll that finds nothing new is cheap (poll.ts). */
 export function useRoadmap(backend: PluginBackend, track: string): RoadmapDocState {
   const [state, setState] = useState<{ track: string; doc: RoadmapData | null; loading: boolean; error: string | null }>({ track, doc: null, loading: true, error: null })
-  const ticket = useRef(0)
+  const poller = useRef<{ reload: () => void } | null>(null)
 
   useEffect(() => {
-    const mine = ++ticket.current
-    const controller = new AbortController()
     setState({ track, doc: null, loading: true, error: null })
     const artBase = `${backend.baseUrl}/roadmap/art`
-    // WHY art never fails the roadmap: a missing art dir only means icons instead of renders.
-    const art = fetchJson(backend, '/roadmap/art', controller.signal).then(
-      (body) => new Set(Array.isArray((body as { entries?: unknown } | null)?.entries) ? ((body as { entries: unknown[] }).entries.filter((name): name is string => typeof name === 'string')) : []),
-      () => new Set<string>(),
-    )
-    fetchJson(backend, `/roadmap/doc?track=${encodeURIComponent(track)}`, controller.signal)
-      .then(async (body) => ({ document: parseRoadmapDoc(body), artNames: await art }))
-      .then(
-        ({ document, artNames }) => mine === ticket.current && setState({ track, doc: { track, document, artBase, artNames }, loading: false, error: null }),
-        (error: unknown) => {
-          if (mine !== ticket.current || controller.signal.aborted) return
+    // The last good document of THIS track, and what it was built from: an unchanged poll must not re-render the board.
+    let last: { key: string; doc: RoadmapData } | null = null
+    const instance = createPoller({
+      intervalMs: ROADMAP_POLL_MS,
+      load: async (force, signal) => {
+        // WHY art never fails the roadmap: a missing art dir only means icons instead of renders. A failed art poll
+        // keeps the last art list, so the renders do not flicker away with a hiccup.
+        const art = fetchJson(backend, '/roadmap/art', signal).then(
+          (body) => new Set(Array.isArray((body as { entries?: unknown } | null)?.entries) ? ((body as { entries: unknown[] }).entries.filter((name): name is string => typeof name === 'string')) : []),
+          () => null,
+        )
+        try {
+          const body = await fetchJson(backend, `/roadmap/doc?track=${encodeURIComponent(track)}${force ? '&refresh=1' : ''}`, signal)
+          const document = parseRoadmapDoc(body)
+          const artNames: ReadonlySet<string> = (await art) ?? last?.doc.artNames ?? new Set<string>()
+          if (signal.aborted) return
+          const key = JSON.stringify([body, [...artNames]])
+          if (last?.key === key) {
+            setState((now) => (now.error ? { ...now, error: null } : now))
+            return
+          }
+          last = { key, doc: { track, document, artBase, artNames } }
+          setState({ track, doc: last.doc, loading: false, error: null })
+        } catch (error) {
+          if (signal.aborted) return
           // WHY a 404 is not an error: the track's loop has not written a roadmap yet, and the widget says so calmly.
-          if (error instanceof ApiError && error.status === 404) setState({ track, doc: null, loading: false, error: null })
-          else setState({ track, doc: null, loading: false, error: error instanceof Error ? error.message : String(error) })
-        },
-      )
-    return () => controller.abort()
+          if (error instanceof ApiError && error.status === 404) {
+            last = null
+            setState({ track, doc: null, loading: false, error: null })
+          } else {
+            // A failed refresh keeps the document already on screen; the failure rides in `error`.
+            setState({ track, doc: last?.doc ?? null, loading: false, error: error instanceof Error ? error.message : String(error) })
+          }
+        }
+      },
+    })
+    poller.current = instance
+    instance.start()
+    return () => {
+      instance.stop()
+      if (poller.current === instance) poller.current = null
+    }
   }, [backend, track])
 
+  const reload = useCallback(() => poller.current?.reload(), [])
   // A track switch shows nothing of the previous track's roadmap while the new one loads.
-  return state.track === track ? { doc: state.doc, loading: state.loading, error: state.error } : { doc: null, loading: true, error: null }
+  return state.track === track ? { doc: state.doc, loading: state.loading, error: state.error, reload } : { doc: null, loading: true, error: null, reload }
 }

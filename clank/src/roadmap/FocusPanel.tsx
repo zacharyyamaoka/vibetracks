@@ -12,6 +12,7 @@ import { type Art, ArtView, artUrl } from './art'
 import type { RoadmapEvidence, RoadmapHistoryRow, RoadmapLink, RoadmapRung, RoadmapTarget } from './doc'
 import { type RoadModel, bucket, criticalPath } from './graph'
 import { Dot, STATUS_WORD } from './RoadmapBoard'
+import { runRef } from './runRef'
 import type { FocusTab, RoadView } from './state'
 
 export interface EvidenceRef {
@@ -229,7 +230,7 @@ function ProofTab({ rung, artNames, artBase, onGo, onOpenEvidence, onOpenRung }:
                       {target.note ? <span className="vt-faint vt-rm-xs">{target.note}</span> : null}
                     </div>
                     {target.evidence.map((eid) => evidence.get(eid)).filter((item): item is RoadmapEvidence => Boolean(item)).map((item) => (
-                      <EvidenceRow key={item.id} item={item} rungId={rung.id} artNames={artNames} artBase={artBase} onOpenEvidence={onOpenEvidence} onOpenRung={onOpenRung} />
+                      <EvidenceRow key={item.id} item={item} artNames={artNames} artBase={artBase} onOpenEvidence={onOpenEvidence} />
                     ))}
                   </div>
                 ))}
@@ -244,7 +245,7 @@ function ProofTab({ rung, artNames, artBase, onGo, onOpenEvidence, onOpenRung }:
           <Section>Status history · loop_events.jsonl</Section>
           <ol className="vt-rm-history">
             {[...rung.history].reverse().map((row, i) => (
-              <HistoryItem key={`${row.event?.line ?? row.ts}-${i}`} row={row} rungId={rung.id} evidence={evidence} artNames={artNames} artBase={artBase} onOpenEvidence={onOpenEvidence} onOpenRung={onOpenRung} />
+              <HistoryItem key={`${row.event?.line ?? row.ts}-${i}`} row={row} evidence={evidence} artNames={artNames} artBase={artBase} onOpenEvidence={onOpenEvidence} />
             ))}
           </ol>
         </>
@@ -257,14 +258,12 @@ function ProofTab({ rung, artNames, artBase, onGo, onOpenEvidence, onOpenRung }:
   )
 }
 
-function HistoryItem({ row, rungId, evidence, artNames, artBase, onOpenEvidence, onOpenRung }: {
+function HistoryItem({ row, evidence, artNames, artBase, onOpenEvidence }: {
   row: RoadmapHistoryRow
-  rungId: string
   evidence: Map<string, RoadmapEvidence>
   artNames: ReadonlySet<string>
   artBase: string
   onOpenEvidence: (ref: EvidenceRef) => void
-  onOpenRung: (rungId: string) => void
 }) {
   const current = row.superseded_by == null
   const items = row.evidence.map((eid) => evidence.get(eid)).filter((item): item is RoadmapEvidence => Boolean(item))
@@ -279,7 +278,7 @@ function HistoryItem({ row, rungId, evidence, artNames, artBase, onOpenEvidence,
         {row.event?.abs ? <button type="button" className="vt-btn vt-rm-textlink" title={`${row.event.path}:${row.event.line}`} onClick={() => onOpenEvidence({ path: row.event.abs!, line: row.event.line })}>line {row.event.line}</button> : null}
       </div>
       {row.detail ? <div className="vt-rm-wrap">{row.detail}</div> : null}
-      {items.map((item) => <EvidenceRow key={item.id} item={item} rungId={rungId} artNames={artNames} artBase={artBase} onOpenEvidence={onOpenEvidence} onOpenRung={onOpenRung} />)}
+      {items.map((item) => <EvidenceRow key={item.id} item={item} artNames={artNames} artBase={artBase} onOpenEvidence={onOpenEvidence} />)}
       {row.evidence_text ? (
         <details className="vt-rm-details" open={current && row.status === 'green'}>
           <summary>Evidence text</summary>
@@ -290,17 +289,16 @@ function HistoryItem({ row, rungId, evidence, artNames, artBase, onOpenEvidence,
   )
 }
 
-/** One evidence item: what it is, its result and strength, its role in the status, and the way to open it. A ledger run
- * opens in the dashboard's run view (onOpenRung); anything else opens as a file (onOpenEvidence). */
-function EvidenceRow({ item, rungId, artNames, artBase, onOpenEvidence, onOpenRung }: {
+/** One evidence item: what it is, its result and strength, its role in the status, and the way to open it. Every item,
+ * a named run included, opens as a file (onOpenEvidence) at its own recorded path and line. */
+function EvidenceRow({ item, artNames, artBase, onOpenEvidence }: {
   item: RoadmapEvidence
-  rungId: string
   artNames: ReadonlySet<string>
   artBase: string
   onOpenEvidence: (ref: EvidenceRef) => void
-  onOpenRung: (rungId: string) => void
 }) {
   // The art API's names are lowercase only (GET /roadmap/art/<name>); run ids carry T and Z, so the still is lowercased.
+  const runOpen = runRef(item)
   const still = item.kind === 'run' && item.run_id ? `episode_${item.run_id.toLowerCase()}.png` : null
   return (
     <div className="vt-rm-evidence" data-role={item.role} data-testid="vt-roadmap-evidence">
@@ -308,9 +306,18 @@ function EvidenceRow({ item, rungId, artNames, artBase, onOpenEvidence, onOpenRu
       <div className="vt-rm-links">
         <span className="vt-faint vt-rm-xs">{item.kind}</span>
         {item.kind === 'run' && item.run_id ? (
-          <button type="button" className="vt-btn vt-rm-link" data-testid="vt-roadmap-open-run" title="open this rung's runs in the dashboard" onClick={() => onOpenRung(rungId)}>
-            <ExternalLink size={12} />{item.run_id}
-          </button>
+          // WHY this run's own evidence and not onOpenRung (Codex V11): onOpenRung selects the rung's LATEST run, so every
+          // named run opened the same one. "see the latest run" (ProofTab) keeps onOpenRung. A run with no absolute path
+          // has nothing to open: it is a plain label saying why, never a button that opens some other run.
+          runOpen ? (
+            <button type="button" className="vt-btn vt-rm-link" data-testid="vt-roadmap-open-run" data-path={runOpen.path} title={`open ${runOpen.path}${runOpen.line ? ` at line ${runOpen.line}` : ''}`} onClick={() => onOpenEvidence(runOpen)}>
+              <ExternalLink size={12} />{item.run_id}
+            </button>
+          ) : (
+            <span className="vt-rm-link vt-rm-link-dead" data-testid="vt-roadmap-run-label" title={item.why_unresolved ?? `${item.run_id}: no recorded evidence file to open`}>
+              <ExternalLink size={12} />{item.run_id}
+            </span>
+          )
         ) : item.path || item.abs ? <LinkButton link={item} onOpen={onOpenEvidence} /> : <span className="vt-rm-xs">{item.label ?? item.id}</span>}
         <span className="vt-rm-xs">{[item.result, item.strength, item.role !== 'supports' ? item.role : null].filter(Boolean).join(' · ')}</span>
         {item.commit ? <code className="vt-faint vt-rm-xs">{shortSha(item.commit)}</code> : null}
