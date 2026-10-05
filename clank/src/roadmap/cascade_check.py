@@ -25,10 +25,34 @@ import re
 import sys
 from collections import defaultdict
 from pathlib import Path
+from urllib.parse import urlsplit
 
 from playwright.sync_api import sync_playwright
 
-STORYBOOK = os.environ.get("STORYBOOK_URL", "http://127.0.0.1:6006")
+# WHY these guards (Codex C01/C02, 2026-10-05): the repo is public and its screenshots and summaries show BAM loop data,
+# so they may only land in a gitignored report folder outside it; and this script never drives Zach's own dashboard
+# (4380/4381) or the Dashboard lane's (4390/4391). Kept identical in clank/stories/smoke.py and
+# clank/src/roadmap/cascade_check.py.
+OUT_ROOTS = (Path("/home/bam/vibetracks/reports/media"), Path("/home/bam/bam_ws/reports/media"))
+PORTS_NEVER_DRIVEN = {4380, 4381, 4390, 4391}
+
+
+def checked_out(path: Path) -> Path:
+    resolved = Path(path).resolve()
+    if not any(resolved == root or root in resolved.parents for root in OUT_ROOTS):
+        raise SystemExit(f"refusing {resolved}: outputs go under {' or '.join(map(str, OUT_ROOTS))} (gitignored, outside the public repo)")
+    return resolved
+
+
+def checked_url(url: str) -> str:
+    split = urlsplit(url)
+    if "\\" in url or "@" in split.netloc or split.scheme not in ("http", "https") or split.hostname not in ("127.0.0.1", "localhost") or split.port is None:
+        raise SystemExit(f"refusing {url!r}: a plain local http(s) URL with an explicit port only")
+    if split.port in PORTS_NEVER_DRIVEN:
+        raise SystemExit(f"refusing port {split.port}: Zach's own dashboard or the Dashboard lane's")
+    return url
+
+STORYBOOK = checked_url(os.environ.get("STORYBOOK_URL", "http://127.0.0.1:6006"))
 HERE = Path(__file__).resolve().parent
 
 # Runs in the story iframe. Returns one record per (element, discarded property).
@@ -125,6 +149,10 @@ def main() -> int:
     parser.add_argument("--stories", default=None, help="comma-separated story ids to run instead of every roadmap story")
     parser.add_argument("--json", type=Path, default=None)
     args = parser.parse_args()
+    if args.shots:
+        args.shots = checked_out(args.shots)
+    if args.json:
+        args.json = checked_out(args.json)
     override = args.css.read_text() if args.css else None
     by_class: dict[str, dict[str, set[str]]] = defaultdict(lambda: defaultdict(set))
     seen_classes: set[str] = set()

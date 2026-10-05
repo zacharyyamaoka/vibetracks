@@ -60,7 +60,7 @@ export const Fresh: Story = {
   name: 'Fresh · N proven',
   parameters: {
     backend: { docs: { kinsim: 'fresh' } },
-    docs: { description: { story: 'kinsim, the captured document: "4 proven" (done 4 + green 0). Fixture stories/fixtures/roadmap/kinsim.json.' } },
+    docs: { description: { story: 'kinsim, the captured document: "N proven", N = counts.by_status.done + green. Fixture stories/fixtures/roadmap/kinsim.json.' } },
   },
 }
 
@@ -71,7 +71,7 @@ export const NotCurrent: Story = {
     docs: {
       description: {
         story:
-          'kinsim with the server\'s stale warning prepended (stories/backend.ts serverStaleText, the api.py format): "4 proven (not current)". Fixture stories/fixtures/roadmap/kinsim.json.',
+          'kinsim with the server\'s stale warning prepended (stories/backend.ts serverStaleText, the api.py format): "N proven (not current)". Fixture stories/fixtures/roadmap/kinsim.json.',
       },
     },
   },

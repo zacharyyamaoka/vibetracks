@@ -15,6 +15,7 @@ exactly that page with nothing of Storybook's chrome around it.
 
 from __future__ import annotations
 
+from urllib.parse import urlsplit
 import argparse
 import json
 import sys
@@ -47,6 +48,30 @@ WAIT_FOR_STORY = """
 """
 
 
+# WHY these guards (Codex C01/C02, 2026-10-05): the repo is public and its screenshots and summaries show BAM loop data,
+# so they may only land in a gitignored report folder outside it; and this script never drives Zach's own dashboard
+# (4380/4381) or the Dashboard lane's (4390/4391). Kept identical in clank/stories/smoke.py and
+# clank/src/roadmap/cascade_check.py.
+OUT_ROOTS = (Path("/home/bam/vibetracks/reports/media"), Path("/home/bam/bam_ws/reports/media"))
+PORTS_NEVER_DRIVEN = {4380, 4381, 4390, 4391}
+
+
+def checked_out(path: Path) -> Path:
+    resolved = Path(path).resolve()
+    if not any(resolved == root or root in resolved.parents for root in OUT_ROOTS):
+        raise SystemExit(f"refusing {resolved}: outputs go under {' or '.join(map(str, OUT_ROOTS))} (gitignored, outside the public repo)")
+    return resolved
+
+
+def checked_url(url: str) -> str:
+    split = urlsplit(url)
+    if "\\" in url or "@" in split.netloc or split.scheme not in ("http", "https") or split.hostname not in ("127.0.0.1", "localhost") or split.port is None:
+        raise SystemExit(f"refusing {url!r}: a plain local http(s) URL with an explicit port only")
+    if split.port in PORTS_NEVER_DRIVEN:
+        raise SystemExit(f"refusing port {split.port}: Zach's own dashboard or the Dashboard lane's")
+    return url
+
+
 def is_browser_favicon(url: str) -> bool:
     """WHY this one URL is not a story error: Chrome itself asks the first page of a context for /favicon.ico, and
     Storybook's iframe serves none; no component makes that request, so it says nothing about the story."""
@@ -67,7 +92,8 @@ def main() -> int:
     parser.add_argument("--settle-ms", type=int, default=1200, help="wait after render for async loads and glides")
     args = parser.parse_args()
 
-    out: Path = args.out
+    args.url = checked_url(args.url)
+    out: Path = checked_out(args.out)
     out.mkdir(parents=True, exist_ok=True)
     started = time.time()
     results = []
