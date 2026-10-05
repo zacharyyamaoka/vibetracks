@@ -47,6 +47,20 @@ class Y01ParentDirectoryFixtureTest(_Fixture):
         self.assertEqual((status, document["title"]), (200, "Stored rig"))
         self.assertTrue(document["warnings"][0].startswith("stale: the rig loop is not on this machine"))
 
+    def test_codex_z02_an_absent_loop_configured_through_a_symlink_alias_keeps_its_snapshot(self) -> None:
+        rig = self.tmp / "no-rig-loop"  # absent; the snapshot was taken through its canonical path
+        # The alias lives OUTSIDE the snapshot's repo, so only a real-path comparison can see it is the same place.
+        elsewhere = tempfile.TemporaryDirectory()
+        self.addCleanup(elsewhere.cleanup)
+        alias = Path(elsewhere.name) / "alias"
+        alias.symlink_to(self.tmp, target_is_directory=True)
+        self.store("rig", {"schema": SCHEMA, "title": "Stored rig", "generated_at": "t", "loop": "rig",
+                           "roots": {"repo": str(self.tmp)}, "sources": [link(rig / "ladder.json")], "warnings": []})
+        self.write_sources(rig_loop_dir=str(alias / "no-rig-loop"))
+        status, document = get_json("/doc", "track=rig")
+        self.assertEqual((status, document.get("title")), (200, "Stored rig"), document)
+        self.assertTrue(document["warnings"][0].startswith("stale: the rig loop is not on this machine"))
+
     def test_a_declared_file_under_the_directory_other_than_the_entry_file_is_not_ownership(self) -> None:
         snapshot = self.kinsim_snapshot()
         snapshot["sources"] = [link(self.loop.curriculum_dir / "triage.json"), link(self.loop.data_home / "status.json")]

@@ -564,8 +564,12 @@ def main() -> int:
     parser.add_argument("--width", type=int, default=1400)
     parser.add_argument("--height", type=int, default=900)
     args = parser.parse_args()
-    # WHY urlsplit and not the last colon (Codex Y02): "http://127.0.0.1:4380/path:4400/" is port 4380.
+    # WHY urlsplit and not the last colon (Codex Y02): "http://127.0.0.1:4380/path:4400/" is port 4380. WHY no backslash
+    # or userinfo (Codex Z01): Python and the browser's WHATWG parser disagree on "http://localhost:4380\@127.0.0.1:4400/",
+    # so a URL the two could read differently is refused outright.
     split = urlsplit(args.url)
+    if "\\" in args.url or "@" in split.netloc or split.scheme not in ("http", "https"):
+        raise SystemExit(f"refusing {args.url!r}: a plain http(s) URL with no backslash or userinfo only")
     if split.hostname not in ("127.0.0.1", "localhost") or split.port is None:
         raise SystemExit(f"refusing {args.url}: the recorder drives only a local lane with an explicit port")
     if split.port in PORTS_NEVER_DRIVEN:

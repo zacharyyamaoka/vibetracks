@@ -323,7 +323,7 @@ def _toplevel(path: Path) -> str | None:
 def _same_checkout(repo: object, checkout: Path) -> bool:
     """Whether a document's ``roots.repo`` is the checkout ``checkout`` lies in.
 
-    Their git toplevels when ``checkout`` is in a git checkout here; otherwise the normalized paths, ``checkout`` being
+    Their git toplevels when ``checkout`` is in a git checkout here; otherwise the real paths, ``checkout`` being
     ``repo`` or a directory under it (the projectors are handed a directory inside their checkout, e.g. the curriculum's).
     """
 
@@ -332,7 +332,9 @@ def _same_checkout(repo: object, checkout: Path) -> bool:
     mine = _toplevel(checkout) if checkout.exists() else None
     if mine is not None:
         return os.path.isdir(repo) and _toplevel(Path(repo)) == mine
-    checkout_path, repo_path = os.path.normpath(str(checkout)), os.path.normpath(repo)
+    # WHY realpath even though the checkout is missing (Codex Z02): realpath resolves every symlink in the part that does
+    # exist, so a loop configured through an alias still matches its own snapshot; the exact-entry claim stays the guard.
+    checkout_path, repo_path = os.path.realpath(str(checkout)), os.path.realpath(repo)
     return checkout_path == repo_path or checkout_path.startswith(repo_path.rstrip("/") + "/")
 
 
