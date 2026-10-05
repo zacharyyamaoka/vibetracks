@@ -742,14 +742,16 @@ def read_ledger(path: Path) -> tuple[list[dict[str, Any]], list[str]]:
     """The ledger's rows (each stamped with its physical 1-based line under ``_line``) and, index-aligned, the sha256 of
     each row's exact bytes without its newline: what the bridge's ``line_sha256`` is compared with (Codex A01).
 
-    WHY one pass over bytes: the digest and the JSON parse must be of the same bytes, split the one way the loops write
-    them (b"\\n" only: ``str.splitlines`` would split inside a row at U+2028). A line that is blank or not a JSON object
-    (a crash fragment) is skipped, as the loops' readers skip it, so a row's index is its position among the rows.
+    WHY one pass over bytes split by ``bytes.splitlines``: the digest and the JSON parse must be of the same bytes, and
+    the line ends must be the bench's own: its ledger reader opens runs.jsonl in text mode (universal newlines: \\n,
+    \\r\\n and a lone \\r all end a line) and the shared bridge digests ``bytes.splitlines`` lines, which end at exactly
+    those three. ``bytes.splitlines`` never splits at U+2028 (only ``str.splitlines`` does). A line that is blank or not
+    a JSON object (a crash fragment) is skipped, so a row's index is its position among the rows.
     """
 
     rows: list[dict[str, Any]] = []
     digests: list[str] = []
-    for number, line in enumerate(Path(path).read_bytes().split(b"\n"), 1):
+    for number, line in enumerate(Path(path).read_bytes().splitlines(), 1):
         if not line.strip():
             continue
         try:

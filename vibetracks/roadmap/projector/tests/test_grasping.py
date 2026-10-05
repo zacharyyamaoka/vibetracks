@@ -398,10 +398,14 @@ def test_the_ledger_is_read_and_digested_from_the_same_bytes(tmp_path):
     ledger.write_bytes(b"\n".join(raw) + b"\n\n")
     rows, digests = read_ledger(ledger)
     assert [row["run_id"] for row in rows] == ["a", "b", "c"] and [row["_line"] for row in rows] == [1, 2, 5]
-    assert digests == [hashlib.sha256(chunk).hexdigest() for chunk in (raw[0], raw[1], raw[4])]
+    # CRLF: the terminator is dropped whole, as the bench's text-mode reader and the bridge's bytes.splitlines drop it
+    assert digests == [hashlib.sha256(chunk).hexdigest() for chunk in (raw[0], b'{"run_id": "b"}', raw[4])]
+    ledger.write_bytes(b'{"run_id": "p"}\r{"run_id": "q"}\n')  # a lone \r ends a line for the bench too
+    rows, _digests = read_ledger(ledger)
+    assert [row["run_id"] for row in rows] == ["p", "q"]
     ledger.write_bytes('{"run_id": "u", "text": "a\u2028b"}\n'.encode() + b'{"run_id": "v"}\n')
     rows, _digests = read_ledger(ledger)
-    assert [row["run_id"] for row in rows] == ["u", "v"]  # splitlines would have cut the first row in two
+    assert [row["run_id"] for row in rows] == ["u", "v"]  # str.splitlines would have cut the first row in two
 
 
 def test_a_beaten_env_whose_best_row_this_projection_did_not_read_is_claimed_not_proven(tmp_path):
