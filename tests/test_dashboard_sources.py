@@ -69,6 +69,15 @@ class SourcesTest(unittest.TestCase):
                 self.assertEqual(self.load(raw=raw)["kinsim_home"], os.path.join(HOME, ".local/share/bam_curriculum"))
                 self.assertIn("ignoring", self.stderr.getvalue())
 
+    def test_work_track_keys_follow_the_folder_they_name(self) -> None:
+        loaded = self.load()
+        self.assertEqual(loaded["kinsim_status"], os.path.join(HOME, ".local/share/bam_curriculum/status.json"))
+        self.assertEqual(loaded["rig_loop_status"], loaded["rig_loop_dir"] + "/loop-status.json")
+        moved = self.load({"rig_loop_dir": "/elsewhere/bam_rig_loop", "self_ref": "{self_ref}/x", "unknown": "{nope}/x"})
+        self.assertEqual(moved["rig_loop_status"], "/elsewhere/bam_rig_loop/loop-status.json")
+        self.assertEqual(moved["self_ref"], str(Path("{self_ref}/x")))  # verbatim: a typo stays visible
+        self.assertEqual(moved["unknown"], str(Path("{nope}/x")))
+
     def test_the_environment_names_the_file(self) -> None:
         self.file.write_text(json.dumps({"kinsim_home": "/elsewhere"}), encoding="utf-8")
         self.assertEqual(sources.load_sources(environ={"VIBETRACKS_SOURCES": str(self.file)})["kinsim_home"], "/elsewhere")
@@ -89,3 +98,27 @@ class SourcesTest(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class WorktreeResolveTest(unittest.TestCase):
+    def setUp(self) -> None:
+        sources._WORKTREE_CACHE.clear()
+
+    def test_resolves_the_branch_checkout_and_falls_back(self) -> None:
+        porcelain = "worktree /x/main\nHEAD 1\nbranch refs/heads/main\n\nworktree /x/wt\nHEAD 2\nbranch refs/heads/feat\n"
+        class Done:
+            stdout = porcelain
+        original = sources.subprocess.run
+        sources.subprocess.run = lambda *a, **k: Done()
+        try:
+            self.assertEqual(sources._resolve_worktree("@worktree:/x:feat:src/a|/fallback"), "/x/wt/src/a")
+            sources._WORKTREE_CACHE.clear()
+            self.assertEqual(sources._resolve_worktree("@worktree:/x:gone:src/a|/fallback"), "/fallback")
+        finally:
+            sources.subprocess.run = original
+
+    def test_live_kinsim_default_is_the_loop_branch_checkout(self) -> None:
+        loaded = sources.load_sources(Path("/nonexistent/sources.json"))
+        self.assertTrue(loaded["kinsim_curriculum_dir"].endswith("src/dev/bam_curriculum"))
+        self.assertNotIn("roadmap-curriculum-viz", loaded["kinsim_curriculum_dir"])
+        self.assertEqual(loaded["kinsim_loop_dir"], loaded["kinsim_curriculum_dir"])

@@ -1,12 +1,13 @@
 # The dashboard projection: `vibetracks-dashboard/1`
 
-One JSON file, `~/.local/share/vibetracks/dashboard/projection.json`, is everything the dashboard shows. An adapter builds it, the backend serves it, and every variant reads it through one shared model (`clank/src/shared/model.ts`, which mirrors this page type for type). The research principle behind the single file is "solve the display once": a fixed template, with KPIs bound as data, so every track renders through the same grammar.
+One JSON document is everything the dashboard shows. The backend builds it **live** from the work-track registry on every `GET /projection` (`vibetracks/dashboard/build.py` `LiveBuilder`; one adapter per track, docs/dashboard/ADAPTERS.md), and serves it, and every variant reads it through one shared model (`clank/src/shared/model.ts`, which mirrors this page type for type). The research principle behind the single file is "solve the display once": a fixed template, with KPIs bound as data, so every track renders through the same grammar.
 
-- **Build:** `cd ~/vibetracks-dashboard && python3 -m vibetracks.dashboard.build` (stdlib only; `--data-home DIR`, `--refresh-sources`).
-- **Serve:** `clank/backend/server.py`, through Clank's proxy at `/api/plugins/vibetracks/projection` (`?rebuild=1` reruns the build first) and `/api/plugins/vibetracks/media/<id>`.
+- **Build:** `cd ~/vibetracks-dashboard && python3 -m vibetracks.dashboard.build` (live from `workspace/`'s registry, also written to `<data home>/projection.json`; `--workspace W`, `--data-home DIR`, `--snapshot` for the 2026-10-03 snapshot build, `--refresh-sources`).
+- **Serve:** `clank/backend/server.py`, through Clank's proxy at `/api/plugins/vibetracks/projection` (`?rebuild=1` drops the adapter cache first) and `/api/plugins/vibetracks/media/<id>`. Without a registry in the workspace it serves `projection.json` from the data home instead.
+- **Rename:** `POST /api/plugins/vibetracks/tracks/<id>/title` `{title, revision}` (ADAPTERS.md, "Renaming a track").
 - **Machine paths:** `vibetracks/sources.py` `load_sources()` (the data home, the run-media root, `reports/media`, the loop folders). Override any of them in `~/.local/share/vibetracks/sources.json` (or `$VIBETRACKS_SOURCES`); `~` is expanded.
 - **Extra backend routes:** `clank/backend/mounts.py`, an append-only list of `(prefix, 'module:callable')`, GET only.
-- **Adapter today:** `vibetracks/dashboard/adapters/bam_loops.py` reads a verified snapshot of BAM's two loops. `source.live` is `false` until the live adapter exists (marked `TODO(live)` in the adapter and in `source.todo`).
+- **Adapters:** one per work track, `vibetracks/dashboard/adapters/<vibe-adapter>.py` (ADAPTERS.md). A track whose adapter is missing, pending or failing is a "Not reporting" row that says why. `vibetracks/dashboard/adapters/bam_loops.py` is the 2026-10-03 snapshot; the live build uses it only for the rig's `can12`/`can16` children until the rig adapter draws them.
 
 ## Truth rules (hold for every adapter)
 
@@ -23,28 +24,36 @@ One JSON file, `~/.local/share/vibetracks/dashboard/projection.json`, is everyth
 | `schema` | `"vibetracks-dashboard/1"` | the contract version |
 | `generated_at` | ISO timestamp | when this file was written |
 | `as_of` | `YYYY-MM-DD` | the date of the data (the snapshot's day) |
-| `source` | object | `{adapter, kind: "snapshot"\|"live", live: bool, snapshot, snapshot_generated_at, curriculum, todo, units_note}`. `snapshot` and `curriculum` are the data-home copies the adapter read. |
-| `tracks` | `Track[]` | loops first, then deployments (whose `parent` names their loop) |
+| `source` | object | `{adapter, kind: "snapshot"\|"live", live: bool, registry, snapshot, snapshot_generated_at, curriculum, todo, units_note}`. Live: `adapter: "registry"`, `live: true`, `registry` the descriptor path, `snapshot` the snapshot file a child fell back to (else null), `todo` lists the tracks not reporting and why. |
+| `registry` | object | live only: `{descriptor, order: [top-level ids], archived: [{id, title}], problems: [{path, error}]}` |
+| `tracks` | `Track[]` | top-level work tracks in `vibe-priority` order, then their children (whose `parent` names their track) |
 | `media` | `{[id]: MediaEntry}` | the allowlist: every file the page may open, by id |
 
 ## `Track`
 
 | field | type | meaning |
 |---|---|---|
-| `id` | string | `kinsim`, `rig`, `can12`, `can16` |
-| `title` | string | "Kinsim curriculum loop" |
+| `id` | string | `kinsim`, `rig`, `can12`, `can16`; live: the note's `vibe-id`, which never changes |
+| `title` | string | live: the note's `vibe-title`, which Zach can rename |
 | `kind` | `"loop"` \| `"deployment"` | a loop is a level-1 row; a deployment is evidence for its parent loop |
 | `parent` | string \| null | the loop a deployment belongs to |
 | `summary` | string | one sentence |
 | `state` | `{word, tone, detail, since}` | the one calm answer: `Paused` · warn · "disk 90.36% · stop line 91.0%" |
 | `iteration` | `{unit: "wave"\|"tick"\|"session"\|"day", label}` | what one column is, and the current one ("wave 3") |
 | `iterations` | `Iteration[]` | the shared x-axis, oldest first. Every KPI's `values` aligns with it one to one. |
-| `north_star` | KPI id | the S1 KPI the glance shows |
+| `north_star` | KPI id \| null | the S1 KPI the glance shows; null when the track reports no KPIs |
 | `kpis` | `Kpi[]` | in slot order S1 to S7 |
 | `needs_you` | `NeedsYou[]` | open questions, blocking ones first |
 | `evidence` | `{by_iteration, by_kpi}` | level 3 (below) |
 | `links` | `Link[]` | reports, commands, paths |
 | `provenance` | `Provenance` | plus, on deployments, `counts`, `latest_real_rms`, `videos_resolved`, `videos_flagged` |
+| `reporting` | bool | live: false when the adapter could not report (`state.word` "Not reporting", `state.detail` and `summary` say why) |
+| `needs_you_count` | `{open, blocking}` | live: counted from `needs_you`; both null when the track is not reporting (unknown, never 0) |
+| `freshness` | object | live: `{newest, newest_source, age_h, stall_hours, stale, note, sources: [{key, path, exists, modified, note}]}`. `stale` is null when no source file exists. A stale track's calm state turns `stale`. `age_h` is wall-clock. |
+| `source` | object | live: `{adapter, kind: "live"\|"snapshot"\|"none", live}` for this track |
+| `registry` | object | live, top-level only: the note's `{status, priority, owner, adapter, sources, heartbeat, stall_hours, roadmap, children, note_path, revision}`; `revision` fences a rename |
+| `purpose` | string | live, top-level only: the first paragraph of the track's registry note |
+| `children` | string[] | live, top-level only: the `vibe-children` ids drawn inside this track |
 
 `tone` is one of `ok | warn | risk | stale | muted`. Colour is only for `warn`, `risk` and `stale`; `ok` and `muted` render grey.
 

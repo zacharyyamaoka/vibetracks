@@ -1,20 +1,29 @@
 #!/usr/bin/env python3
-"""The Vibe Tracks dashboard's backend: a read-only, loopback, stdlib HTTP server for Clank's plugin proxy.
+"""The Vibe Tracks dashboard's backend: a loopback, stdlib HTTP server for Clank's plugin proxy.
 
     python3 clank/backend/server.py --port P [--workspace W] [--data-home DIR]
 
 Routes (Clank proxies ``/api/plugins/vibetracks/<rest>`` here, clank-workbench CLAUDE.md §2.3):
 
-- ``GET /health``            -> ``{ok, data_home, projection, projection_exists, media}``
-- ``GET /projection``        -> ``projection.json`` from the data home, re-read when it changes on disk;
-  ``?rebuild=1`` first reruns ``python3 -m vibetracks.dashboard.build`` (the snapshot adapter).
+- ``GET /health``            -> ``{ok, live, registry, data_home, projection, projection_exists, media}``
+- ``GET /projection``        -> LIVE when the workspace's ``.vtdash`` names a work-track registry: built on each
+  request from the registry by ``vibetracks.dashboard.build.LiveBuilder`` (adapters rerun only when a note, an
+  adapter module or a declared source file changed); ``?rebuild=1`` drops that cache first. Without a registry,
+  ``projection.json`` from the data home, re-read when it changes on disk; ``?rebuild=1`` first reruns
+  ``python3 -m vibetracks.dashboard.build --snapshot`` (the snapshot adapter).
+- ``POST /tracks/<id>/title`` -> rename one work track: JSON ``{title, revision}`` (``Content-Type:
+  application/json``, else 415). Revision-fenced (409 when the note changed since ``revision``), atomic, and it
+  edits only the note's ``vibe-title`` value (``registry.rename_title``); ``vibe-id`` never changes. 400 for a bad
+  title (1-80 characters after trimming, one line) or body, 404 for an unknown id. Answers
+  ``{ok, id, title, revision}`` with the note's new revision.
 - ``GET /media/<id>``        -> one file named by ``projection.media[<id>]``, streamed with Range support (so a
   ``<video>`` seeks) and its real content type. Anything else is 404.
 - ``GET <mount prefix>/...`` -> the callable ``mounts.MOUNTS`` names for that prefix (backend/mounts.py has the
   handler signature), imported lazily; 503 when its import fails, 501 for any method but GET.
 
-There are no write endpoints: POST, PUT, PATCH and DELETE answer 501 everywhere. WHY an allowlist built from the projection and never a path parameter: the page names
-media by id only, so a crafted URL cannot reach a file the projection does not list (BRIEF G3, local-only).
+The rename is the only write: every other POST, and every PUT, PATCH and DELETE, answers 501. WHY an allowlist built
+from the projection and never a path parameter: the page names media by id only, so a crafted URL cannot reach a file
+the projection does not list (BRIEF G3, local-only).
 
 Data home: ``--data-home`` > ``$VIBETRACKS_DASHBOARD_HOME`` > the ``data_home`` of the workspace's ``.vtdash`` files
 (when they agree) > ``dashboard_data_home`` from vibetracks/sources.py (``~/.local/share/vibetracks/dashboard``).
@@ -44,6 +53,10 @@ if str(REPO_ROOT) not in sys.path:
     # Clank sets PYTHONPATH={pluginDir}/.. (the repo root); a bare `python3 clank/backend/server.py` or the unittest
     # run from clank/backend does not, and vibetracks.sources must import either way.
     sys.path.append(str(REPO_ROOT))
+from vibetracks.dashboard.build import LiveBuilder  # noqa: E402
+from vibetracks.dashboard.registry import TitleInvalid, find_registry, rename_title  # noqa: E402
+from vibetracks.errors import RevisionConflict, UnknownFeature, VibeTracksError  # noqa: E402
+from vibetracks.notes import note_revision  # noqa: E402
 from vibetracks.sources import load_sources  # noqa: E402
 
 
@@ -53,6 +66,9 @@ def default_home() -> Path:
 
 DEFAULT_HOME = default_home()
 MEDIA_ID = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,200}$")
+RENAME_ROUTE = re.compile(r"^/tracks/([^/]+)/title$")
+#: A rename body is a title and a revision; anything near this size is not one.
+MAX_JSON_BODY = 64 * 1024
 #: Content types the backend will stream; a projection entry of any other suffix is refused.
 SERVABLE = {
     ".mp4": "video/mp4",
@@ -141,6 +157,9 @@ def resolve_mount(target: str) -> MountHandler:
 class Projection:
     """projection.json, re-read when its mtime or size changes; the media allowlist comes from it."""
 
+    live = False
+    registry: Path | None = None
+
     def __init__(self, home: Path):
         self.home = home
         self.path = home / "projection.json"
@@ -170,7 +189,7 @@ class Projection:
 
         if not MEDIA_ID.match(media_id):
             return None
-        self.load()
+        self._refresh_media()
         entry = self._media.get(media_id)
         if not isinstance(entry, dict) or not isinstance(entry.get("path"), str):
             return None
@@ -185,9 +204,39 @@ class Projection:
         return path
 
 
+    def _refresh_media(self) -> None:
+        self.load()
+
+
+class LiveProjection(Projection):
+    """The projection built live from the work-track registry; the media allowlist is the last build's ``media``."""
+
+    live = True
+
+    def __init__(self, home: Path, workspace: Path, registry: Path):
+        super().__init__(home)
+        self.registry = registry
+        self.builder = LiveBuilder(workspace, home)
+
+    def load(self, force: bool = False) -> bytes:
+        projection = self.builder.build(force=force)
+        raw = json.dumps(projection, ensure_ascii=False).encode("utf-8")
+        with self._lock:
+            media = projection.get("media")
+            self._media = media if isinstance(media, dict) else {}
+            self._raw = raw
+        return raw
+
+    def _refresh_media(self) -> None:
+        # WHY only the first time: a video seeks with many Range requests, and each must not rebuild the projection;
+        # the page always fetches /projection (which rebuilds) before it asks for a media id from it.
+        if self._raw is None:
+            self.load()
+
+
 def rebuild(home: Path) -> tuple[bool, str]:
     env = {**os.environ, "VIBETRACKS_DASHBOARD_HOME": str(home), "PYTHONPATH": str(REPO_ROOT)}
-    result = subprocess.run([sys.executable, "-m", "vibetracks.dashboard.build", "--data-home", str(home)],
+    result = subprocess.run([sys.executable, "-m", "vibetracks.dashboard.build", "--snapshot", "--data-home", str(home)],
                             cwd=str(REPO_ROOT), env=env, capture_output=True, text=True, timeout=120)
     return result.returncode == 0, (result.stdout + result.stderr).strip()
 
@@ -214,7 +263,7 @@ def parse_range(header: str | None, size: int) -> tuple[int, int] | None | str:
     return start, end
 
 
-def make_handler(projection: Projection):
+def make_handler(projection: Projection, workspace: Path | None = None):
     class Handler(BaseHTTPRequestHandler):
         server_version = "vibetracks-dashboard/1"
         protocol_version = "HTTP/1.1"
@@ -253,7 +302,68 @@ def make_handler(projection: Projection):
             # request (a 400 into a socket the client already left).
             self._json(501, {"error": f"{self.command} is not supported: {where} is read-only (GET only)"}, close=True)
 
-        do_POST = do_PUT = do_PATCH = do_DELETE = _not_implemented
+        do_PUT = do_PATCH = do_DELETE = _not_implemented
+
+        def do_POST(self) -> None:
+            path = urlsplit(self.path).path
+            match = RENAME_ROUTE.fullmatch(path)
+            if match is None or find_mount(path) is not None:
+                return self._not_implemented()
+            return self._rename(unquote(match.group(1)))
+
+        def _read_json_body(self) -> tuple[Any, None] | tuple[None, tuple[int, str]]:
+            """(payload, None) or (None, (status, error)); the body is always consumed or the connection closed."""
+
+            raw_length = self.headers.get("Content-Length")
+            try:
+                length = int(raw_length) if raw_length is not None else 0
+            except ValueError:
+                self.close_connection = True
+                return None, (400, "Content-Length is not a number")
+            if length < 0 or length > MAX_JSON_BODY:
+                self.close_connection = True
+                return None, (413 if length > 0 else 400, f"the body must be 0-{MAX_JSON_BODY} bytes")
+            body = self.rfile.read(length) if length else b""
+            content_type = (self.headers.get("Content-Type") or "").split(";", 1)[0].strip().lower()
+            if content_type != "application/json":
+                return None, (415, "Content-Type must be application/json")
+            try:
+                return json.loads(body.decode("utf-8")), None
+            except (UnicodeDecodeError, ValueError) as error:
+                return None, (400, f"the body is not JSON: {error}")
+
+        def _rename(self, track_id: str) -> None:
+            payload, failure = self._read_json_body()
+            if failure is not None:
+                return self._json(failure[0], {"error": failure[1]}, close=self.close_connection)
+            if not isinstance(payload, dict):
+                return self._json(400, {"error": "the body must be a JSON object {title, revision}"})
+            revision = payload.get("revision")
+            if not isinstance(revision, str) or not revision.strip():
+                return self._json(400, {"error": "revision is required: the note revision the title was read at"})
+            if workspace is None or find_registry(workspace) is None:
+                return self._json(404, {"error": "no work-track registry in this workspace"})
+            try:
+                title, new_revision = rename_title(workspace, track_id, payload.get("title"), revision.strip())
+            except TitleInvalid as error:
+                return self._json(400, {"error": str(error)})
+            except UnknownFeature as error:
+                return self._json(404, {"error": str(error)})
+            except RevisionConflict as error:
+                return self._json(409, {"error": str(error), "revision": self._current_revision(track_id)})
+            except VibeTracksError as error:
+                return self._json(400, {"error": str(error)})
+            return self._json(200, {"ok": True, "id": track_id, "title": title, "revision": new_revision})
+
+        def _current_revision(self, track_id: str) -> str | None:
+            """The note's revision now, so a 409 lets the page re-read and retry without a second request."""
+
+            try:
+                from vibetracks.dashboard.registry import read_registry
+                track = read_registry(workspace).by_id(track_id) if workspace is not None else None
+                return note_revision(Path(track.note_path).read_text(encoding="utf-8")) if track else None
+            except (OSError, VibeTracksError):
+                return None
 
         def _route(self, head: bool) -> None:
             url = urlsplit(self.path)
@@ -269,18 +379,27 @@ def make_handler(projection: Projection):
             if path == "/health":
                 raw = None
                 try:
-                    raw = projection.load()
-                except ValueError:
+                    raw = projection._raw if projection.live and projection._raw is not None else projection.load()
+                except Exception:  # health must answer even when a build fails; /projection says why
                     pass
                 return self._json(200, {
                     "ok": True,
+                    "live": projection.live,
+                    "registry": str(projection.registry) if projection.registry else None,
                     "data_home": str(projection.home),
-                    "projection": str(projection.path),
+                    "projection": "live" if projection.live else str(projection.path),
                     "projection_exists": raw is not None,
                     "media": len(projection._media),
                 })
             if path == "/projection":
-                if parse_qs(url.query).get("rebuild", ["0"])[0] in ("1", "true"):
+                force = parse_qs(url.query).get("rebuild", ["0"])[0] in ("1", "true")
+                if projection.live:
+                    try:
+                        raw = projection.load(force=force)  # type: ignore[call-arg]
+                    except Exception as error:  # a broken registry answers 500 with the reason; the server keeps serving
+                        return self._json(500, {"error": "live build failed", "detail": f"{type(error).__name__}: {error}"})
+                    return self._raw(200, raw, "application/json", head=head)
+                if force:
                     ok, log = rebuild(projection.home)
                     if not ok:
                         return self._json(500, {"error": "rebuild failed", "log": log[-4000:]})
@@ -379,10 +498,16 @@ def make_handler(projection: Projection):
     return Handler
 
 
-def serve(port: int, home: Path, host: str = "127.0.0.1") -> ThreadingHTTPServer:
+def serve(port: int, home: Path, host: str = "127.0.0.1", workspace: str | Path | None = None) -> ThreadingHTTPServer:
+    """Live from the registry when ``workspace`` names one, else the data home's projection.json."""
+
     if host not in ("127.0.0.1", "::1", "localhost"):
         raise SystemExit(f"refusing to bind {host}: loopback only")
-    server = ThreadingHTTPServer((host, port), make_handler(Projection(home)))
+    workspace_path = Path(workspace) if workspace else None
+    registry = find_registry(workspace_path) if workspace_path is not None else None
+    projection = LiveProjection(home, workspace_path, registry) if registry is not None and workspace_path is not None \
+        else Projection(home)
+    server = ThreadingHTTPServer((host, port), make_handler(projection, workspace_path))
     server.daemon_threads = True
     return server
 
@@ -394,10 +519,11 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--data-home")
     args = parser.parse_args(argv)
     home = resolve_data_home(args.data_home, args.workspace)
-    server = serve(args.port, home)
+    server = serve(args.port, home, workspace=args.workspace)
     # Exit on SIGTERM (clank-workbench CLAUDE.md §2.4): the host stops the process group this way.
     signal.signal(signal.SIGTERM, lambda *_: threading.Thread(target=server.shutdown, daemon=True).start())
-    print(f"[vibetracks] serving {home} on http://127.0.0.1:{args.port}", flush=True)
+    mode = "live from the work-track registry" if args.workspace and find_registry(args.workspace) else "projection.json"
+    print(f"[vibetracks] serving {home} ({mode}) on http://127.0.0.1:{args.port}", flush=True)
     try:
         server.serve_forever()
     finally:

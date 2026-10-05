@@ -1,0 +1,122 @@
+# Work-track adapters
+
+The dashboard's home page has one row per **work track**, the agent loops Zach runs. Each track is a note in the registry, and each note names an **adapter**: one Python module that reads the loop's own files and returns one `vibetracks-dashboard/1` track (PROJECTION.md). The backend builds the projection **live** from the registry on every `GET /projection`.
+
+This page is the contract for the five adapter lanes. Each lane owns exactly two files: `vibetracks/dashboard/adapters/<id>.py` and `workspace/tracks/<id>.md`. Everything else is shared; if you need a change in it, report it instead of making it.
+
+## The registry
+
+- **Descriptor:** `workspace/Work tracks.vibetrack`. It selects `note["vibe-track"] == "worktrack"` notes in `workspace/tracks/`. `workspace/Agent work.vtdash` names it (`"registry": "Work tracks.vibetrack"`); that is how the backend finds it.
+- **Reader:** `vibetracks/dashboard/registry.py`. `load_registry(workspace)` returns the ordered `WorkTrack` list; `read_registry` also returns the notes it skipped (`problems`).
+- **A note's frontmatter:**
+
+| key | meaning |
+|---|---|
+| `vibe-track` | `worktrack` (the marker) |
+| `vibe-id` | the stable key, `[a-z0-9][a-z0-9_-]*`. Never renamed. |
+| `vibe-title` | the display name. Renamed from the page (below). |
+| `vibe-status` | `running`, `paused` or `archived`. Archived tracks are left off the page (`projection.registry.archived` lists them). |
+| `vibe-priority` | a positive integer, the row order (1 first). Anything else sorts last. |
+| `vibe-owner` | a label for the session or agent. It is a label only: liveness comes from file mtimes. |
+| `vibe-adapter` | the module name: `adapters/<name>.py` |
+| `vibe-sources` | `vibetracks/sources.py` keys: the files your adapter reads |
+| `vibe-heartbeat` | optional: the subset of keys whose mtime says the loop is alive (default: every source) |
+| `vibe-stall-hours` | optional: quiet longer than this and the row reads stale (default 24) |
+| `vibe-roadmap` | `{projector, sources}` for the roadmap session's `/roadmap` routes, or `null` ("No roadmap reported yet") |
+| `vibe-children` | ids drawn inside this track and never on the home page (rig: `[can12, can16]`) |
+
+The body is two or three lines: what the loop is for and its milestone. The build passes its first paragraph through as `track.purpose`.
+
+## The interface
+
+```python
+# vibetracks/dashboard/adapters/<name>.py
+from .base import skeleton, not_reporting
+
+def build_track(work_track, sources: dict[str, str]) -> dict: ...
+def build_children(work_track, sources: dict[str, str]) -> list[dict]: ...   # optional, only for vibe-children
+```
+
+- **`work_track`** is the registry row (`registry.WorkTrack`): `id, title, status, priority, owner, adapter, sources, roadmap, children, note_path, revision, heartbeat, stall_hours, purpose`.
+- **`sources`** maps each key in your note's `vibe-sources` to its absolute path. **Only declared keys are passed.** The build caches your output and reruns you only when your note, your module file, or one of those declared files changes (mtime and size; a directory counts its own entries, one level deep). An input you read but did not declare can change without the dashboard noticing. Every key you might need already exists in `vibetracks/sources.py` (`WORKTRACK_SOURCES`, below). Do not edit `sources.py`: the other lanes share it. To point a key somewhere else on this machine, set it in `~/.local/share/vibetracks/sources.json`.
+- **Return** a Track (PROJECTION.md). Start from `skeleton(work_track, unit="wave"|"tick"|"session"|"day")`, which has every field present with honest empties, and fill:
+  - `state` `{word, tone, detail, since}`, the one calm answer;
+  - `summary`, one sentence;
+  - `iteration` and `iterations`, the shared x-axis, oldest first;
+  - `kpis` (slot S1 to S7) and `north_star`; every KPI's `values` aligns one to one with `iterations`;
+  - `needs_you`. The build counts it into `needs_you_count` `{open, blocking}`. Set `needs_you_count` yourself only when the loop reports counts but not the questions;
+  - `evidence` `{by_iteration, by_kpi}` and `links`;
+  - optionally `media` `{id: MediaEntry}`. The build lifts it into the projection's allowlist and drops it from the track. Prefix ids with your track id, and list only files that exist.
+  - optionally `source` `{kind, live, ...}` if your output is not live (for example, a snapshot you fall back to).
+- **The build owns** `id` (= `vibe-id`), `title` (= `vibe-title`), `kind`, `parent`, `children`, `registry`, `purpose`, `freshness` and `reporting`. Whatever you put there is overwritten. Never hard-code a title: Zach renames tracks.
+- **Children:** `build_children` returns tracks whose `id` is in `vibe-children`. The build sets `parent` and `kind: "deployment"`, lists them after the top-level rows, and never puts them on the home page. Ids you return that are not declared are dropped. A declared child you do not return falls back to the `bam_loops` snapshot (`can12`, `can16`, marked `source.kind: "snapshot"`), and otherwise reads "not reporting".
+- **Failure is honest, never a crash.** A missing module, an import error, an exception in `build_track`, or a track that `base.problems()` rejects all become a "Not reporting" row: `state.detail` and `summary` say why (`not reporting · adapter error · KeyError: 'rungs'`), there are no numbers, and `needs_you_count` is null. The traceback goes to the backend's log.
+- **Freshness is the build's.** For each track, the build stats its heartbeat files on every request. If the newest one is older than `vibe-stall-hours`, the track's `freshness.stale` is true, and a calm (`ok` or `muted`) state turns `stale` with "sources quiet 3 days · stall rule 24 h" appended. When no file exists, `stale` is null: unknown, never fine.
+
+### The truth rules (PROJECTION.md, enforced in review)
+
+1. Every number comes from a named file; `provenance` says which file and how it was derived.
+2. Missing is `value: null, measured: false` with a `note`. Never a zero. A KPI with no source today is still listed, with gaps that say "not emitted".
+3. If either side of a change rests on n = 1, the change reads `unconfirmed · repeat needed`.
+4. A day floor is a descriptive band, never a verdict.
+5. Elapsed hours are wall-clock hours (`h elapsed`), never agent-hours.
+
+### Working on one
+
+- **Run your adapter in place:** `cd ~/vibetracks-dashboard && python3 -m vibetracks.dashboard.build --data-home /tmp/vt-home`. It prints one line per track.
+- **Against the running page:** the backend reloads your module when its file changes, so no restart is needed. Open `http://127.0.0.1:4390/?vtdash=Agent%20work.vtdash`, or fetch `curl -s http://127.0.0.1:4390/api/plugins/vibetracks/projection`. `?rebuild=1` drops the cache.
+- **Tests:** add `tests/test_dashboard_adapter_<id>.py`. `base.problems(track)` must be `[]`. Pin a few numbers you checked by hand against the loop's files.
+
+## Renaming a track
+
+`POST /api/plugins/vibetracks/tracks/<id>/title` with `Content-Type: application/json` and `{"title": "...", "revision": "<registry.revision from the projection>"}`.
+
+- It changes only the `vibe-title` line of `workspace/tracks/<id>.md`, through `edits.apply_note_edit` and `replace_frontmatter_entry`: fenced on the revision, atomic (temp file plus `os.replace`), and every other byte of the note kept.
+- It answers `{ok, id, title, revision}`, where `revision` is the note's new revision; fence the next rename on it.
+- Errors: 400 for a bad title (it must be 1 to 80 characters after trimming, on one line) or a bad body; 404 for an unknown id; 409 when the note changed since `revision` (the body carries the current revision); 415 when the content type is not JSON.
+- `vibe-id`, the cache key, the roadmap key and every URL stay the same. The next `GET /projection` shows the new title.
+
+## Source map, per track
+
+From `docs/dashboard/track-discovery-2026-10-04.json` (`scout:<key>`). Read that file's entry for your track before you start: it has every path, the KPIs with their exact sources, the roadmap, the gaps and the owner sessions. The keys below are already in `vibetracks/sources.py`.
+
+### `kinsim`: Kinematic Sim (`scout:kinsim`)
+
+- **Keys:** `kinsim_status` (`~/.local/share/bam_curriculum/status.json`, the live fold: `rungs[]`, `you_are_here[]`, `frontier[]`, `blocking_triage[]`), `kinsim_events` (`loop_events.jsonl`: `wave_started` and `wave_finished`, `gate_run`, `rung_status_changed`, `audit`), `kinsim_runs` (`runs.jsonl`, the judged-run ledger), `kinsim_loop_dir` (the current loop checkout, `wave-3-handoff-af2b9b/src/dev/bam_curriculum`: `curriculum.json`, `triage.json`, `ROADMAP.md`). `kinsim_curriculum_dir` is the roadmap session's older checkout; do not rely on it for live state.
+- **Iteration:** the wave (W1 to W4 closed; wave 5 not started).
+- **KPIs:** green rungs of 62; RB0 and SN1 promotion PPM and feasibility; belt-speed frontier BT1 to BT4; packages landed per wave (free text in `wave_finished.detail`, so parse it); the fast regression gate; open triage.
+- **Roadmap:** projector `kinsim` (the roadmap session's).
+- **Gaps:** `status.json` has no per-wave series, so refold it from events plus runs. Ledger-driven greens emit no `rung_status_changed`.
+
+### `rig`: Sim to Real & Trajectory Tracking (`scout:sim2real`)
+
+- **Keys:** `rig_loop_status` (`loop-status.json`, schema `loop-status/1`: `tick`, `where[]`, `next[]`, `needs_you[]`, `rate`), `rig_events` (`loop_events.jsonl`), `rig_ladder` (`ladder.json`, 6 axes), `deployments_fixtures_dir` (the bam_deployments API fixtures). `rig_loop_dir` is the folder.
+- **Iteration:** the loop tick (`tick.n`, 0 to 4). The deployment KPIs are per session or day.
+- **KPIs:** twin fidelity gap (held-out, deg, gate ≤ 0.8°); twin tracking ratio; real tracking RMS; sim-real gap; floor (descriptive); feedback torque; loop progress rate; rungs green; audit verdicts; needs-you.
+- **Children:** `can12`, `can16`. Until `build_children` exists they come from the snapshot.
+- **Roadmap:** projector `rig`.
+- **Gaps:** there are no per-tick KPI rows (`loop-status` keeps the last 3 values), so rebuild them from events. The deployment KPIs live in `/archive/datasets/bam_rig/cache`.
+
+### `grasping`: Grasping (`scout:grasping`)
+
+- **Keys:** `grasping_ledger` (`grasp_bench/out/ledger/runs.jsonl`, one CellRun per row, live), `grasping_curriculum` (`curriculum.py`, code-as-roadmap: tiers, models, `GATES`), `grasping_bench_dir`.
+- **Iteration:** a ledger row; the coarser unit is the tier or wave phase.
+- **KPIs:** envs beaten (Wilson lower bound against the gate); wave-1 cells measured of planned; best learned top-1 per env; margin over floors; dataset AP against the oracle and published; latency p50 and p95; the `git_dirty` share.
+- **Roadmap:** `null` for now.
+- **Gaps:** everything is in an agent worktree whose `out/` is gitignored, and there is no status file, so the frontier must be derived.
+
+### `detection`: Object Detection & Hyperspectral (`scout:detection`)
+
+- **Keys:** `detection_queue_log` (`spectralwaste-segmentation/logs/queue.log`, the July repro queue, the only state), `detection_repo`, `detection_ladder` (`ladder_data.py`, the H0 to H9 plan; untracked).
+- **Iteration:** planned as a loop tick; today only the July training runs exist.
+- **KPIs:** S1 hyperspectral test mIoU (no valid value yet; the CMX run is invalid with a NaN loss; target 58.2); S2 H1 configs reproduced, 2 of 12; S3 to S6 are not emitted anywhere, so list them with gaps that say so.
+- **Roadmap:** `null`.
+- **Gaps:** the loop has never started. The heartbeat is about 86 days old, so the row reads stale, which is true.
+
+### `pyblocks`: Pyblocks (`scout:pyblocks`)
+
+- **Keys:** `pyblocks_board_dir` (`reports/media/board/<commit7>.json`, the scoreboard per merge window), `pyblocks_windows` (`windows.jsonl`), `pyblocks_repo`.
+- **Iteration:** a merge window, keyed by main's commit.
+- **KPIs:** runnable goldens green of 55; easy-18 green; L0 passes; adversarial green of 132; the fast gate; ledgered reds.
+- **Roadmap:** `null` (M1, then M2, then M3, in `final-plan.json`).
+- **Gaps:** the board series stops at b07c38b (10-01). The 10-02 numbers exist only in an HTML summary: show them as not emitted, never copied in.

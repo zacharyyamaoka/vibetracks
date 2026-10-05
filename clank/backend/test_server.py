@@ -225,5 +225,162 @@ class MountTest(unittest.TestCase):
         self.assertIn("bad doc", json.loads(body)["detail"])
 
 
+REGISTRY_DESCRIPTOR = """filters:
+  and:
+    - 'note["vibe-track"] == "worktrack"'
+    - 'file.inFolder("tracks")'
+vibetracks:
+  version: 1
+  id: work-tracks
+  title: Work tracks
+  vaultRoot: .
+  source: tracks
+"""
+TRACK_NOTE = """---
+vibe-track: worktrack
+vibe-id: kinsim
+vibe-title: Kinematic Sim
+vibe-status: running
+vibe-priority: 1
+vibe-owner: Kinematic Sim (AGENT) session   # label only
+vibe-adapter: none
+vibe-sources: [kinsim_home]
+vibe-roadmap:
+  projector: kinsim
+  sources: [kinsim_curriculum_dir, kinsim_home]
+vibe-children: []
+---
+
+# Kinematic Sim
+
+The curriculum loop.
+"""
+
+
+class RenameTest(unittest.TestCase):
+    """POST /tracks/<id>/title: the one write, fenced, atomic and title-only; GET /projection is live from the registry."""
+
+    def setUp(self) -> None:
+        self.tmp = tempfile.TemporaryDirectory()
+        root = Path(self.tmp.name)
+        self.workspace = root / "ws"
+        (self.workspace / "tracks").mkdir(parents=True)
+        (self.workspace / "Agent work.vtdash").write_text(json.dumps({"registry": "Work tracks.vibetrack"}), encoding="utf-8")
+        (self.workspace / "Work tracks.vibetrack").write_text(REGISTRY_DESCRIPTOR, encoding="utf-8")
+        self.note = self.workspace / "tracks" / "kinsim.md"
+        self.note.write_text(TRACK_NOTE, encoding="utf-8")
+        self.port = free_port()
+        self.httpd = server.serve(self.port, root / "home", workspace=self.workspace)
+        threading.Thread(target=self.httpd.serve_forever, daemon=True).start()
+
+    def tearDown(self) -> None:
+        self.httpd.shutdown()
+        self.httpd.server_close()
+        self.tmp.cleanup()
+
+    def revision(self) -> str:
+        return server.note_revision(self.note.read_text(encoding="utf-8"))
+
+    def post(self, path: str, payload: object, content_type: str | None = "application/json") -> tuple[int, dict]:
+        body = payload if isinstance(payload, bytes) else json.dumps(payload).encode("utf-8")
+        headers = {"Content-Type": content_type} if content_type else {}
+        conn = http.client.HTTPConnection("127.0.0.1", self.port, timeout=10)
+        try:
+            conn.request("POST", path, body=body, headers=headers)
+            response = conn.getresponse()
+            raw = response.read()
+            return response.status, json.loads(raw) if raw else {}
+        finally:
+            conn.close()
+
+    def get_projection(self) -> dict:
+        conn = http.client.HTTPConnection("127.0.0.1", self.port, timeout=10)
+        try:
+            conn.request("GET", "/projection")
+            response = conn.getresponse()
+            self.assertEqual(response.status, 200)
+            return json.loads(response.read())
+        finally:
+            conn.close()
+
+    def test_projection_is_live_from_the_registry(self) -> None:
+        projection = self.get_projection()
+        self.assertTrue(projection["source"]["live"])
+        self.assertEqual([(t["id"], t["title"]) for t in projection["tracks"]], [("kinsim", "Kinematic Sim")])
+        self.assertEqual(projection["tracks"][0]["state"]["word"], "Not reporting")
+
+    def test_rename_changes_only_the_title_and_returns_the_new_revision(self) -> None:
+        before = self.note.read_text(encoding="utf-8")
+        status, body = self.post("/tracks/kinsim/title", {"title": "  Kinsim curriculum  ", "revision": self.revision()})
+        self.assertEqual(status, 200, body)
+        after = self.note.read_text(encoding="utf-8")
+        self.assertEqual(body, {"ok": True, "id": "kinsim", "title": "Kinsim curriculum", "revision": server.note_revision(after)})
+        self.assertEqual(after, before.replace("vibe-title: Kinematic Sim\n", "vibe-title: Kinsim curriculum\n"))
+        self.assertIn("vibe-id: kinsim\n", after)
+        track = self.get_projection()["tracks"][0]
+        self.assertEqual((track["id"], track["title"], track["registry"]["revision"]), ("kinsim", "Kinsim curriculum", body["revision"]))
+        # The returned revision fences the next rename.
+        status, again = self.post("/tracks/kinsim/title", {"title": "Kinematic Sim", "revision": body["revision"]})
+        self.assertEqual((status, self.note.read_text(encoding="utf-8")), (200, before))
+
+    def test_a_stale_revision_is_409_and_writes_nothing(self) -> None:
+        before = self.note.read_text(encoding="utf-8")
+        stale = self.revision()
+        self.note.write_text(before.replace("The curriculum loop.", "Edited by hand."), encoding="utf-8")
+        edited = self.note.read_text(encoding="utf-8")
+        status, body = self.post("/tracks/kinsim/title", {"title": "New", "revision": stale})
+        self.assertEqual(status, 409)
+        self.assertEqual(body["revision"], server.note_revision(edited))
+        self.assertEqual(self.note.read_text(encoding="utf-8"), edited)
+
+    def test_a_bad_title_or_body_is_400(self) -> None:
+        before = self.note.read_text(encoding="utf-8")
+        revision = self.revision()
+        for payload in ({"title": "", "revision": revision}, {"title": "   ", "revision": revision},
+                        {"title": "two\nlines", "revision": revision}, {"title": "x" * 81, "revision": revision},
+                        {"title": 5, "revision": revision}, {"revision": revision}, {"title": "ok"},
+                        {"title": "ok", "revision": ""}, ["title"], b"{not json"):
+            with self.subTest(payload=payload):
+                status, body = self.post("/tracks/kinsim/title", payload)
+                self.assertEqual(status, 400, body)
+                self.assertIn("error", body)
+        self.assertEqual(self.note.read_text(encoding="utf-8"), before)
+
+    def test_a_bad_content_type_is_415(self) -> None:
+        for content_type in ("text/plain", "application/x-www-form-urlencoded", None):
+            with self.subTest(content_type=content_type):
+                status, _ = self.post("/tracks/kinsim/title", {"title": "New", "revision": self.revision()}, content_type)
+                self.assertEqual(status, 415)
+        status, _ = self.post("/tracks/kinsim/title", {"title": "New", "revision": self.revision()},
+                              "application/json; charset=utf-8")
+        self.assertEqual(status, 200)
+
+    def test_an_unknown_id_is_404(self) -> None:
+        for track_id in ("nope", "KINSIM", "..%2Fkinsim"):
+            with self.subTest(track_id=track_id):
+                status, _ = self.post(f"/tracks/{track_id}/title", {"title": "New", "revision": self.revision()})
+                self.assertEqual(status, 404)
+
+    def test_other_writes_stay_501(self) -> None:
+        for path in ("/projection", "/tracks/kinsim", "/tracks/kinsim/title/x", "/tracks/kinsim/status"):
+            with self.subTest(path=path):
+                status, _ = self.post(path, {"title": "x", "revision": self.revision()})
+                self.assertEqual(status, 501)
+
+    def test_no_registry_is_404(self) -> None:
+        port = free_port()
+        httpd = server.serve(port, Path(self.tmp.name) / "home2")  # no workspace: projection.json mode
+        threading.Thread(target=httpd.serve_forever, daemon=True).start()
+        try:
+            conn = http.client.HTTPConnection("127.0.0.1", port, timeout=10)
+            conn.request("POST", "/tracks/kinsim/title", body=b'{"title": "x", "revision": "r"}',
+                         headers={"Content-Type": "application/json"})
+            self.assertEqual(conn.getresponse().status, 404)
+            conn.close()
+        finally:
+            httpd.shutdown()
+            httpd.server_close()
+
+
 if __name__ == "__main__":
     unittest.main()
