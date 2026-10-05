@@ -74,11 +74,13 @@ class UnknownSourceKey(Exception):
 @dataclass(frozen=True)
 class RootClaim:
     """A source location a projector consumes and the document root it produces: ``roots[root]`` is ``location``
-    (``exact``), or the checkout holding ``location`` while one of the document's declared sources lies inside it."""
+    (``exact``), or the checkout holding ``location`` while the document's declared sources include ``location /
+    entry``, the projector's entry file there."""
 
     root: str
     location: Path
     exact: bool
+    entry: str | None = None
 
 
 @dataclass(frozen=True)
@@ -118,7 +120,7 @@ KINSIM = LiveProjector(
     present=lambda sources: (Path(sources["kinsim_curriculum_dir"]) / "curriculum.json").is_file(),
     keys=frozenset({"kinsim_curriculum_dir", "kinsim_home"}), inputs=_kinsim_inputs, checkout=lambda sources: Path(sources["kinsim_curriculum_dir"]),
     project=lambda sources, now: project_kinsim(Path(sources["kinsim_curriculum_dir"]), Path(sources["kinsim_home"]), now=now),
-    claims=lambda sources: [RootClaim("repo", Path(sources["kinsim_curriculum_dir"]), exact=False),
+    claims=lambda sources: [RootClaim("repo", Path(sources["kinsim_curriculum_dir"]), exact=False, entry="curriculum.json"),
                             RootClaim("data_home", Path(sources["kinsim_home"]), exact=True)],
 )
 RIG = LiveProjector(
@@ -126,7 +128,7 @@ RIG = LiveProjector(
     present=lambda sources: (Path(sources["rig_loop_dir"]) / "ladder.json").is_file(),
     keys=frozenset({"rig_loop_dir"}), inputs=_rig_inputs, checkout=lambda sources: Path(sources["rig_loop_dir"]),
     project=lambda sources, now: project_rig(Path(sources["rig_loop_dir"]), now=now),
-    claims=lambda sources: [RootClaim("repo", Path(sources["rig_loop_dir"]), exact=False)],
+    claims=lambda sources: [RootClaim("repo", Path(sources["rig_loop_dir"]), exact=False, entry="ladder.json")],
 )
 def _grasping_inputs(sources: Mapping[str, str]) -> list[Path]:
     package = Path(sources["grasp_bench_dir"]) / "src" / "grasp_bench"
@@ -141,7 +143,8 @@ GRASPING = LiveProjector(
     present=lambda sources: (Path(sources["grasp_bench_dir"]) / "src" / "grasp_bench" / "curriculum.py").is_file(),
     keys=frozenset({"grasp_bench_dir"}), inputs=_grasping_inputs, checkout=lambda sources: Path(sources["grasp_bench_dir"]),
     project=lambda sources, now: project_grasping(Path(sources["grasp_bench_dir"]), now=now),
-    claims=lambda sources: [RootClaim("repo", Path(sources["grasp_bench_dir"]), exact=False),
+    claims=lambda sources: [RootClaim("repo", Path(sources["grasp_bench_dir"]), exact=False,
+                                      entry="src/grasp_bench/curriculum.py"),
                             RootClaim("data_home", Path(sources["grasp_bench_dir"]) / "out", exact=True)],
 )
 DETECTION = LiveProjector(
@@ -150,7 +153,7 @@ DETECTION = LiveProjector(
     keys=frozenset({"detection_dir"}), inputs=lambda sources: [Path(sources["detection_dir"]) / "ladder_data.py"],
     checkout=lambda sources: Path(sources["detection_dir"]),
     project=lambda sources, now: project_detection(Path(sources["detection_dir"]), now=now),
-    claims=lambda sources: [RootClaim("repo", Path(sources["detection_dir"]), exact=False)],
+    claims=lambda sources: [RootClaim("repo", Path(sources["detection_dir"]), exact=False, entry="ladder_data.py")],
 )
 PROJECTORS: dict[str, LiveProjector] = {"kinsim": KINSIM, "rig": RIG, "grasping": GRASPING, "detection": DETECTION}
 
@@ -333,11 +336,6 @@ def _same_checkout(repo: object, checkout: Path) -> bool:
     return checkout_path == repo_path or checkout_path.startswith(repo_path.rstrip("/") + "/")
 
 
-def _within(path: str, location: Path) -> bool:
-    path, location_path = os.path.realpath(path), os.path.realpath(location)
-    return path == location_path or path.startswith(location_path.rstrip("/") + "/")
-
-
 def _declared_sources(document: dict) -> list[str]:
     """Every file the document's ``sources`` (the files its projection read) resolves to, existing or not."""
 
@@ -352,20 +350,22 @@ def _owned(document: dict, projector: LiveProjector, sources: Mapping[str, str])
 
     WHY every consumed location and not only the checkout (Codex X01): kinsim reads a curriculum in the checkout and a
     data home outside it, so with ``kinsim_home`` pointed elsewhere the checkout still matched and the old data home's
-    verdict was served for the new one. A ``repo`` root must also hold one of the document's declared sources inside the
-    consumed directory, so another curriculum directory in the same checkout is not this one.
+    verdict was served for the new one. WHY the exact entry file and not any declared source under the directory (Codex
+    Y01): the parent of a configured curriculum or rig directory contains the child's sources too, so pointing a key at
+    the parent served the child's snapshot as that absent loop's. Paths are compared resolved.
     """
 
     roots = document.get("roots") if isinstance(document.get("roots"), Mapping) else {}
     if document.get("loop") != projector.loop:
         return False
-    declared = _declared_sources(document)
+    declared = {os.path.realpath(path) for path in _declared_sources(document)}
     for claim in projector.claims(sources):
         value = roots.get(claim.root)
         if claim.exact:
             if not isinstance(value, str) or os.path.realpath(value) != os.path.realpath(claim.location):
                 return False
-        elif not _same_checkout(value, claim.location) or not any(_within(path, claim.location) for path in declared):
+        elif not _same_checkout(value, claim.location) or claim.entry is None \
+                or os.path.realpath(claim.location / claim.entry) not in declared:
             return False
     return True
 

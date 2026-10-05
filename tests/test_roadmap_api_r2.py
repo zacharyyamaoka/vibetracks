@@ -67,13 +67,14 @@ class W01StoredFallbackOwnershipTest(_WithRegistry):
     def snapshot(self, loop: str, repo: Path | str, generated_at: str = "2026-09-01T00:00:00+00:00") -> dict:
         """``loop``'s snapshot at ``repo``, its other roots and declared source those of this fixture's sources (X01)."""
 
-        consumed = {"grasping": self.tmp / "no-grasping", "detection": self.detection, "rig": self.tmp / "no-rig-loop",
-                    "kinsim": self.loop.curriculum_dir}[loop]
+        consumed = {"grasping": self.tmp / "no-grasping" / "src" / "grasp_bench" / "curriculum.py",
+                    "detection": self.detection / "ladder_data.py", "rig": self.tmp / "no-rig-loop" / "ladder.json",
+                    "kinsim": self.loop.curriculum_dir / "curriculum.json"}[loop]
         roots = {"repo": str(repo)}
         if loop in ("grasping", "kinsim"):
             roots["data_home"] = str(self.tmp / "no-grasping" / "out" if loop == "grasping" else self.loop.data_home)
         return {"schema": SCHEMA, "title": f"old {loop}", "generated_at": generated_at, "loop": loop, "roots": roots,
-                "sources": [link(consumed / "input.json")], "rungs": GREEN, "warnings": ["its own"]}
+                "sources": [link(consumed)], "rungs": GREEN, "warnings": ["its own"]}
 
     def test_codex_reproduction_another_loops_snapshot_never_answers_a_failed_projection(self) -> None:
         self.note("custom-track", "{projector: detection, sources: [detection_dir]}")
