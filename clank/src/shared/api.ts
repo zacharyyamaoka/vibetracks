@@ -35,9 +35,61 @@ export async function fetchProjection(backend: PluginBackend, options: { rebuild
   return projection
 }
 
-/** The URL a `<video src>`, `<iframe src>` or `<a href>` uses for one media id. Same origin as the page. */
-export function mediaUrl(backend: PluginBackend, id: string): string {
-  return `${backend.baseUrl}/media/${encodeURIComponent(id)}`
+/** The media revision a projection answer carries (`media_rev`, added by the backend), or null when it has none. */
+export function mediaRevision(projection: Projection | null | undefined): string | null {
+  const value = (projection as { media_rev?: unknown } | null | undefined)?.media_rev
+  return typeof value === 'string' && value ? value : null
+}
+
+// The media revision of the projection on screen, per backend. WHY written while useProjection renders (and not in a
+// fetch callback or an effect): every variant gets one `mediaUrl(id)` memoised on the backend alone (Dashboard.tsx),
+// and calls it while rendering the projection it was handed; the hook's render runs first in that same pass, so the
+// revision read is the one of the projection being drawn - never a newer fetch's, never the last one's.
+const shownMediaRevision = new WeakMap<PluginBackend, string | null>()
+
+/** The URL a `<video src>`, `<iframe src>` or `<a href>` uses for one media id. Same origin as the page.
+ *
+ * WHY it carries the revision (audit 2026-10-05 round 2, sibling of finding 1): the backend serves a media id only
+ * from the files recorded under the projection the page was given, so a poll or another tab that sees a retargeted
+ * alias cannot change what this page's URL opens. A URL with no revision is refused (409): the page must reload. */
+export function mediaUrl(backend: PluginBackend, id: string, revision?: string | null): string {
+  const rev = revision === undefined ? shownMediaRevision.get(backend) ?? null : revision
+  const base = `${backend.baseUrl}/media/${encodeURIComponent(id)}`
+  return rev ? `${base}?rev=${encodeURIComponent(rev)}` : base
+}
+
+/** Ask the backend whether a media URL still opens, reading only its status (HEAD): 'ok', 'changed' (409: the
+ * projection it came from is no longer held, or its file changed since it was shown), or `HTTP <status>`. */
+export async function checkMedia(url: string): Promise<'ok' | 'changed' | string> {
+  const response = await fetch(url, { method: 'HEAD' })
+  if (response.ok) return 'ok'
+  if (response.status === 409) return 'changed'
+  return `HTTP ${response.status}`
+}
+
+// WHY a module-level signal (as needs/api.ts does for /needs): a media view that the backend refuses with 409 offers
+// "reload", and that reload must re-read the projection the page shows, which only the mounted useProjection owns.
+const reloadListeners = new Set<() => void>()
+const loadedListeners = new Set<() => void>()
+let projectionsLoaded = 0
+
+/** Ask every mounted useProjection to re-read /projection (a media view's "reload" after a 409). Never automatic. */
+export function requestProjectionReload(): void {
+  for (const listener of [...reloadListeners]) listener()
+}
+
+/** A number that grows each time a projection answer is accepted for display; a refused media view re-checks on it. */
+export function useProjectionsLoaded(): number {
+  const [count, setCount] = useState(projectionsLoaded)
+  useEffect(() => {
+    const listener = () => setCount(projectionsLoaded)
+    loadedListeners.add(listener)
+    listener()
+    return () => {
+      loadedListeners.delete(listener)
+    }
+  }, [])
+  return count
 }
 
 export interface ProjectionState {
@@ -62,7 +114,12 @@ export function useProjection(backend: PluginBackend): ProjectionState {
     const controller = new AbortController()
     setState((previous) => ({ ...previous, loading: true }))
     fetchProjection(backend, { rebuild: request.rebuild, signal: controller.signal }).then(
-      (projection) => mine === ticket.current && setState({ projection, error: null, loading: false }),
+      (projection) => {
+        if (mine !== ticket.current) return
+        setState({ projection, error: null, loading: false })
+        projectionsLoaded += 1
+        for (const listener of [...loadedListeners]) listener()
+      },
       (error: unknown) => {
         if (mine !== ticket.current || controller.signal.aborted) return
         // WHY keep the last good projection on a failed reload: a transient backend restart should not blank the page.
@@ -73,5 +130,13 @@ export function useProjection(backend: PluginBackend): ProjectionState {
   }, [backend, request])
 
   const reload = useCallback((options?: { rebuild?: boolean }) => setRequest((previous) => ({ n: previous.n + 1, rebuild: Boolean(options?.rebuild) })), [])
+  useEffect(() => {
+    const listener = () => reload()
+    reloadListeners.add(listener)
+    return () => {
+      reloadListeners.delete(listener)
+    }
+  }, [reload])
+  shownMediaRevision.set(backend, mediaRevision(state.projection))
   return { ...state, reload }
 }

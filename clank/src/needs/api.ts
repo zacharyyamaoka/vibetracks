@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState } from 'react'
 import type { PluginBackend } from '@clank/api'
+import { sharedRequests, type SharedRequests } from './share'
 import { NEEDS_ALL_SCHEMA, NEEDS_SCHEMA, type NeedsAll, type NeedsDoc, type NeedsEvidence, type NeedsItem } from './types'
 
 async function getJson(backend: PluginBackend, path: string, signal?: AbortSignal): Promise<unknown> {
@@ -52,28 +53,53 @@ export function requestNeedsReload(): void {
   for (const listener of [...reloadListeners]) listener()
 }
 
+/** Every useNeeds of one backend shares one in-flight /needs read per key (one track, or all tracks). See share.ts. */
+const sharedByBackend = new WeakMap<PluginBackend, SharedRequests<NeedsDoc[]>>()
+function needsRequests(backend: PluginBackend): SharedRequests<NeedsDoc[]> {
+  let shared = sharedByBackend.get(backend)
+  if (!shared) {
+    shared = sharedRequests<NeedsDoc[]>()
+    sharedByBackend.set(backend, shared)
+  }
+  return shared
+}
+
+/** The share key: one track's doc, or every track's. */
+export function needsKey(track: string | null): string {
+  return track === null ? 'all' : `track:${track}`
+}
+
 export function useNeeds(backend: PluginBackend, track: string | null): NeedsState {
   // `key` is the track the docs were read for. WHY: a failed read keeps the last docs (a reload hiccup must not blank
   // the page), but only for the SAME track; moving from kinsim to a track /needs does not know must never leave
   // kinsim's questions on screen under the other track's route.
   const [state, setState] = useState<{ key: string | null; docs: NeedsDoc[]; loading: boolean; error: string | null }>({ key: track, docs: [], loading: true, error: null })
   const [tick, setTick] = useState(0)
-  const ticket = useRef(0)
+  // The share point a reload was asked at: a reload joins only a read that started after it (share.ts).
+  const reloadMark = useRef(-1)
   useEffect(() => {
-    const mine = ++ticket.current
-    const controller = new AbortController()
+    let live = true
     setState((previous) => (previous.key === track ? { ...previous, loading: true } : { key: track, docs: [], loading: true, error: null }))
-    fetchNeeds(backend, track, controller.signal).then(
-      (docs) => mine === ticket.current && setState({ key: track, docs, loading: false, error: null }),
+    // WHY shared and not one fetch per hook: every mounted viewer and React's double effect each asked for the same
+    // doc at once (four /needs?track=kinsim on first load); they now share one read of the loop's files.
+    const shared = needsRequests(backend).get(needsKey(track), (signal) => fetchNeeds(backend, track, signal), tick === 0 ? -1 : reloadMark.current)
+    shared.promise.then(
+      (docs) => live && setState({ key: track, docs, loading: false, error: null }),
       (error: unknown) => {
-        if (mine !== ticket.current || controller.signal.aborted) return
+        if (!live) return
         const message = error instanceof Error ? error.message : String(error)
         setState((previous) => ({ key: track, docs: previous.key === track ? previous.docs : [], loading: false, error: message }))
       },
     )
-    return () => controller.abort()
+    return () => {
+      live = false
+      shared.release()
+    }
   }, [backend, track, tick])
-  const reload = useCallback(() => setTick((n) => n + 1), [])
+  const reload = useCallback(() => {
+    reloadMark.current = needsRequests(backend).mark()
+    setTick((n) => n + 1)
+  }, [backend])
   useEffect(() => {
     reloadListeners.add(reload)
     return () => {

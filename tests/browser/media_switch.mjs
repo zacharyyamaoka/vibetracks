@@ -33,7 +33,8 @@ try {
     console.log(`item ${target.track}/${target.item}: A=${target.a.id} B=${target.b.id}`)
     const token = `B-${Date.now()}`
     let aDelay = 0
-    const media = (id) => `**/api/plugins/vibetracks/media/${encodeURIComponent(id)}`
+    // WHY the trailing *: media URLs carry ?rev=<media_rev> since the media revision binding; a glob without it never matches.
+    const media = (id) => `**/api/plugins/vibetracks/media/${encodeURIComponent(id)}*`
     await page.route(media(target.a.id), async (route) => {
       if (aDelay) await new Promise((resolve) => setTimeout(resolve, aDelay))
       await route.fulfill({ status: 404, contentType: 'application/json', body: '{"error":"not found"}' }).catch(() => {})

@@ -154,10 +154,14 @@
   }
   /* WHY max-width + a shrinkable text column: the cell is 19% of the table; a long detail line ("4 proven (not
      current)") pushed the trend glyph out over the next column. The text wraps at its spaces, the glyph never shrinks. */
+  /* WHY flex-wrap (2026-10-05): when the number and the glyph do not fit side by side (a 522 px dashboard), the glyph
+     drops under the text instead of the text being squeezed until "bootstrap" printed over the glyph (or, with the
+     root wrap rule, broke into letters). */
   .vt-dash .vt-a .vt-a-prog {
     display: inline-flex;
+    flex-wrap: wrap;
     align-items: center;
-    gap: 14px;
+    gap: 4px 14px;
     max-width: 100%;
   }
   .vt-dash .vt-a .vt-a-prog > .vt-a-two {
@@ -179,9 +183,10 @@
   }
 
   /* ---- L2: the property list under the title (Notion page properties) */
+  /* WHY minmax(0, 1fr): a bare 1fr keeps its column at least as wide as its widest value. */
   .vt-dash .vt-a .vt-a-props {
     display: grid;
-    grid-template-columns: 132px 1fr;
+    grid-template-columns: 132px minmax(0, 1fr);
     gap: 6px 12px;
     margin: 18px 0 0;
     align-items: baseline;
@@ -190,9 +195,21 @@
     color: var(--vt-faint);
     font-size: 13.5px;
   }
+  .vt-dash .vt-a .vt-a-props dt,
   .vt-dash .vt-a .vt-a-props dd {
     margin: 0;
     min-width: 0;
+  }
+  /* WHY the label stacks over its value below 420 px of dashboard width: a 132 px label column left a 152 px dashboard
+     (Clank's left panel open at a 390 px window) 8 px for the value. Each value then gets the whole line. */
+  @container vt-scroll (max-width: 420px) {
+    .vt-dash .vt-a .vt-a-props:not(.vt-a-metrics) {
+      grid-template-columns: minmax(0, 1fr);
+      row-gap: 0;
+    }
+    .vt-dash .vt-a .vt-a-props:not(.vt-a-metrics) dd + dt {
+      margin-top: 8px;
+    }
   }
   .vt-dash .vt-a .vt-a-caret {
     display: inline-block;
@@ -507,20 +524,26 @@
   .vt-dash .vt-a .vt-a-nline {
     margin-top: 10px;
   }
+  /* WHY min(220px, 100%): a 220 px minimum column was wider than a 152 px dashboard (236 > 152 on every run page). */
   .vt-dash .vt-a .vt-a-metrics {
     display: grid;
-    grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+    grid-template-columns: repeat(auto-fill, minmax(min(220px, 100%), 1fr));
     gap: 4px 28px;
   }
+  /* One metric: label left, value right; when the two do not fit on one line the value wraps under its label
+     (flex-wrap; margin-left auto keeps it right-aligned there), and a value longer than the line wraps inside it. */
   .vt-dash .vt-a .vt-a-prop {
     display: flex;
+    flex-wrap: wrap;
     justify-content: space-between;
-    gap: 12px;
+    gap: 0 12px;
     padding: 4px 0;
     border-bottom: 1px solid var(--vt-line);
   }
   .vt-dash .vt-a .vt-a-prop dd {
     font-weight: 500;
+    margin-left: auto;
+    text-align: right;
   }
   .vt-dash .vt-a .vt-a-note {
     margin-top: 12px;
@@ -574,9 +597,12 @@
      ~500 px, so at a 390 px phone the table pushed the page sideways (scrollWidth 527-735 > 390, 2026-10-05). Each
      row becomes one wrapped line group: the KPI's name on its own line, the rest flowing under it; nothing is hidden. */
   @container vt-scroll (max-width: 600px) {
+    /* Reflowed, it is no longer a table, so the root wrap rule applies again (a KPI name such as "Held condition ·
+       slow_step_045deg_slow · ff_fb · gravity" held its button 155 px wide in a 120 px row). */
     .vt-dash .vt-a .vt-a-feeds,
     .vt-dash .vt-a .vt-a-feeds tbody {
       display: block;
+      overflow-wrap: anywhere;
     }
     .vt-dash .vt-a .vt-a-feeds tr {
       display: flex;

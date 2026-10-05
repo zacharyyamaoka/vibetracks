@@ -8,6 +8,8 @@ Writes ONE self-contained file:
 
 Same structure and house style as build_report.py (the three-proposal dashboard report). The proposals', research and
 judges' words live in needs_data.py, which sits in MEDIA (not in this repo); the captures and hero videos are the builders' own, in MEDIA.
+Round 6 (verify-6's leftovers, re-measured by verify-7) renders from MEDIA/r6/round6-fixes.json, which the live-tracks
+report shares; its 'open_probes' are re-read from the tree on every build.
 
 WHY one file with everything inlined: Zach reviews by reading, not by clicking around (/rate bad 2026-10-04).
 Every still and hero video is a data: URI, each inlined exactly ONCE: the lightbox re-uses the clicked <img>'s src at
@@ -308,7 +310,7 @@ def judges_html() -> str:
 
 
 # ---- wave 2: N6 and the shared fixes ------------------------------------------------------------------------------
-def png_uri(path: Path, crop: tuple[int, int, int, int] | None = None) -> str:
+def png_uri(path: Path, crop: tuple[int, int, int, int] | None = None, quality: int | None = None) -> str:
     """A PNG capture re-encoded to WebP in memory (a third of the bytes; nothing is written next to the capture).
     WHY the optional crop: the page sits under a 9 MB budget, and the audit stills only need the dashboard, not Clank's
     sidebar and window chrome; the crop box is in the capture's own pixels and the caption says the capture is cropped."""
@@ -320,16 +322,17 @@ def png_uri(path: Path, crop: tuple[int, int, int, int] | None = None) -> str:
     with Image.open(path) as image:
         # WHY quality 70 for the cropped audit stills: they are UI text on white, where 70 reads the same as 78, and the
         # 9 MB budget is otherwise spent; the uncropped first-wave stills keep 78.
-        (image.crop(crop) if crop else image).convert("RGB").save(buf, "WEBP", quality=70 if crop else 78, method=6)
+        q = quality if quality is not None else (70 if crop else 78)
+        (image.crop(crop) if crop else image).convert("RGB").save(buf, "WEBP", quality=q, method=6)
     return "data:image/webp;base64," + base64.b64encode(buf.getvalue()).decode()
 
 
-def still(rel: str, label: str, cap: str, crop: tuple[int, int, int, int] | None = None) -> str:
+def still(rel: str, label: str, cap: str, crop: tuple[int, int, int, int] | None = None, quality: int | None = None) -> str:
     """Two-tier caption: the bold label says what it is, the dim line says what to notice."""
     path = Path(rel) if rel.startswith("/") else MEDIA / rel
     return (
         '<figure class="cell w2"><button class="zoom nocrop" type="button" aria-label="Open '
-        f'{esc(label)} full size"><img alt="{esc(label)}" loading="lazy" src="{png_uri(path, crop)}"></button>'
+        f'{esc(label)} full size"><img alt="{esc(label)}" loading="lazy" src="{png_uri(path, crop, quality)}"></button>'
         f'<figcaption><b>{esc(label)}</b><span class="cap">{esc(cap)}</span></figcaption></figure>'
     )
 
@@ -542,7 +545,10 @@ def audit2_html(stills: list[tuple[str, str, str]], r1_stills: list[tuple[str, s
     items = "".join(
         f'<li class="arow"><span class="an">{esc(n)}</span><span class="asev">{esc(sev)}</span>'
         f'<div class="abody"><b>{esc(title)}</b><p>{esc(f["short"])}</p>'
-        + (f'<p class="asib"><b>Still open beside it:</b> {esc(f["sibling"])}</p>' if f.get("sibling") else "")
+        # WHY the round-6 status beside verify-6's words: three of these siblings are closed now; the page keeps what
+        # verify-6 saw and says what became of it, rather than calling a closed item open.
+        + (f'<p class="asib"><b>verify-6 left open beside it:</b> {esc(f["sibling"])} <b>Now:</b> '
+           f'{esc(R6["r2_siblings_now"][str(n)])}</p>' if f.get("sibling") else "")
         + f'<details><summary>The verifier\'s evidence, and the test that fails when the old behaviour returns</summary>'
         f'<p class="averb">{esc(f["verifier"])}</p><p class="averb"><b>Test left ({esc(f["lane"])} lane):</b> {esc(f["tests"])}</p>'
         f'</details></div><span class="{fix_word(f)[0]}">{esc(fix_word(f)[1])}</span></li>'
@@ -606,6 +612,8 @@ all {len(AUDIT_ROWS)}: its status line for each is above.</p>
 # The dashboard without Clank's sidebar and window chrome, in capture pixels (the captures are 1440 x 900).
 PAGE_CROP = (288, 130, 1440, 872)
 
+# WHY the folded rounds' stills are re-encoded below the default quality (see the loop after AUDIT2_STILLS): round 6
+# added three stills and the page must stay under 9 MB; these sit two clicks deep as the record of earlier rounds.
 AUDIT_STILLS = [
     ("verify-5/v5-n6-2-changed-notice.png", "Finding 1: a draft on a changed question is not copied",
      "verify-5 rewrote the real /needs in flight so T47's recommendation reads '(UPDATED: now 46 V)'; that text is the "
@@ -629,6 +637,9 @@ AUDIT2_STILLS = [
      "draft bubble are neutral. verify-6's census found 0 blue elements on N1–N6 for kinsim and rig. Cropped to the "
      "dashboard.", (288, 170, 1440, 830)),
 ]
+
+AUDIT_STILLS = [(*x, 48) for x in AUDIT_STILLS]
+AUDIT2_STILLS = [(*x, 52) for x in AUDIT2_STILLS]
 
 DECISION_R5 = f"""
 <ul>
@@ -685,6 +696,107 @@ DECISION_R4 = f"""
       <li><b>Commit the wave</b> on <code>claude/vibetracks-dashboard</code>? Recommendation: yes, once Codex round 2 passes, so a peer's <code>stash -u</code> cannot take it. Default: left uncommitted.</li>
     </ol></li>
   <li><strong>Deliberately not done:</strong> no re-judge of N6, so its scores are round 2's. Nothing is sent; answers only copy out. No commits, no vault edits, no Vite restart (none was needed). verify-5's low-severity notes were not fixed in this pass.</li>
+</ul>
+"""
+
+
+# ---- round 6: verify-6's siblings and leftovers, closed and re-measured by verify-7 ------------------------------
+# WHY a data file shared with the live-tracks report: both pages render the same six rows and the same open list, so
+# neither can drift from the other or from verify-7's words; the probes keep the "still open" list honest (below).
+R6 = json.loads((MEDIA / "r6" / "round6-fixes.json").read_text())
+R6_ITEMS = R6["items"]
+assert [i["n"] for i in R6_ITEMS] == ["1", "2", "3", "4", "5", "6"], "round 6's item list changed: re-read the verdict"
+R6_PASS = sum(1 for i in R6_ITEMS if i["pass"] is True)
+R6_PARTLY = [i for i in R6_ITEMS if i["pass"] == "partly"]
+assert (R6_PASS, len(R6_PARTLY)) == (5, 1), (R6_PASS, len(R6_PARTLY))
+REPO = Path(__file__).resolve().parents[2]
+
+
+def check_open_probes() -> int:
+    """Refuse to build if the tree no longer shows an item the page calls open.
+    WHY: a report built after a peer fixes one of these would still list it as open; a stale 'open' is as untrue as a
+    stale 'fixed'. Each probe names the exact text that makes the claim true."""
+    for probe in R6["open_probes"]:
+        f = REPO / probe["file"]
+        if probe.get("missing"):
+            assert not f.exists(), f"{probe['claim']}: {f} exists again; re-measure and update round6-fixes.json"
+            continue
+        text = f.read_text(encoding="utf-8")
+        if "contains" in probe:
+            assert probe["contains"] in text, f"looks fixed now: {probe['claim']} ({f}); re-measure and update round6-fixes.json"
+        if "absent" in probe:
+            assert probe["absent"] not in text, f"looks fixed now: {probe['claim']} ({f}); re-measure and update round6-fixes.json"
+    return len(R6["open_probes"])
+
+
+R6_PROBES = check_open_probes()
+LIVE_MEDIA = Path("/home/bam/vibetracks/reports/media/vibetracks-live-tracks-2026-10-04")
+# WHY no home still here: home is the live-tracks report's page (it carries the 04:35 re-capture); this page stays
+# under 9 MB by showing only what round 6 changed on the needs page and in media.
+R6_STILLS = [
+    (str(LIVE_MEDIA / "r6-1440-needs-pill-docked.png"), "The needs page: the bar holds only the needs pill",
+     "The UI lane's capture of kinsim's N6 page with Clank's panel wide: 'Needs you N6 · Lane + context ▾' alone at the "
+     "bottom right, nothing beside it. Cropped to the dashboard.", (900, 130, 1440, 872), 62),
+    (str(LIVE_MEDIA / "verify-7" / "v7-media-stale-line.png"), "/media answering 409: one calm line",
+     "verify-7 made /media answer 409 for this item. MediaView shows 'This changed since you opened it: reload' with no "
+     "player and no 'Open in new tab'; reload re-reads /projection. Cropped.", (288, 150, 1000, 520), 70),
+]
+
+
+def round6_html() -> str:
+    items = "".join(
+        f'<li class="arow"><span class="an">{esc(i["n"])}</span><span class="asev">{esc(i["lane"])}</span>'
+        f'<div class="abody"><b>{esc(i["title"])}</b><p>{esc(i["short"])}</p>'
+        + (f'<p class="asib"><b>Still open beside it:</b> {esc(i["still_open"])}</p>' if i["still_open"] else "")
+        + '<details><summary>verify-7\'s evidence, and the test that fails when the old behaviour returns</summary>'
+        f'<p class="averb">{esc(i["verifier"])}</p><p class="averb"><b>Test left ({esc(i["lane"])} lane):</b> {esc(i["tests"])}</p>'
+        f'</details></div><span class="afix">{"fixed · verified" if i["pass"] is True else "partly · 2 doc gaps"}</span></li>'
+        for i in R6_ITEMS)
+    found = "".join(f"<li><b>{esc(t)}.</b> <span>{esc(x)}</span></li>" for t, x in R6["new_found"])
+    c = R6["checks"]
+    figs = '<div class="stills">' + "".join(still(*x) for x in R6_STILLS) + "</div>"
+    return f"""
+<p class="lead">verify-6 left a short list beside its fixed findings. Two lanes closed it on the uncommitted tree over
+<code>{esc(R6['base_sha'])}</code>; then {esc(R6['verifier'])} re-measured each item: <b>{R6_PASS} of {len(R6_ITEMS)} closed, the docs
+partly</b>, each with a test that fails without the fix. Variants B and C are gone at your pick of A (recoverable from git,
+see Decision). <b>Codex round 3 reads this tree next</b>; until it returns, "fixed" is our own measurement, not Codex's.</p>
+<p class="small dim">After the fixes: pytest {esc(c['pytest'])}; unittest {esc(c['unittest'])}; backend {esc(c['backend'])}; tsc
+{esc(c['tsc'])}; node checks {esc(c['node_checks'])}; browser checks {esc(c['browser_checks'])}. Counts, unchanged: {esc(c['counts'])}.
+Each "still open" line below was re-read from the tree when this page was built ({R6_PROBES} probes).</p>
+<div class="ahead"><span>#</span><span>Lane</span><span>What was left · what verify-7 measured after the fix</span><span>Closed?</span></div>
+<ol class="audit">{items}</ol>
+{figs}
+<h4>New, found by verify-7 (not fixed in this round)</h4>
+<ul class="open">{found}</ul>"""
+
+
+DECISION_R6 = f"""
+<ul>
+  <li><strong>Done and proved</strong> (verify-7, a measure-only re-check by a separate Claude agent; it made no product edits):
+    <ul>
+      <li><b>verify-6's leftovers:</b> {R6_PASS} of {len(R6_ITEMS)} closed and re-measured, each with a test that fails without the fix; the docs are right except two gaps. Table at the top.</li>
+      <li><b>For this page:</b> an item title, id, option label or track title with edge spaces or markup now copies out exactly (168 of 168 of verify-7's cases; 93 on the old exporter). /needs is read once per page (was 4). On the needs page the bar holds only the needs pill.</li>
+      <li><b>Variants B and C are removed</b>, at your pick of A, with the A · B · C pill, its keys and the stored choice. Both are recoverable from git: commit <code>{esc(R6['variants_commit'])}</code> added them, and their last version is still in HEAD <code>{esc(R6['base_sha'])}</code> because the deletion is not committed (<code>git checkout {esc(R6['base_sha'])} -- clank/src/variants/b clank/src/variants/c clank/src/variants/index.ts</code>).</li>
+      <li><b>Regressions checked:</b> one Needs-you count everywhere ({esc(R6['checks']['counts'])}); N6 T47's evidence link opens, and a stale one answers 409, reloads, then opens; the N6 fold is unchanged at 1440 × 900 and 1280 × 800; the rename round trip is byte-identical; {esc(R6['checks']['videos'])}.</li>
+      <li><b>Build:</b> pytest {esc(R6['checks']['pytest'])}; unittest {esc(R6['checks']['unittest'])}; backend {esc(R6['checks']['backend'])}; tsc clean; node checks {esc(R6['checks']['node_checks'])}; narrow, needs_once and rename_fence pass in the browser. media_switch fails: its route glob does not match the new <code>?rev=</code> URLs (a one-line fix, verified on a copy).</li>
+    </ul></li>
+  <li><strong>Left</strong> (next; none blocked on you):
+    <ul>
+      <li><b>Codex round 3</b> on this tree ({esc(R6['base_note'])}). It runs next; both reports are re-shared before it starts.</li>
+      <li>Open beside the fixes: first loads still read /projection 4 times (2 live builds); the real-and-sim video pair shows two dead players on a 409 instead of the reload line; in snapshot mode a retargeted link keeps its revision, so its reload cannot recover it.</li>
+      <li>Found by verify-7: grasping's two gallery media always answer 404 (their ids contain ':'); a 404 or 403 still offers 'Open in new tab'; media_switch.mjs's glob; one media-revision map shared by two viewers (read, not reproduced).</li>
+      <li>Docs and tools: NEEDS-KIT.md does not describe the 'exact title / id / option label / track title' lines; VARIANTS.md, VARIANT-KIT.md and <code>scripts/shoot.mjs</code> still describe or click B and C.</li>
+      <li>From earlier rounds: on N6 at 1280 × 800 rig T2's note box loses its bottom 8 px; N6's deployment lane says 'loop' twice; the settled-draft copy line offers a Reconfirm that does not exist.</li>
+    </ul></li>
+  <li><strong>Needs you</strong> (each has the default I take if you say nothing):
+    <ol>
+      <li><b>Fix verify-7's open items before Codex round 3?</b> Recommendation: yes for the double /projection read, the video pair's 409 and grasping's ':' ids, which Codex would read as the same class as fixes it already asked for, and the media_switch glob so the suite is green; the docs and the snapshot-mode case can ride. Default: round 3 runs on this tree, with these listed for it.</li>
+      <li><b>Your existing drafts still show the stale notice.</b> Recommendation: discard them and answer again on N6. Default: they stay stale and are never copied.</li>
+      <li><b>Keep N6 as the default?</b> The judges' round 2 scored it {MEAN2['N6']:.0f} against N1's {MEAN2['N1']:.0f}; nothing since has lowered it. Recommendation: keep it. Default: N6 stays the default.</li>
+      <li><b>Retire N2–N5 from the chooser</b> the way B and C went? Recommendation: yes, keep N1 as the calm comparison. Default: all six stay selectable.</li>
+      <li><b>Commit the wave</b> on <code>claude/vibetracks-dashboard</code>? Recommendation: yes, once a Codex round passes, so a peer's <code>stash -u</code> cannot take it (the B and C deletion included). Default: left uncommitted.</li>
+    </ol></li>
+  <li><strong>Deliberately not done:</strong> no re-judge of N6, so its scores are the judges' round 2. Nothing is sent; answers only copy out. No commits, no vault edits. verify-7's open items were not fixed in this pass; the reports only record them.</li>
 </ul>
 """
 
@@ -1027,16 +1139,15 @@ def build() -> str:
     )
 
     if N6_LEADS:
-        n_fixed = sum(1 for st, _ in D.N6_R3_ITEM_STATUS if st == "fixed")
         verdict = (
-            f"{AUDIT2['auditor']} failed round 2 at {AUDIT2['audited_sha']} with {len(AUDIT2_PARTLY)} round-1 findings only "
-            f"partly fixed and {len(AUDIT2_ROWS)} new ones ({SEV2_LINE}). All {N_IN_SCOPE} are now fixed and independently "
-            f"re-probed, each with a test that fails on {AUDIT2['audited_sha']}. Here: evidence links open only what you "
-            f"reviewed, copy-out keeps every CR and edge space, N4 and N5 drop blue. Still open: /media links are not bound to a "
-            f"revision, a title's trailing spaces are lost in the parsed copy, and 6 item and iteration pages scroll at 390 px. N6 stays the "
-            f"default ({MEAN2['N6']:.0f} vs N1's {MEAN2['N1']:.0f}). Codex round 3 runs next; nothing here is Codex-approved yet."
+            f"verify-6's leftovers are closed: {R6_PASS} of {len(R6_ITEMS)} re-measured by verify-7, with the docs partly. "
+            f"A title's edge spaces and markup now copy out exactly (168 of 168 cases), /needs is read once per page, "
+            f"/media links answer only for the revision you are looking at, and variants B and C are gone at your pick of A "
+            f"(recoverable from git). Still open: /projection is read 4 times per first load, the real-and-sim video pair "
+            f"shows dead players on a 409, and grasping's gallery media always 404. N6 stays the default ({MEAN2['N6']:.0f} vs "
+            f"N1's {MEAN2['N1']:.0f}). Codex round 3 runs next; nothing here is Codex-approved yet."
         )
-        h1 = "Vibe Tracks Needs-you: Codex round 2's findings are fixed, round 3 next"
+        h1 = "Vibe Tracks Needs-you: verify-6's leftovers are closed, Codex round 3 next"
     else:
         verdict = (
             f"N6 · {D.N6['name']} still scores below N1: {MEAN2['N6']:.0f} against {MEAN2['N1']:.0f} (N2 "
@@ -1048,8 +1159,11 @@ def build() -> str:
     # N6 leading. If a re-judge flips the order, the brief's rule applies (make N1 the default page, keep N6
     # selectable) and the ask, the recommendation and the numbers in it all need rewriting, not one phrase.
     assert N6_LEADS, "N6 trails N1: rewrite DECISION_R2's first ask to 'make N1 the default page and keep N6 selectable'"
-    decision = DECISION_R5
-    audit = audit2_html(AUDIT2_STILLS, AUDIT_STILLS)
+    decision = DECISION_R6
+    # WHY round 6 leads and Codex round 2 folds under it: this round is what Codex round 3 will read; round 2's table
+    # is the record of how the tree got here, one click deeper (calm first screen).
+    audit = (round6_html() + '<details class="limits"><summary>Codex round 2: its findings on b53567e, their fixes and '
+             "verify-6's evidence</summary>" + audit2_html(AUDIT2_STILLS, AUDIT_STILLS) + "</details>")
     # grid first, so GRID_USED is known when the details pick their extra stills; the page below places them in order.
     videos = videos_html()
     grid = grid_html()
@@ -1067,10 +1181,10 @@ def build() -> str:
 <body><div class="wrap">
 
 <header class="top">
-  <div class="date">2026-10-05 · round 5: after Codex audit round 2</div>
+  <div class="date">2026-10-05 · round 6: verify-6's leftovers closed, before Codex round 3</div>
   <h1>{esc(h1)}</h1>
   <p class="verdict">{esc(verdict)}</p>
-  <p class="built">Built on the live lane at 127.0.0.1:4390 against the real /needs data · answers only ever copy out, nothing is sent · branch claude/vibetracks-dashboard at b53567e plus the round-2 fixes, uncommitted · N1–N5 scored by two judges in the first wave; N6 vs N1 vs N2 re-judged in round 2 (not since) · Codex round 1 audited 3e90b94 (FAIL, 13 findings), Codex round 2 audited b53567e (FAIL, 3 partly + 7 new); after the fixes verify-6 re-probed all 10 (pass, 299 pytest, tsc clean) · Codex round 3 next · browser-only (over the desktop preview's size cap).</p>
+  <p class="built">Built on the live lane at 127.0.0.1:4390 against the real /needs data · answers only ever copy out, nothing is sent · branch claude/vibetracks-dashboard at d579e39 (the round-2 fixes, committed) plus this round's changes, uncommitted · N1–N5 scored by two judges in the first wave; N6 vs N1 vs N2 re-judged in round 2 (not since) · Codex round 1 audited 3e90b94 (FAIL, 13 findings), Codex round 2 audited b53567e (FAIL, 3 partly + 7 new; all fixed in d579e39) · verify-7 re-measured round 6's six items (5 closed, docs partly; 299 pytest, tsc clean) · Codex round 3 next · browser-only (over the desktop preview's size cap).</p>
   <div class="launch"><pre id="launch-cmd">{esc(LAUNCHER)}</pre><button id="copy-launch" type="button">Copy</button></div>
   <div class="reach">
     <h4>How to reach it</h4>
@@ -1083,13 +1197,13 @@ def build() -> str:
 </header>
 
 <nav class="toc" aria-label="Sections">
-  <a href="#audit">Audit</a><a href="#n6">N6</a><a href="#shared">Shared fixes</a><a href="#decide">Decide</a>
+  <a href="#audit">This round</a><a href="#n6">N6</a><a href="#shared">Shared fixes</a><a href="#decide">Decide</a>
   <a href="#watch">N1–N5 videos</a><a href="#compare">Compare</a><a href="#proposals">Proposals</a>
   <a href="#prior">Prior art</a><a href="#judges">Judges</a>
 </nav>
 
 <section id="audit">
-  <h2>Independent audit</h2>
+  <h2>This round, and the independent audit</h2>
   {audit}
 </section>
 
@@ -1107,8 +1221,9 @@ def build() -> str:
 
 <section id="decide">
   <h2>Decision</h2>
-  <p class="lead">After Codex round 2 and its fixes. The first-wave sections for N1–N5 follow it.</p>
+  <p class="lead">After verify-6's leftovers were closed, before Codex round 3. The first-wave sections for N1–N5 follow it.</p>
   <div class="decide">{decision}</div>
+  <details class="limits"><summary>Round 5's decision packet, after Codex round 2 (superseded: its siblings and 390 px pages are closed)</summary>{DECISION_R5}</details>
   <details class="limits"><summary>Round 4's decision packet, after Codex round 1 (superseded)</summary>{DECISION_R4}</details>
   <details class="limits"><summary>Round 3's decision packet (superseded: its two 'Left' failures are fixed)</summary>{D.DECISION_R3}</details>
   <details class="limits"><summary>Round 2's decision packet (superseded)</summary>{D.DECISION_R2}</details>

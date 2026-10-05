@@ -1,16 +1,14 @@
-// The .vtdash viewer: loads the projection once, then hands it to the chosen variant. A quiet switcher in the
-// review bar under the content picks the variant (A · B · C); keys 1/2/3 do the same while the dashboard has focus.
+// The .vtdash viewer: loads the projection once, then renders the dashboard (variant A, "Drill-down pages").
 // Frame (frozen contract, 2026-10-04): a flex column of [slim header][the scrolling content][#vt-review-bar]. The bar
-// is a sibling OUTSIDE the scroller, so a pill in it can never cover content; NeedsShell portals its N pill into the
-// same element, left of A · B · C.
+// is a sibling OUTSIDE the scroller, so a pill in it can never cover content; NeedsShell portals its N pill into it.
 // WHY a bar and not a pill floating over the corner: the floating pill covered the last row, answer controls and the
 // roadmap focus card, and every page had to guess a bottom padding to clear it (120px here, 80px on needs, a 56px
 // reserve in the needs kit). A bar takes its height out of the scroller instead, so nothing has to guess. A gear at
 // the right end of the slim header opens the settings page (route key `settings=1`, so Back closes it); its values
-// reach every variant as VariantProps.settings.
-// WHY a switcher inside the app and not a URL flag: Zach's rule "prototype switch in app: a temporary drop-down in
-// the app, bottom-right, that switches variants live and remembers the choice" (rated Bad 2026-09-09 when a URL flag
-// was the only way in). WHY localStorage for the choice: it is a per-viewer convenience, not data.
+// reach the variant as VariantProps.settings.
+// WHY one variant and no A · B · C switcher (2026-10-05): Zach chose A ("Ok I agree lets please do A"); B (Shared
+// timeline) and C (Three panes) were retired and deleted, and git history keeps them. A switcher with one choice would
+// be a control with no effect.
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Settings as SettingsIcon } from 'lucide-react'
@@ -30,7 +28,7 @@ import {
 } from './shared/settings'
 import { SettingsView } from './shared/SettingsView'
 import { ROADMAP_SETTINGS_SECTION, defaultRoadmapSettings } from './roadmap'
-import { VARIANTS } from './variants'
+import VariantA from './variants/a'
 import { NeedsShell } from './needs'
 
 /** The settings page's sections, in order. A new view option is an item in one of these, never a toolbar control. */
@@ -40,22 +38,15 @@ const SETTINGS_DEFAULTS: SettingsValues = {
   roadmap: { ...defaultRoadmapSettings },
 }
 
-const STORAGE_KEY = 'vibetracks.dashboard.variant'
+/** Where the retired A · B · C switcher kept its choice. Cleared once on mount so no browser keeps a stale key.
+ * WHY clear it rather than leave it: a stored choice that nothing reads is state that says something untrue. */
+const RETIRED_VARIANT_KEY = 'vibetracks.dashboard.variant'
 
-function readStoredVariant(): string {
+function clearRetiredVariantChoice(): void {
   try {
-    const value = window.localStorage.getItem(STORAGE_KEY)
-    return VARIANTS.some((variant) => variant.key === value) ? (value as string) : VARIANTS[0].key
+    window.localStorage.removeItem(RETIRED_VARIANT_KEY)
   } catch {
-    return VARIANTS[0].key
-  }
-}
-
-function storeVariant(key: string): void {
-  try {
-    window.localStorage.setItem(STORAGE_KEY, key)
-  } catch {
-    // Private window or blocked storage: the switch still works for this page.
+    // Private window or blocked storage: there is nothing stored to clear.
   }
 }
 
@@ -104,19 +95,14 @@ export function Dashboard({ session, panel, backend }: ViewerProps & { backend: 
     delete rest.settings
     navigate(rest, 'replace')
   }, [navigate, route])
-  const [variantKey, setVariantKey] = useState<string>(readStoredVariant)
   const root = useRef<HTMLDivElement>(null)
   const panelRef = useRef(panel)
   panelRef.current = panel
+  useEffect(clearRetiredVariantChoice, [])
 
-  const choose = useCallback((key: string) => {
-    setVariantKey(key)
-    storeVariant(key)
-  }, [])
-
-  // WHY these guards on 1/2/3: the listener is on window (a click on the chart leaves focus on <body>), so it must not
-  // fire while the reader types in another Clank panel, an input, or CodeMirror, nor while this panel is in the back.
-  // Esc on the settings page goes back to the dashboard, under the same focus guards as the 1/2/3 keys.
+  // Esc on the settings page goes back to the dashboard.
+  // WHY these guards: the listener is on window (a click on the chart leaves focus on <body>), so it must not fire
+  // while the reader types in another Clank panel, an input, or CodeMirror, nor while this panel is in the back.
   useEffect(() => {
     if (!settingsOpen) return
     const onKey = (event: KeyboardEvent) => {
@@ -131,27 +117,11 @@ export function Dashboard({ session, panel, backend }: ViewerProps & { backend: 
     return () => window.removeEventListener('keydown', onKey)
   }, [settingsOpen, closeSettings])
 
-  useEffect(() => {
-    const onKey = (event: KeyboardEvent) => {
-      if (event.defaultPrevented || event.altKey || event.ctrlKey || event.metaKey || event.shiftKey) return
-      const index = ['1', '2', '3'].indexOf(event.key)
-      if (index < 0 || index >= VARIANTS.length || isEditable(event.target)) return
-      const inside = event.target instanceof Node && root.current?.contains(event.target)
-      const onBody = event.target === document.body || event.target === document.documentElement
-      if (!inside && !(onBody && panelRef.current.isActive)) return
-      event.preventDefault()
-      choose(VARIANTS[index].key)
-    }
-    window.addEventListener('keydown', onKey)
-    return () => window.removeEventListener('keydown', onKey)
-  }, [choose])
-
   const mediaUrl = useMemo(() => (id: string) => buildMediaUrl(backend, id), [backend])
-  const variant = VARIANTS.find((item) => item.key === variantKey) ?? VARIANTS[0]
-  const Variant = variant.component
+  const needsPage = route.needs === '1' && !settingsOpen
 
   return (
-    <div ref={root} className="vt-dash" data-testid="vt-dashboard" data-variant={variant.key} tabIndex={-1}>
+    <div ref={root} className="vt-dash" data-testid="vt-dashboard" tabIndex={-1}>
       <header className="vt-dash-header">
         <button
           type="button"
@@ -175,12 +145,12 @@ export function Dashboard({ session, panel, backend }: ViewerProps & { backend: 
             onClose={closeSettings}
           />
         ) : route.needs === '1' ? (
-          // The "Needs you" page (`#vt?track=<id>&needs=1`), whichever of A · B · C is chosen; it fetches /needs itself.
+          // The "Needs you" page (`#vt?track=<id>&needs=1`); it fetches /needs itself.
           <NeedsShell backend={backend} route={route} navigate={navigate} projection={projection} />
         ) : projection && route.kit ? (
           <KitPreview projection={projection} mediaUrl={mediaUrl} route={route} navigate={navigate} />
         ) : projection ? (
-          <Variant
+          <VariantA
             projection={projection}
             mediaUrl={mediaUrl}
             route={route}
@@ -196,99 +166,18 @@ export function Dashboard({ session, panel, backend }: ViewerProps & { backend: 
         ) : null}
         {error && !settingsOpen ? <BackendProblem error={error} backend={backend} onRetry={() => reload()} /> : null}
       </div>
-      {/* The review bar: always rendered (empty on a needs page until NeedsShell portals its pill in), at a fixed
-          height, so the scroller's height never jumps when a pill arrives or leaves. */}
-      <div id={REVIEW_BAR_ID} className="vt-review-bar" data-testid="vt-review-bar">
-        {/* WHY no A · B · C switcher on the needs page: it picks the dashboard layout, which the needs page does not
-            use (every variant renders the same NeedsShell), so there it is a control with no effect; the needs page
-            portals its own one-pill chooser into this bar instead. */}
-        {route.needs === '1' && !settingsOpen ? null : <ProposalSwitcher current={variant} onChoose={choose} />}
-      </div>
+      {/* The review bar: only the needs page puts anything in it (NeedsShell portals its pill in), so it reserves its
+          height there, from the first render, and nowhere else.
+          WHY reserved on the needs page before the pill arrives: the scroller's height never jumps when it does.
+          WHY no height anywhere else (2026-10-05): with the A · B · C pill retired, an always-on bar was an empty 40 px
+          strip under every other page. It stays in the DOM (hidden) so the element NeedsShell looks up always exists. */}
+      <div id={REVIEW_BAR_ID} className="vt-review-bar" data-testid="vt-review-bar" hidden={!needsPage} />
     </div>
   )
 }
 
 /** The review bar's element id; NeedsShell portals its pill into `document.getElementById(REVIEW_BAR_ID)`. */
 const REVIEW_BAR_ID = 'vt-review-bar'
-
-type VariantDefinition = (typeof VARIANTS)[number]
-
-/** One compact pill ("A · Drill-down pages ▾") in the review bar that opens the three proposals upward and closes
- * after a pick. WHY collapsed: one pill keeps the bar short and calm while staying in-app, bottom-right, live and
- * remembered (Zach's prototype-switch rule). Keys 1/2/3 still switch without opening it. Same shape as the needs
- * page's chooser (needs/NeedsShell.tsx), so the bar reads as one kind of control on every page. The open list grows
- * upward out of the fixed-height bar (calm.css) as a transient menu; it never resizes the scroller. */
-function ProposalSwitcher({ current, onChoose }: { current: VariantDefinition; onChoose: (key: string) => void }) {
-  const [open, setOpen] = useState(false)
-  const box = useRef<HTMLDivElement>(null)
-  useEffect(() => {
-    if (!open) return
-    const onDown = (event: PointerEvent) => {
-      if (box.current && event.target instanceof Node && !box.current.contains(event.target)) setOpen(false)
-    }
-    const onKey = (event: KeyboardEvent) => {
-      if (event.key !== 'Escape') return
-      event.preventDefault()
-      setOpen(false)
-    }
-    window.addEventListener('pointerdown', onDown, true)
-    window.addEventListener('keydown', onKey)
-    return () => {
-      window.removeEventListener('pointerdown', onDown, true)
-      window.removeEventListener('keydown', onKey)
-    }
-  }, [open])
-  return (
-    <div
-      ref={box}
-      className="vt-switcher"
-      role="group"
-      aria-label="Proposal"
-      data-testid="vt-switcher"
-      data-open={open}
-    >
-      {open ? (
-        <div role="menu" aria-label="Proposals">
-          {VARIANTS.map((item, index) => (
-            <button
-              key={item.key}
-              type="button"
-              role="menuitemradio"
-              className="vt-btn"
-              aria-checked={item.key === current.key}
-              aria-pressed={item.key === current.key}
-              data-testid={`vt-switch-${item.key}`}
-              title={`${item.letter} · ${item.name} (key ${index + 1})`}
-              onClick={() => {
-                onChoose(item.key)
-                setOpen(false)
-              }}
-            >
-              {item.letter} · {item.name}
-            </button>
-          ))}
-        </div>
-      ) : null}
-      <button
-        type="button"
-        className="vt-btn"
-        aria-haspopup="menu"
-        aria-expanded={open}
-        data-testid="vt-switch-pill"
-        title="Switch the dashboard proposal (keys 1, 2, 3)"
-        onClick={() => setOpen(!open)}
-      >
-        <span className="vt-switch-label" style={{ padding: '0 6px 0 0' }}>
-          Proposal
-        </span>
-        {current.letter} · {current.name}
-        <span aria-hidden="true" style={{ marginLeft: 6, color: 'var(--vt-faint)' }}>
-          {open ? '▴' : '▾'}
-        </span>
-      </button>
-    </div>
-  )
-}
 
 /** The backend is not answering: say so, with its state, and offer Retry and Restart (both real actions). */
 function BackendProblem({ error, backend, onRetry }: { error: string; backend: PluginBackend; onRetry: () => void }) {

@@ -70,6 +70,15 @@ class BackendTest(unittest.TestCase):
         finally:
             conn.close()
 
+    def rev(self) -> str:
+        """The media revision the page would hold: the ``media_rev`` of a /projection answer."""
+        status, _, body = self.get("/projection")
+        self.assertEqual(status, 200)
+        return json.loads(body)["media_rev"]
+
+    def media(self, media_id: str, headers: dict[str, str] | None = None, rev: str | None = None):
+        return self.get(f"/media/{media_id}?rev={rev or self.rev()}", headers)
+
     def test_health(self) -> None:
         status, _, body = self.get("/health")
         self.assertEqual(status, 200)
@@ -92,41 +101,114 @@ class BackendTest(unittest.TestCase):
         self.assertEqual([t["id"] for t in json.loads(body)["tracks"]], ["t", "u"])
 
     def test_listed_media_is_streamed_with_its_type(self) -> None:
-        status, headers, body = self.get("/media/clip")
+        status, headers, body = self.media("clip")
         self.assertEqual(status, 200)
         self.assertEqual(headers["content-type"], "video/mp4")
         self.assertEqual(headers["accept-ranges"], "bytes")
         self.assertEqual(body, self.video.read_bytes())
-        status, headers, _ = self.get("/media/report")
+        status, headers, _ = self.media("report")
         self.assertEqual((status, headers["content-type"]), (200, "text/html; charset=utf-8"))
 
     def test_unknown_media_id_is_404(self) -> None:
         for media_id in ("nope", "relative", "script", "gone", "secret.txt"):
             with self.subTest(media_id=media_id):
-                status, _, _ = self.get(f"/media/{media_id}")
+                status, _, _ = self.media(media_id)
                 self.assertEqual(status, 404)
 
     def test_path_traversal_is_refused(self) -> None:
+        rev = self.rev()
         for path in ("/media/../projection", "/media/..%2F..%2Fsecret.txt", "/media/%2Ftmp%2Fsecret.txt",
                      "/media/clip/../../etc/passwd", "/media/" + str(self.secret), "/../projection.json", "/media/"):
             with self.subTest(path=path):
-                status, _, body = self.get(path)
+                status, _, body = self.get(f"{path}?rev={rev}")
                 self.assertEqual(status, 404)
                 self.assertNotIn(b"not listed", body)
 
     def test_range_requests(self) -> None:
         data = self.video.read_bytes()
-        status, headers, body = self.get("/media/clip", {"Range": "bytes=100-199"})
+        rev = self.rev()
+        status, headers, body = self.media("clip", {"Range": "bytes=100-199"}, rev)
         self.assertEqual(status, 206)
         self.assertEqual(headers["content-range"], f"bytes 100-199/{len(data)}")
         self.assertEqual(body, data[100:200])
-        status, headers, body = self.get("/media/clip", {"Range": "bytes=10000-"})
+        status, headers, body = self.media("clip", {"Range": "bytes=10000-"}, rev)
         self.assertEqual((status, body), (206, data[10000:]))
-        status, headers, body = self.get("/media/clip", {"Range": "bytes=-40"})
+        status, headers, body = self.media("clip", {"Range": "bytes=-40"}, rev)
         self.assertEqual((status, body), (206, data[-40:]))
-        status, headers, _ = self.get("/media/clip", {"Range": f"bytes={len(data)}-"})
+        status, headers, _ = self.media("clip", {"Range": f"bytes={len(data)}-"}, rev)
         self.assertEqual(status, 416)
         self.assertEqual(headers["content-range"], f"bytes */{len(data)}")
+
+    def test_media_without_a_known_revision_is_409_reload(self) -> None:
+        self.rev()
+        for path in ("/media/clip", "/media/clip?rev=", "/media/clip?rev=0123456789abcdef0123456789abcdef"):
+            with self.subTest(path=path):
+                status, _, body = self.get(path)
+                self.assertEqual(status, 409)
+                self.assertIn(b"reload", body)
+                self.assertNotEqual(body, self.video.read_bytes())
+
+    def test_the_projection_carries_its_media_revision_and_is_otherwise_served_as_stored(self) -> None:
+        # Spelled the way json.dumps would never write it: the answer must keep every stored byte (no re-encoding).
+        stored = ('{ "schema": "vibetracks-dashboard/1", "n": 1.0e5, "t": "caf\\u00e9 \u2014 \u00e9",\n'
+                  '  "tracks": [], "media": {"clip": {"id": "clip", "kind": "video", "label": "Clip", "path": '
+                  + json.dumps(str(self.video)) + '}} }\n').encode('utf-8')
+        (self.home / "projection.json").write_bytes(stored)
+        status, _, body = self.get("/projection")
+        self.assertEqual(status, 200)
+        revision = json.loads(body)["media_rev"]
+        member = b',"media_rev":' + json.dumps(revision).encode()
+        self.assertEqual(body.replace(member, b"", 1), stored)
+        self.assertEqual(self.get(f"/media/clip?rev={revision}")[0], 200)
+        # Unchanged files give the same revision: a poll must not change every media URL (and restart a video).
+        self.assertEqual(self.rev(), revision)
+
+    def test_an_old_media_url_never_serves_a_retarget_listed_by_a_later_projection(self) -> None:
+        # The full sequence through the HTTP handler (audit 2026-10-05 round 2, sibling of finding 1).
+        root = Path(self.tmp.name)
+        alias = root / "alias.mp4"
+        alias.symlink_to(self.video)
+        other = root / "other.mp4"
+        other.write_bytes(b"RETARGETED, never listed when the first page loaded")
+        data = json.loads((self.home / "projection.json").read_text())
+        data["media"]["alias"] = {"id": "alias", "kind": "video", "label": "Alias", "path": str(alias)}
+        (self.home / "projection.json").write_text(json.dumps(data), encoding="utf-8")
+        first = self.rev()
+        self.assertEqual(self.get(f"/media/alias?rev={first}")[2], self.video.read_bytes())
+        alias.unlink()
+        alias.symlink_to(other)
+        (self.home / "projection.json").write_text(json.dumps(data) + "\n", encoding="utf-8")  # rebuilt: a new load
+        second = self.rev()  # another tab, or a poll
+        self.assertNotEqual(second, first)
+        status, _, body = self.get(f"/media/alias?rev={first}")
+        self.assertNotIn(b"RETARGETED", body)
+        self.assertIn(status, (200, 409))
+        if status == 200:
+            self.assertEqual(body, self.video.read_bytes())
+        self.assertEqual(self.get(f"/media/alias?rev={second}")[2], other.read_bytes())  # the page that lists it
+        alias.unlink()
+        alias.symlink_to(self.video)  # and back: the first page's file again, under its own revision only
+        self.assertEqual(self.get(f"/media/alias?rev={first}")[2], self.video.read_bytes())
+        status, _, body = self.get(f"/media/alias?rev={second}")
+        self.assertEqual(status, 409)
+        self.assertNotIn(b"RETARGETED", body)
+
+    def test_an_evicted_revision_is_409(self) -> None:
+        revisions = server.MediaRevisions(limit=2)
+        first = revisions.record({"a": {"path": "/x/a.mp4"}}, {"a": "/x/a.mp4"})
+        revisions.record({"a": {"path": "/x/b.mp4"}}, {"a": "/x/b.mp4"})
+        revisions.get(first)  # used: stays
+        third = revisions.record({"a": {"path": "/x/c.mp4"}}, {"a": "/x/c.mp4"})
+        self.assertIsNotNone(revisions.get(first))
+        self.assertIsNotNone(revisions.get(third))
+        self.assertEqual(len(revisions), 2)
+        projection = server.Projection(self.home)
+        projection.revisions = server.MediaRevisions(limit=1)
+        projection.load()
+        kept = projection._rev
+        self.assertEqual(projection.media_lookup("clip", kept)[1], 200)
+        projection.revisions.record({"z": {"path": "/x/z.mp4"}}, {"z": None})
+        self.assertEqual(projection.media_lookup("clip", kept)[1], 409)
 
     def test_no_write_endpoints(self) -> None:
         conn = http.client.HTTPConnection("127.0.0.1", self.port, timeout=10)
@@ -225,6 +307,85 @@ class MountTest(unittest.TestCase):
         status, body = self.request("GET", "/fake")
         self.assertEqual(status, 500)
         self.assertIn("bad doc", json.loads(body)["detail"])
+
+
+class _StubBuilder:
+    """Stands in for LiveBuilder: hands back the same media listing on every build, like the real one with a cache."""
+
+    def __init__(self, media: dict) -> None:
+        self.projection = {"schema": "vibetracks-dashboard/1", "tracks": [], "media": media}
+        self.builds = 0
+
+    def build(self, force: bool = False) -> dict:
+        self.builds += 1
+        return self.projection
+
+
+class LiveMediaRevisionTest(unittest.TestCase):
+    """The LIVE projection (rebuilt on every /projection GET) binds /media to the revision a page was given.
+
+    WHY this class (audit 2026-10-05 round 2, sibling of finding 1): LiveProjection recomputed its targets on any
+    /projection load, so a second tab or a poll re-authorised a retargeted alias for a URL minted before it.
+    """
+
+    def setUp(self) -> None:
+        self.tmp = tempfile.TemporaryDirectory()
+        root = self.root = Path(self.tmp.name)
+        (root / "ws").mkdir()
+        self.listed = root / "listed.mp4"
+        self.listed.write_bytes(b"the video the first page listed")
+        self.other = root / "other.mp4"
+        self.other.write_bytes(b"RETARGETED")
+        self.alias = root / "alias.mp4"
+        self.alias.symlink_to(self.listed)
+        self.projection = server.LiveProjection(root / "home", root / "ws", root / "ws" / "x.vibetrack")
+        self.projection.builder = _StubBuilder({"v": {"id": "v", "kind": "video", "label": "V", "path": str(self.alias)}})
+        self.port = free_port()
+        self.httpd = server.ThreadingHTTPServer(("127.0.0.1", self.port), server.make_handler(self.projection, root / "ws"))
+        threading.Thread(target=self.httpd.serve_forever, daemon=True).start()
+
+    def tearDown(self) -> None:
+        self.httpd.shutdown()
+        self.httpd.server_close()
+        self.tmp.cleanup()
+
+    def get(self, path: str, method: str = "GET") -> tuple[int, bytes]:
+        conn = http.client.HTTPConnection("127.0.0.1", self.port, timeout=10)
+        try:
+            conn.request(method, path)
+            response = conn.getresponse()
+            return response.status, response.read()
+        finally:
+            conn.close()
+
+    def rev(self) -> str:
+        status, body = self.get("/projection")
+        self.assertEqual(status, 200)
+        return json.loads(body)["media_rev"]
+
+    def test_projection_get_media_retarget_projection_get_old_url(self) -> None:
+        first = self.rev()
+        self.assertEqual(self.get(f"/media/v?rev={first}"), (200, self.listed.read_bytes()))
+        self.alias.unlink()
+        self.alias.symlink_to(self.other)
+        second = self.rev()  # another tab, or a poll: the live build runs again and records the new target
+        self.assertNotEqual(second, first)
+        status, body = self.get(f"/media/v?rev={first}")
+        self.assertNotIn(b"RETARGETED", body)
+        self.assertEqual(status, 409, body)
+        self.assertIn(b"reload", body)
+        self.assertEqual(self.get(f"/media/v?rev={first}", "HEAD"), (409, b""))  # the page's check reads this
+        self.assertEqual(self.get(f"/media/v?rev={second}"), (200, b"RETARGETED"))  # only the page that lists it
+
+    def test_a_restarted_backend_knows_no_revision(self) -> None:
+        first = self.rev()
+        self.projection.revisions = server.MediaRevisions()  # what a restart leaves
+        self.assertEqual(self.get(f"/media/v?rev={first}")[0], 409)
+        self.assertEqual(self.get(f"/media/v?rev={self.rev()}")[0], 200)
+
+    def test_the_builders_projection_is_not_mutated(self) -> None:
+        self.rev()
+        self.assertNotIn("media_rev", self.projection.builder.projection)
 
 
 REGISTRY_DESCRIPTOR = """filters:

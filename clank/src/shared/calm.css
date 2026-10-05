@@ -127,11 +127,24 @@
     /* WHY a named size container: the dashboard's width is Clank's pane, not the viewport, so a page that must reflow
        at phone width (a five-column table) asks this box, never a @media query. */
     container: vt-scroll / inline-size;
+    /* The narrow-width rule, at the root (2026-10-05): every text in the scroller may break inside a token, but only
+       where the token would otherwise overflow its line. WHY at the root and inherited, not per class: with Clank's
+       left panel open at a 390 px window the dashboard is 152 px wide, and per-class fixes kept leaving the next
+       element out (property rows, status lines, breadcrumbs, evidence titles: 599 of 698 item and iteration pages
+       scrolled sideways). `anywhere` also lowers each element's min-content, so a flex or grid child no longer holds
+       its row wider than the page. Nothing is clipped; a word breaks only when it is wider than its whole line. */
+    overflow-wrap: anywhere;
+  }
+  /* WHY tables keep break-word: in an auto-layout table `anywhere` lets the column algorithm squeeze a cell to one
+     letter ("Kinematic" broke into letters in the home table). Every wide table already scrolls inside its own box at
+     phone width (variant A's .vt-a-tablescroll / .vt-a-scroller) or reflows (.vt-a-feeds). */
+  .vt-dash .vt-scroll table {
+    overflow-wrap: break-word;
   }
 
   /* ---- the dashboard header: the shell's own slim row; only the settings gear sits in it, at the right end.
-     WHY a row and not a gear floating over the page: a floating button would cover whatever a variant draws in its
-     top-right corner (B's tabs, C's third pane). */
+     WHY a row and not a gear floating over the page: a floating button would cover whatever the page draws in its
+     top-right corner. */
   .vt-dash {
     --vt-header-h: 30px;
   }
@@ -319,11 +332,18 @@
   }
 
   /* ---- status word: a dot plus a word */
+  /* WHY the word may wrap (2026-10-05): a status is often a whole sentence ("131 of 132 · -1 last window ·
+     unconfirmed · repeat needed · gate 132 n…"), and nowrap pushed a 390 px page to 499 px. It wraps at its spaces,
+     the dot stays beside the first line, and a short word ("ok") still sits on one line. */
   .vt-dash .vt-status {
     display: inline-flex;
     align-items: baseline;
     gap: 7px;
-    white-space: nowrap;
+    max-width: 100%;
+    white-space: normal;
+  }
+  .vt-dash .vt-status .vt-word {
+    min-width: 0;
   }
   .vt-dash .vt-status .vt-dot {
     display: inline-block;
@@ -337,6 +357,7 @@
   .vt-dash .vt-status-stack {
     display: inline-flex;
     flex-direction: column;
+    max-width: 100%;
     line-height: 1.35;
   }
   .vt-dash .vt-status-stack small {
@@ -376,6 +397,11 @@
     font-size: 13px;
     color: var(--vt-faint);
     margin-bottom: 14px;
+  }
+  /* A crumb is often an item's whole id ("M1.oracle@bandit/classic"): it wraps inside the trail, never past it. */
+  .vt-dash .vt-crumbs > * {
+    min-width: 0;
+    max-width: 100%;
   }
   .vt-dash .vt-crumbs .vt-btn {
     color: var(--vt-grey);
@@ -548,9 +574,12 @@
     background: var(--vt-hover);
     border-radius: 4px;
   }
+  /* WHY wrap: at a 152 px dashboard the file name broke mid-token ("b07c38|b.md") beside "Open in new tab"; the link
+     now drops to the next line first, and the name breaks only if it alone is wider than the line. */
   .vt-dash .vt-media-bar {
     display: flex;
-    gap: 12px;
+    flex-wrap: wrap;
+    gap: 0 12px;
     align-items: baseline;
     font-size: 12.5px;
     color: var(--vt-faint);
@@ -560,10 +589,19 @@
     min-width: 0;
     overflow-wrap: anywhere;
   }
+  /* WHY no 54 px indent below 420 px of dashboard width: under the kind column it is a hanging indent, but at a 152 px
+     dashboard it left an evidence note a 65 px column, one or two words a line. */
+  @container vt-scroll (max-width: 420px) {
+    .vt-dash .vt-ev-metrics,
+    .vt-dash .vt-ev-note,
+    .vt-dash .vt-ev-media,
+    .vt-dash .vt-media-view {
+      margin-left: 0;
+    }
+  }
 
-  /* ---- the temporary variant switcher (bottom-right, Zach's prototype-switch rule) */
   /* ---- the review bar: a thin row under the content, right-aligned, the page's own background and no band or line
-     (calm). It holds the review pills: N (portalled by NeedsShell) left of A · B · C.
+     (calm). It holds the needs page's N pill (portalled by NeedsShell); Dashboard.tsx hides it on every other page.
      WHY a fixed height with the pills aligned to its bottom: an open pill's list grows upward out of the bar as a
      transient menu (painted over the content while open, like any menu) instead of growing the bar and shrinking the
      scroller under the reader. */
@@ -582,8 +620,12 @@
   .vt-dash {
     --vt-review-bar-h: 40px;
   }
-  /* WHY static and `order`: inside the bar a pill flows (the needs kit's `bottom` offset must not shift it), and the
-     portalled N pill is appended after A · B · C in the DOM but belongs on its left. */
+  /* WHY an explicit rule: `display: flex` above outranks the browser's own [hidden] style, and a hidden bar must take
+     no height (an empty 40 px strip under every non-needs page, 2026-10-05). */
+  .vt-dash .vt-review-bar[hidden] {
+    display: none;
+  }
+  /* WHY static: inside the bar a pill flows (the needs kit's `bottom` offset must not shift it). */
   .vt-dash .vt-review-bar > .vt-switcher {
     position: static;
     flex: none;

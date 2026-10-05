@@ -24,6 +24,8 @@
 // bam-triage-answer/1 stay exactly {ts, triage_id, choice, note}, because that loop resolves the choice against its
 // own file. When the loop recorded no words for the option, the quote says so instead of staying silent.
 //
+// WHY an `exact title:` twin under a heading whose title Markdown would change (edge spaces, markup characters): see
+// inlineTwinLines() in answerRules.ts; the heading line itself stays exactly as written.
 // WHY every heading carries local_id AND the full title: the integrator must never have to ask which item an answer
 // is for (the pyblocks precedent). WHY the jsonl fence only for bam-triage-answer/1 tracks: those rows are appended
 // verbatim to triage_answers.jsonl and must validate (exactly {ts, triage_id, choice, note}); a chat-paste loop
@@ -46,6 +48,7 @@ import {
   effectiveChoice,
   exactLine,
   inlineExact,
+  inlineTwinLines,
   isComplete,
   isNoteOnly,
   markdownIsLossy,
@@ -166,8 +169,20 @@ export function exportTrack(doc: NeedsDoc, draftOf: DraftLookup, now: Date = new
     const answer = choice ? `${inlineExact(choiceLabel(item, choice))} (${choice})` : 'no option chosen (note only)'
     // WHY inlineExact on the loop's id, title and label: each must stay on its one Markdown line; a title holding a line
     // ending would otherwise end the heading and spill the rest into the copy as markup.
-    const lines = [`## ${inlineExact(item.local_id)} · ${inlineExact(item.title)}`, `- **Answer:** ${answer}`]
-    if (choice) lines.push(...optionQuoteLines(item, choice))
+    // WHY the twins under the heading and the answer line: a parser drops a heading's edge spaces and reads `*`, `_`,
+    // `<`... as markup, so the parsed copy would not say exactly what was reviewed; the twin gives the text back.
+    const lines = [
+      `## ${inlineExact(item.local_id)} · ${inlineExact(item.title)}`,
+      ...inlineTwinLines(item.local_id, 'exact id'),
+      ...inlineTwinLines(item.title, 'exact title'),
+      `- **Answer:** ${answer}`,
+    ]
+    if (choice) {
+      const labelTwin = inlineTwinLines(choiceLabel(item, choice), 'exact option label')
+      // The blank line ends the answer line's paragraph; without it the twin would continue it (lazy continuation).
+      if (labelTwin.length) lines.push('', ...labelTwin)
+      lines.push(...optionQuoteLines(item, choice))
+    }
     if (note) lines.push(...noteBlockLines(note))
     // WHY the exact twin only where no JSONL row carries the note (Codex round 2 finding 3): a bam-triage-answer/1 row
     // holds the raw string already; a chat or note paste has nothing else that can give back a CR, CRLF or NUL.
@@ -185,8 +200,12 @@ export function exportTrack(doc: NeedsDoc, draftOf: DraftLookup, now: Date = new
   const header = [
     `# Answers · ${inlineExact(doc.track_title)} · ${headingTime(now)}`,
     `<!-- vibetracks-needs/1 · track=${commentField(doc.track)} · source=${commentField(source)} · channel=${commentField(channel.kind)}${channel.target ? ` -> ${commentField(channel.target)}` : ''} -->`,
-  ].join('\n')
-  let markdown = `${header}\n\n${sections.join('\n\n')}`
+  ]
+  // WHY after the comment and a blank line: a reader with raw HTML off parses the comment line as a paragraph, and a
+  // twin right under it would continue that paragraph instead of standing on its own.
+  const trackTwin = inlineTwinLines(doc.track_title, 'exact track title')
+  if (trackTwin.length) header.push('', ...trackTwin)
+  let markdown = `${header.join('\n')}\n\n${sections.join('\n\n')}`
   if (rowsCarryChoice) markdown += `\n\n\`\`\`jsonl\n${rows.join('\n')}\n\`\`\``
   return { markdown, exported, skipped }
 }

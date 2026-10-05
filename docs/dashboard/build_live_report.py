@@ -16,6 +16,9 @@ Inputs (all in MEDIA, written by the headless drive; none of them is hand-typed 
     timescan-after.json     the times lane's after-scan (79 pages); verify-2/times-verify2.json the verifier's own
     projection-*.json       the projection the backend served at check time (sources, freshness, roadmap declaration)
     *.webp / hero-live-tracks.mp4 / .gif   the captures
+    r6-report/              round 6: the 04:35 re-capture of home and kinsim (shoot-r6.mjs + its JSON) and the
+                            headless render check of both reports (render-reports.mjs)
+    <needs media>/r6/round6-fixes.json   round 6's six items, verify-7's evidence and the still-open probes (shared)
 
 WHY the per-track table and the check table are read from JSON: a hand-typed number in a report outlives the data
 it describes; these files are the drive's own output, so a re-drive refreshes the report.
@@ -144,6 +147,39 @@ AUDIT2_PASS = sum(1 for n, _s, _t in AUDIT2_ROWS if AUDIT2_FIX[n]["pass"] is Tru
 AUDIT2_SEV = Counter(sev for _n, sev, _t in AUDIT2_ROWS)
 SEV2_LINE = ", ".join(f"{AUDIT2_SEV[k]} {k}" for k in ("high", "medium", "low") if AUDIT2_SEV[k])
 N_IN_SCOPE = len(AUDIT2_ROWS) + len(AUDIT2_PARTLY)
+
+# ---- round 6: verify-6's siblings and leftovers, closed and re-measured by verify-7 -----------------------------
+# WHY the needs report's data file: both reports render the same six rows and the same open list from verify-7's words.
+R6 = json.loads((NEEDS_MEDIA / "r6" / "round6-fixes.json").read_text())
+R6_ITEMS = R6["items"]
+assert [i["n"] for i in R6_ITEMS] == ["1", "2", "3", "4", "5", "6"], "round 6's item list changed: re-read the verdict"
+R6_PASS = sum(1 for i in R6_ITEMS if i["pass"] is True)
+assert (R6_PASS, sum(1 for i in R6_ITEMS if i["pass"] == "partly")) == (5, 1)
+R6_SHOTS = json.loads((MEDIA / "r6-report" / "shoot-r6.json").read_text())
+# WHY assert the re-capture's own measurements: the captions below say there is no switcher and no review-bar height on
+# these pages; if a re-shoot ever finds one, the caption would be false, so the build stops instead.
+assert all(sh["switchers"] == 0 and sh["dataVariant"] is None and not sh["abcText"] and sh["barH"] == 0 and sh["sideways"] == 0
+           for sh in R6_SHOTS["shots"]), R6_SHOTS["shots"]
+REPO = Path(__file__).resolve().parents[2]
+
+
+def check_open_probes() -> int:
+    """Refuse to build if the tree no longer shows an item the page calls open (same probes as the needs report).
+    WHY: a stale 'still open' is as untrue as a stale 'fixed'; each probe names the exact text that makes the claim true."""
+    for probe in R6["open_probes"]:
+        f = REPO / probe["file"]
+        if probe.get("missing"):
+            assert not f.exists(), f"{probe['claim']}: {f} exists again; re-measure and update round6-fixes.json"
+            continue
+        text = f.read_text(encoding="utf-8")
+        if "contains" in probe:
+            assert probe["contains"] in text, f"looks fixed now: {probe['claim']} ({f}); re-measure and update round6-fixes.json"
+        if "absent" in probe:
+            assert probe["absent"] not in text, f"looks fixed now: {probe['claim']} ({f}); re-measure and update round6-fixes.json"
+    return len(R6["open_probes"])
+
+
+R6_PROBES = check_open_probes()
 
 # ---- media -----------------------------------------------------------------------------------------------------
 _inlined: set[str] = set()
@@ -448,7 +484,8 @@ def _fix_rows() -> list[tuple[str, str, bool, str]]:
          "'Proposal A · Drill-down pages ▾', 210.9 × 30.75 px; it opens upward to 115 px and closes after a pick, on Escape or an outside "
          "click; the pick survives a reload and keys 1/2/3 still switch. The verifier's centre probe: 0 misses on "
          + ", ".join(sorted(V3_PAGE_RUNS)) + " at rest and max scroll. Fix wave 3 left one fault: on the grasping and detection track pages "
-         "at rest the pill sat over clickable KPI cells ('87.4 %', '2 / 12'). Round 3 moved the pill into the review bar (row o): 0 hits."),
+         "at rest the pill sat over clickable KPI cells ('87.4 %', '2 / 12'). Round 3 moved the pill into the review bar (row o): 0 hits. "
+         "Round 6 retired it with variants B and C."),
         ("n", "Code spans wrap between tokens, not mid-token", True,
          "`.vt-a-code` moved from `word-break: break-all` to `overflow-wrap: break-word` (one class covers purposes, link values "
          "and file paths). At 664-848 px on rig (ladder.json, loop-status.json) and grasping (out/ledger/runs.jsonl), collapsed and "
@@ -542,22 +579,39 @@ NPARTLY = sum(1 for f in FIXES if f[2] == "partly")
 
 
 ISSUES = [
+    ("First loads read /projection four times", "The sibling of round 6's single /needs fetch: every first load (home, a track "
+     "page, the needs page) starts 4 /projection reads, 2 aborted and 2 completed and overlapping, so the backend runs 2 live "
+     "builds; a reload click reads it twice. Same React double effect that needs/share.ts fixed for /needs (verify-7)."),
+    ("The real-and-sim video pair has no reload line", "VideoPair on item pages renders its own players and 'open in new tab' "
+     "links instead of going through MediaView. On a 409 it shows two dead players at 0:00 and two links to a JSON error, not "
+     "'This changed since you opened it: reload' (verify-7, captured below)."),
+    ("Grasping's gallery media always answer 404", "The adapter names them `grasping:gallery-preview` and "
+     "`grasping:gallery-preview-png`; the server's media id pattern refuses ':', so the gallery item reads 'Could not load: "
+     "HTTP 404' beside an 'Open in new tab' link that goes nowhere. Older than this round; no test runs adapter ids through "
+     "the server (verify-7)."),
+    ("Snapshot mode: a retargeted link keeps its revision", "With a stored projection.json (not the live lane), retargeting "
+     "a symlink without changing that file keeps the same media_rev, so the link answers 409 forever and its reload line cannot "
+     "recover it. It never serves the wrong file. PROJECTION.md's 'digest taken when that answer was built' is false in this mode."),
+    ("A 404 or 403 still offers 'Open in new tab'", "MediaView drops the link only on a 409, so other refusals keep a link "
+     "to an error page."),
+    ("`tests/browser/media_switch.mjs` fails", "Its route glob ends at the media id and misses the new `?rev=` query. A copy "
+     "with only that glob changed to end in `?**` passes 6 of 6. It was outside both lanes' write sets."),
+    ("Leftovers of B and C outside the product code", "`scripts/shoot.mjs` still clicks `vt-switch-<x>`, so its `--variant` "
+     "flag now fails; VARIANTS.md and VARIANT-KIT.md still describe three proposals; comments in shared/route.ts, "
+     "shared/types.ts (its unused key 'a' | 'b' | 'c') and needs/NeedsShell.tsx still name the switcher. The stills from fix "
+     "waves 1-3 and round 3 below show the pill, as they were."),
+    ("NEEDS-KIT.md lacks the new exact lines", "It documents 'exact:' and 'exact option words:' but not 'exact title', 'exact "
+     "id', 'exact option label' or 'exact track title'. The lossy test also flags '&' and '_' in ordinary text, so 10 of 84 live "
+     "titles get a twin line they do not need ('Sim to Real & Trajectory Tracking')."),
+    ("One media-revision map for two viewers (read, not reproduced)", "The revision of the projection on screen is kept per "
+     "backend, so if Clank mounts a second viewer, a re-render in one reads whichever viewer rendered last. Only one viewer "
+     "stays mounted on the lane."),
     ("A peer worktree shares the grasping verdict cache", "`/home/bam/vibetracks-roadmap` (branch `claude/vibetracks-roadmap`) "
      "still runs the old `grasp_bench_bridge.py` and writes the same `~/.local/share/vibetracks/dashboard/grasping-bench-verdict` "
      "folder; at 00:49:17 it rewrote verdict-v2.json with no module list. The fixed bridge reads such an entry as a miss, so "
      "this dashboard stays correct, but the two keep overwriting each other until the roadmap branch gets the fix (verify-5)."),
-    ("390 × 844 with Clank's panel open: 6 iteration and item pages scroll sideways", "verify-6 measured the panel-open "
-     "state for the first time (dashboard 152 px): home and all track pages are clean, but kinsim's iteration (156 vs 152), the "
-     "kinsim, rig and pyblocks item pages (property values at x 474), grasping's iteration (evidence title buttons, 206) and "
-     "CAN 12's iteration (154) scroll. With the panel collapsed, pyblocks item board-b07c38b scrolls (499 vs 390): its status "
-     "line does not wrap. Their age is unknown; verify-5 never measured this state."),
-    ("/media links are not bound to a revision", "The sibling of Codex round 2's finding 1: the evidence route now refuses "
-     "a changed document, but a `/media/<id>` link is re-authorized by any /projection load (another tab, a poll). 6 live "
-     "kinsim Needs-you evidence links take that route (verify-6, demonstrated in-process)."),
-    ("Some audit fixes guarded by probes, not tests", "Finding 11 (media switching) and 13 (colour) now have checked-in "
-     "tests (`tests/browser/media_switch.mjs`, `calmColour.check.mjs`). Finding 10 (the UI fold) and both 390 px fixes are "
-     "still checked by headless probes in the media folders. Variants B and C still use the accent colour for a chart line "
-     "and a selected-track border; calmColour.check does not scan them."),
+    ("Some fixes guarded by probes, not tests", "Narrow pages (narrow.mjs), the single /needs fetch (needs_once.mjs) and "
+     "media switching are browser checks now. Finding 10 (the UI fold) is still checked by headless probes in the media folders."),
     ("Rename is exact now, with no length cap", "The 80-character limit went with the trimming: only an empty, whitespace-only "
      "or line-broken title is refused (the request body is still capped at 64 KB). A 409 carries only the revision, so the "
      "editor reads the other title from a re-fetched projection ('reading the other version…') before it can offer the choice."),
@@ -566,37 +620,30 @@ ISSUES = [
      "it confusing. Flagged for the audit."),
     ("Duplicate `#vt-review-bar` ids", "Clank's dockview keeps a detached dashboard alive, so two bars with one id can exist. "
      "NeedsShell now looks the bar up inside its own `.vt-dash`; an instance-unique id would remove the trap."),
-    ("Proven subline not yet seen on live data", "Its hover text is now pinned by proven.check (row u), but the subline was checked only against a patched stub. Re-check once the real widget from "
+    ("Proven subline not yet seen on live data", "Its hover text is pinned by proven.check, but the subline was checked only against a patched stub. Re-check once the real widget from "
      "`claude/vibetracks-roadmap-r3` lands; proven.ts already accepts its `{document}` wrapper. With '(not current)' the home "
      "Progress cell runs to 4-5 lines, so rows get taller."),
-    ("`scripts/shoot.mjs` will break", "It clicks `[data-testid=vt-switch-<variant>]` directly; those buttons now exist only "
-     "while the pill is open, so it needs a click on `vt-switch-pill` first."),
-    ("Scorecard at narrow widths", "Still visible in verify-5's 390 px capture: kinsim's scorecard shows KPI | Status and no wave "
-     "columns. At a 900 px viewport the kinsim and rig scorecards showed no iteration columns (KPI | Trend | "
-     "Target | Status with a blank band). At 1440 the grasping page appears to cut off the Target/Status text at the right edge "
-     "(seen, not measured)."),
-    ("Needs-you page (detail in that report)", "Codex round 1 findings 1, 7 and 13 changed it (drafts carry a fingerprint of "
-     "what was reviewed, notes copy byte-exact, the defaulting option is a setting), and round 2's 1, 2, 3 and 7 (evidence links "
-     "bound to the reviewed document, no symlinked path component, CR and CRLF kept in the copy, no blue in N4 and N5). Left "
-     "there: a title's trailing spaces are lost in the parsed copy; on N6 at 1280 × 800 rig T2's note box loses 8 px under the "
-     "switcher; N6's deployment page says 'loop' twice; a settled draft's copy line offers a Reconfirm that does not exist."),
+    ("Scorecard at narrow widths", "At 390 px nothing scrolls sideways now, but kinsim's scorecard still shows KPI | Status and "
+     "no wave columns; at a 900 px viewport the kinsim and rig scorecards showed no iteration columns (seen in verify-5, not "
+     "re-measured). Long words wrap mid-word at a 152 px dashboard ('scorebo|ard'); no character is lost."),
+    ("Needs-you page (detail in that report)", "Round 6 there: an item title's edge spaces and markup copy out exactly, and "
+     "/needs is read once per page. Left there: on N6 at 1280 × 800 rig T2's note box loses 8 px at the bottom; N6's deployment "
+     "page says 'loop' twice; a settled draft's copy line offers a Reconfirm that does not exist."),
     ("Roadmap widget is a stub (expected)", "Every Roadmap section says 'Roadmap widget pending (roadmap session)' and "
      "`GET /api/plugins/vibetracks/roadmap/<id>` answers 404 until its branch merges. The home rung cell uses each loop's own "
      "`rung` meanwhile."),
-    ("This round is uncommitted", "HEAD is b53567e (the round-1 fixes, committed). The round-2 fixes are 27 uncommitted "
-     "changes in /home/bam/vibetracks-dashboard as verify-6 measured them, `vibetracks/safe_open.py` among them untracked; a "
-     "peer's `git stash -u` there would take them."),
-    ("Stale docs and the V1 bench verdict", "PROJECTION.md:159 still says O_NOFOLLOW and 403 for evidence (now a per-component "
-     "open and 409). The V1 `bench_verdict()` the grasping adapter uses refuses modules outside the package but does not yet "
-     "require all nine witnesses, because `tests/test_dashboard_adapter_grasping.py` pins the old fixture."),
+    ("This round is uncommitted", "HEAD is d579e39 (the round-2 fixes, committed). Round 6 is 30 uncommitted paths in "
+     "/home/bam/vibetracks-dashboard (plus the two report builders), the B and C deletions and new files such as needs/share.ts and tests/browser/narrow.mjs "
+     "among them; a peer's `git stash -u` there would take them."),
+    ("The V1 bench verdict", "The V1 `bench_verdict()` the grasping adapter uses refuses modules outside the package but does "
+     "not yet require all nine witnesses, because `tests/test_dashboard_adapter_grasping.py` pins the old fixture."),
     ("The hero video predates round 3", "It was recorded after fix wave 1: its home rows show grasping at 6 / 10 from the "
      "adapter's old copy of the rules, '7 blocking', the pre-one-source Needs-you counts, a zoneless 'read 2026-10-04 20:53' "
-     "and the switcher as three buttons. Grasping reads 6 / 10 again now, but from the bench's own verdict (top section). "
-     "Re-record it before Codex round 3 if the video should be current too."),
+     "and the switcher as three buttons, which are now gone. Re-record it if the video should be current too."),
     ("Sources in agent worktrees", "Kinsim, rig and grasping still read from agent worktrees a sweep could delete. The row would "
      "then say 'not reporting', truthfully."),
-    ("Clank shell errors (not the dashboard)", "The shell's usual .clank/*.json 404s and fs mkdir 409s. No error came from the "
-     "dashboard code, and no window error fired."),
+    ("Clank shell errors (not the dashboard)", "The shell's usual .clank/*.json 404s and fs mkdir requests (refused by the "
+     "read-only captures). No error came from the dashboard code."),
     ("Bridge edits need a backend restart", "The build reloads grasping.py when it changes, but not grasp_bench_bridge.py; a "
      "change to the bridge's script text still invalidates its cache on its own."),
 ]
@@ -932,7 +979,10 @@ def audit2_html() -> str:
     items = "".join(
         f'<li class="arow"><span class="an">{esc(n)}</span><span class="asev">{esc(sev)}</span>'
         f'<div class="abody"><b>{esc(title)}</b><p>{esc(f["short"])}</p>'
-        + (f'<p class="asib"><b>Still open beside it:</b> {esc(f["sibling"])}</p>' if f.get("sibling") else "")
+        # WHY the round-6 status beside verify-6's words: three of these siblings are closed now; the page keeps what
+        # verify-6 saw and says what became of it, rather than calling a closed item open.
+        + (f'<p class="asib"><b>verify-6 left open beside it:</b> {esc(f["sibling"])} <b>Now:</b> '
+           f'{esc(R6["r2_siblings_now"][str(n)])}</p>' if f.get("sibling") else "")
         + f'<details><summary>The verifier\'s evidence, and the test that fails when the old behaviour returns</summary>'
         f'<p class="averb">{esc(f["verifier"])}</p><p class="averb"><b>Test left ({esc(f["lane"])} lane):</b> {esc(f["tests"])}</p>'
         f'</details></div><span class="{fix_word(f)[0]}">{esc(fix_word(f)[1])}</span></li>'
@@ -944,16 +994,16 @@ def audit2_html() -> str:
         fig(str(v6 / "v6-1440-kinsim.png"), "Kinsim at 1440 after round 2: still calm",
             "verify-6's census over all 22 variant-A routes at 1440 found 0 blue elements and no sideways scroll; the colour left is "
             "the warn value and the Needs-you count."),
-        fig(str(v6 / "v6-variant-b-kinsim-1440.png"), "Still open: variant B keeps blue sparklines",
-            "Proposal B, offered by the same switcher, draws its kinsim trend lines and points in rgb(35, 131, 226); C marks the "
-            "selected track with a blue border. Both are outside the files the UI lane changed (beside finding 7)."),
+        fig(str(v6 / "v6-variant-b-kinsim-1440.png"), "Open at round 2, gone in round 6: variant B's blue sparklines",
+            "Proposal B, then offered by the same switcher, drew its kinsim trend lines and points in rgb(35, 131, 226); C marked the "
+            "selected track with a blue border (beside finding 7). Both variants were removed in round 6."),
     ]) + '</div><div class="g4">' + "".join([
         fig(str(MEDIA / "r5-narrow-390-panel-open-menu.png"), "390 px, panel open: the title wraps",
             "The dashboard is 152 px wide here. 'Kinematic Sim' wraps inside it and 'Rename track…' opens inside the page "
             "(UI lane's capture)."),
-        fig(str(v6 / "v6-390-open-kinsim-item-offender.png"), "Still open: an item page at the same width",
-            "Kinsim's BT4 item page: the property values sit at x 474, off the 152 px page, so it scrolls sideways (236 vs 152). "
-            "One of 6 iteration and item pages verify-6 found."),
+        fig(str(v6 / "v6-390-open-kinsim-item-offender.png"), "Open at round 2, closed in round 6: an item page at the same width",
+            "Kinsim's BT4 item page: the property values sat at x 474, off the 152 px page, so it scrolled sideways (236 vs 152). "
+            "One of 6 iteration and item pages verify-6 found; 0 of 698 pages scroll in verify-7's sweep."),
     ]) + "</div>"
     partly = ", ".join(map(str, AUDIT2_PARTLY[:-1])) + f" and {AUDIT2_PARTLY[-1]}"
     return f"""
@@ -1015,6 +1065,94 @@ all {len(AUDIT_ROWS)}: its status line for each is above.</p>
 <ul class="ls">{notes}</ul>"""
 
 
+def round6_html() -> str:
+    items = "".join(
+        f'<li class="arow"><span class="an">{esc(i["n"])}</span><span class="asev">{esc(i["lane"])}</span>'
+        f'<div class="abody"><b>{esc(i["title"])}</b><p>{esc(i["short"])}</p>'
+        + (f'<p class="asib"><b>Still open beside it:</b> {esc(i["still_open"])}</p>' if i["still_open"] else "")
+        + '<details><summary>verify-7\'s evidence, and the test that fails when the old behaviour returns</summary>'
+        f'<p class="averb">{esc(i["verifier"])}</p><p class="averb"><b>Test left ({esc(i["lane"])} lane):</b> {esc(i["tests"])}</p>'
+        f'</details></div><span class="afix">{"fixed · verified" if i["pass"] is True else "partly · 2 doc gaps"}</span></li>'
+        for i in R6_ITEMS)
+    found = "".join(f"<li><b>{esc(t)}.</b> <span>{esc(x)}</span></li>" for t, x in R6["new_found"])
+    c = R6["checks"]
+    v7 = MEDIA / "verify-7"
+    figs = '<div class="g4">' + "".join([
+        fig(str(v7 / "v7-390-open-pyblocks-item.png"), "390 × 844, panel open: a pyblocks item fits",
+            "The dashboard is 152 px wide. Property rows stack label over value and the long title breaks mid-word "
+            "('scorebo|ard'); nothing scrolls sideways and no character is lost. verify-7: 0 of 698 pages scroll."),
+        fig(str(v7 / "v7-390-closed-track-kinsim.png"), "390 × 844, panel closed: kinsim",
+            "The state line wraps; the scorecard shows KPI | Status at this width (wave columns not shown, see Issues)."),
+        fig(str(v7 / "v7-390-open-grasping-iteration.png"), "390 × 844, panel open: grasping's T0 iteration",
+            "The ledger path wraps inside 152 px; the narrow prev/next row wraps awkwardly ('wav|e', 'graspin|g ›') but "
+            "keeps every character. verify-6 had a grasping iteration at 206 px; 0 of 698 pages scroll now."),
+        fig(str(v7 / "v7-390-closed-pyblocks-item.png"), "390 × 844, panel closed: pyblocks board-b07c38b",
+            "Before, its status line did not wrap and the page scrolled 499 vs 390."),
+    ]) + '</div><div class="g2">' + "".join([
+        fig(str(v7 / "v7-media-stale-line.png"), "/media answering 409: one calm line",
+            "verify-7 made /media answer 409 for kinsim's fast gate. MediaView shows 'This changed since you opened it: reload' "
+            "with no player and no 'Open in new tab'; reload re-reads /projection and the view asks for the new revision."),
+        fig(str(v7 / "v7-media-409-video-pair.png"), "Still open: the video pair on a 409",
+            "The same 409 on a CAN 12 run: the real-and-sim pair does not go through MediaView, so it shows two dead players "
+            "at 0:00 and two 'open in new tab' links."),
+        fig(str(v7 / "v7-grasping-gallery-item.png"), "Still open: grasping's gallery media are always 404",
+            "Their ids contain ':', which the server's media id pattern refuses. 'Could not load: HTTP 404' sits beside a live "
+            "'Open in new tab'. Older than this round."),
+        fig(str(v7 / "v7-media-real-video.png"), "A real video under its revision",
+            "The src carries ?rev=<media_rev>; it reaches readyState 4 and plays."),
+    ]) + "</div>"
+    return f"""
+<p class="lead">verify-6 left a short list beside its fixed findings. Two lanes closed it on the uncommitted tree over
+<code>{esc(R6['base_sha'])}</code>; then {esc(R6['verifier'])} re-measured each item: <b>{R6_PASS} of {len(R6_ITEMS)} closed, the docs
+partly</b>, each with a test that fails without the fix. Variants B and C are gone at your pick of A (recoverable from git,
+see Decision surface). <b>Codex round 3 reads this tree next</b>; until it returns, "fixed" is our own measurement, not Codex's.</p>
+<p class="small dim">After the fixes: pytest {esc(c['pytest'])}; unittest {esc(c['unittest'])}; backend {esc(c['backend'])}; tsc
+{esc(c['tsc'])}; node checks {esc(c['node_checks'])}; browser checks {esc(c['browser_checks'])}. Counts, unchanged: {esc(c['counts'])}.
+Each "still open" line was re-read from the tree when this page was built ({R6_PROBES} probes).</p>
+<div class="ahead"><span>#</span><span>Lane</span><span>What was left · what verify-7 measured after the fix</span><span>Closed?</span></div>
+<ol class="audit">{items}</ol>
+{figs}
+<h3>New, found by verify-7 (not fixed in this round)</h3>
+<ul class="ls">{found}</ul>
+<details class="raw"><summary>Codex round 2: its findings on b53567e, their fixes and verify-6's evidence</summary>
+{audit2_html()}</details>"""
+
+
+DECISION_R6 = f"""
+<ul>
+  <li><strong>Done and proved</strong> (verify-7, a measure-only re-check by a separate Claude agent; it made no product edits):
+    <ul>
+      <li><b>verify-6's leftovers:</b> {R6_PASS} of {len(R6_ITEMS)} closed and re-measured, each with a test that fails without the fix; the docs are right except two gaps. Table at the top.</li>
+      <li><b>For the track pages:</b> /media links answer only for the revision on screen; an old link gives the calm reload line, never another file (GET, HEAD and Range, over real HTTP). 0 of 698 pages scroll sideways at 390 × 844 with Clank's panel open or closed (599 and 16 before), and 0 at 1440 × 900.</li>
+      <li><b>Variants B and C are removed</b>, at your pick of A, with the A · B · C pill, its keys and the stored choice; the review bar takes no height off the needs page. Both are recoverable from git: commit <code>{esc(R6['variants_commit'])}</code> added them, and their last version is still in HEAD <code>{esc(R6['base_sha'])}</code> because the deletion is not committed (<code>git checkout {esc(R6['base_sha'])} -- clank/src/variants/b clank/src/variants/c clank/src/variants/index.ts</code>).</li>
+      <li><b>Regressions checked:</b> one Needs-you count everywhere ({esc(R6['checks']['counts'])}); grasping still matches the bench's own verdict, 6 of 10 (all 166 row digests equal); rename byte-identical for an LF and a BOM+CRLF note; {esc(R6['checks']['videos'])}.</li>
+      <li><b>Build:</b> pytest {esc(R6['checks']['pytest'])}; unittest {esc(R6['checks']['unittest'])}; backend {esc(R6['checks']['backend'])}; tsc clean; node checks {esc(R6['checks']['node_checks'])}; narrow, needs_once and rename_fence pass in the browser. media_switch fails on its route glob (a one-line fix, verified on a copy).</li>
+    </ul></li>
+  <li><strong>Left</strong> (next; only the merges and the commit wait on you):
+    <ul>
+      <li><b>Codex round 3</b> on this tree ({esc(R6['base_note'])}). It runs next; both reports are re-shared before it starts.</li>
+      <li>From verify-7 (Issues, top): /projection read 4 times per first load; the video pair's 409; grasping's ':' media ids; snapshot-mode revisions; a 404 or 403 keeps its link; media_switch.mjs's glob; the shared revision map.</li>
+      <li>Docs and tools: NEEDS-KIT.md's new exact lines; VARIANTS.md, VARIANT-KIT.md and <code>scripts/shoot.mjs</code> still describe or click B and C.</li>
+      <li>The roadmap worktree still runs the old grasping bridge and shares its cache folder. Re-check the proven subline on the real widget once it lands; re-record the hero; the scorecard's missing wave columns at narrow widths.</li>
+    </ul></li>
+  <li><strong>Needs you</strong> (each has a default that keeps work moving if you say nothing):
+    <ol>
+      <li><b>Fix verify-7's open items before Codex round 3?</b> Recommendation: yes for the double /projection read, the video pair's 409 and grasping's ':' ids, which Codex would read as the same class as fixes it already asked for, and the media_switch glob so the suite is green; the docs and the snapshot-mode case can ride. Default: round 3 runs on this tree, with these listed for it.</li>
+      <li><b>Bring the grasping bridge fix to <code>claude/vibetracks-roadmap</code></b> (or stop its bridge) so the two worktrees stop overwriting one cache? Recommendation: yes, with the roadmap merge below. Default: both keep writing; this dashboard stays correct.</li>
+      <li><b>Merge the roadmap widget</b> (<code>claude/vibetracks-roadmap-r3</code>) into <code>claude/vibetracks-dashboard</code>?
+          Recommendation: yes, after a Codex round passes; it replaces the stub and lets the proven subline and its hover be seen. Default: nothing is merged; the section keeps saying pending.</li>
+      <li><b>Commit this round</b> on <code>claude/vibetracks-dashboard</code> so a peer's stash cannot take it (the B and C deletion included)?
+          Recommendation: yes, once a Codex round passes. Default: left uncommitted, as this task's rules require.</li>
+      <li><b>Durable homes for loop files</b> now in agent worktrees (rig loop, grasp ledger and bench venv, kinsim loop dir)?
+          Recommendation: a stable path per loop. Default: unchanged; a sweep would turn a row 'not reporting' honestly.</li>
+    </ol></li>
+  <li><strong>Deliberately not done:</strong> no commits, no vault edits. verify-7's open items were not fixed in this pass; the
+      reports only record them. Only home and kinsim's track page were re-captured; older stills keep the switcher they were taken
+      with, and the hero video still predates round 3.</li>
+</ul>
+"""
+
+
 def section(sid: str, title: str, lead: str, body: str, fb_rank: int) -> str:
     return (f'<section id="{sid}"><h2>{esc(title)}</h2>' + (f'<p class="lead">{lead}</p>' if lead else "") + body
             + FB.strip(fb_rank, title, noun="section") + "</section>")
@@ -1047,14 +1185,20 @@ def build() -> str:
     home_summary = V4["counts"]["homeSummary"].split("\n")[2]
     home = (
         '<div class="g1">'
+        + fig(str(MEDIA / "r6-report" / "r6-1440-home.png"), "Home now (1440 × 900, re-captured at 04:35 for round 6)",
+              "'5 work tracks · 5 reporting · 2 quiet past their stall rule · 4 questions block a rung · questions not reported on "
+              "1 track'. No switcher and no review bar under the table: B and C are retired (the capture measured 0 switchers, "
+              "a 0 px bar and no sideways scroll). Needs-you cells: kinsim '1 blocking · 3 open', rig '2 blocking · 6 open', "
+              "grasping '0 blocking · 7 open', detection '1 blocking · 3 open', pyblocks 'not reported'.")
+        + "</div>" + '<div class="g2">'
         + fig(str(MEDIA / "verify-4" / "v4-1440-home-rest.png"), "Home, round 3 (1440 × 900)",
               f"'{home_summary}'. Columns: Status (state word + clamped detail), Progress (north star + sparkline), "
               "Current rung → next (the loop's own rung; Pyblocks has none and says 'latest wave … · no roadmap declared'), Last moved "
               "(one line, ellipsis when cut, 'stale' past the 24 h stall rule), Needs you ('0 blocking · 7 open' for grasping; "
-              "'not reported' when unknown, never 0). The pill sits in the review bar under the table. CAN 12 and CAN 16 are not on this page.")
-        + "</div>" + '<div class="g2">'
+              "'not reported' when unknown, never 0). The A · B · C pill in the review bar under the table is retired since round 6. CAN 12 and CAN 16 are not on this page.")
         + fig(str(MEDIA / "verify-4" / "v4-1280-home-rest.png"), "Home at 1280 × 800",
               "The last-moved labels cut with a visible '…' ('kinsim_eve…') and carry the whole name on hover; nothing runs out of its cell.")
+        + "</div>" + '<div class="g1">'
         + fig("01-home.webp", "Home at the first drive (20:55), for comparison",
               "Grasping '6 / 10' and '7 blocking', '11 open' on kinsim and rig, three switcher buttons over the corner.")
         + "</div>" + home_rows()
@@ -1067,8 +1211,12 @@ def build() -> str:
                      f"{gt['needs_you_count']['blocking']} blocking · {gt['needs_you_count']['open']} open. "
                      f"{len(gt['kpis'])} KPIs × {len(gt['kpis'][0]['values'])} iterations in the projection now; "
                      "the status word wraps inside its column instead of printing over the Progress number.")
+    kinsim_now = fig(str(MEDIA / "r6-report" / "r6-1440-kinsim.png"), f"{TRACKS['kinsim']['title']} · track page (now, 1440 × 900)",
+                     "Re-captured at 04:35 for round 6: no switcher, no review bar. 'Between waves · wave 4 closed 10-04 17:55 PDT', "
+                     "'Needs you · 1 blocking · 3 open →', the purpose, then Key KPIs: 10 KPIs × 5 waves, W4 emphasised, north star "
+                     "19 / 62 rungs green or done (+15 since start). BT2's 37.3 % → 41.8 % is in the warn colour because the ruler changed.")
     pages = '<div class="g2">' + "".join(
-        grasp_page if tid == "grasping" else
+        grasp_page if tid == "grasping" else kinsim_now if tid == "kinsim" else
         fig(f"02-track-{tid}.webp", f"{TRACKS[tid]['title']} · track page",
             f"State: {TRACK_PAGE[tid]['state'].splitlines()[0]}. "
             f"{(TRACK_PAGE[tid]['needs'] or '').replace(' →', '')}. "
@@ -1209,17 +1357,18 @@ def build() -> str:
 <body><div class="wrap">
 
 <header class="top">
-  <div class="date">2026-10-05 · round 5: after Codex audit round 2, re-verified by verify-6</div>
+  <div class="date">2026-10-05 · round 6: verify-6's leftovers closed and re-measured by verify-7, before Codex round 3</div>
   <h1>Vibe Tracks: your five work tracks, live</h1>
-  <p class="verdict">{esc(AUDIT2['auditor'])} failed round 2 at {esc(AUDIT2['audited_sha'])} with {len(AUDIT2_PARTLY)} round-1 findings
-  only partly fixed and {len(AUDIT2_ROWS)} new ones ({SEV2_LINE}). All {N_IN_SCOPE} are now fixed and independently re-probed, each with a
-  test that fails on {esc(AUDIT2['audited_sha'])}; grasping still reads {G_STAR['value']:g} / {G_STAR['of']}, the bench's own verdict. Still
-  open: 6 item and iteration pages scroll sideways at 390 px with Clank's panel open, /media links are not bound to a revision, and
-  variants B and C keep blue. Codex round 3 runs next; nothing here is Codex-approved yet.</p>
+  <p class="verdict">verify-6's leftovers are closed: {R6_PASS} of {len(R6_ITEMS)} re-measured by verify-7, with the docs partly.
+  /media links answer only for the revision on screen, 0 of 698 pages scroll sideways at 390 px with Clank's panel open or closed,
+  and variants B and C are gone at your pick of A (recoverable from git); grasping still reads {G_STAR['value']:g} / {G_STAR['of']}, the
+  bench's own verdict. Still open: /projection is read 4 times per first load, the real-and-sim video pair shows dead players on a
+  409, and grasping's gallery media always 404. Codex round 3 runs next; nothing here is Codex-approved yet.</p>
   <p class="built">Built against the projection the backend served at {esc(gen)}, with the bench's own gallery run the same minute in its
-  own venv ({ORACLE_NOW['n_runs']} ledger rows, {len(ORACLE_NOW['beaten'])} beaten: they agree). Tree: b53567e plus the round-2 fixes, uncommitted, in
-  /home/bam/vibetracks-dashboard. verify-6, a measure-only pass by a separate Claude agent, re-probed all {N_IN_SCOPE} round-2 items: pytest
-  {esc(AUDIT2['checks']['pytest'])}, tsc {esc(AUDIT2['checks']['tsc'])}.
+  own venv ({ORACLE_NOW['n_runs']} ledger rows, {len(ORACLE_NOW['beaten'])} beaten: they agree). Tree: d579e39 (the round-2 fixes, committed)
+  plus round 6, uncommitted, in /home/bam/vibetracks-dashboard. verify-7, a measure-only pass by a separate Claude agent, re-measured
+  round 6's six items: pytest {esc(R6['checks']['pytest'])}, backend {esc(R6['checks']['backend'])}, tsc {esc(R6['checks']['tsc'])}. Home and
+  kinsim's track page were re-captured at 04:35; older stills show the switcher they were taken with.
   {sum(c["match"] for c in CHECKS)} of {len(CHECKS)} KPI values matched their loops' own files at the first drive (the grasping ones have moved
   since, as its ledger grew). Nothing committed. This page is over the desktop preview's size cap, so open it in the browser. The
   Needs-you page has its own report: <code>{esc(NEEDS_REPORT)}</code>.</p>
@@ -1227,17 +1376,17 @@ def build() -> str:
 </header>
 
 <nav class="toc" aria-label="Sections">
-  <a href="#audit">Audit</a><a href="#grasping">Grasping</a><a href="#watch">Watch</a><a href="#fixwave">Fix waves</a><a href="#home">Home</a><a href="#pages">Track pages</a><a href="#drill">Drill-down</a>
+  <a href="#audit">This round</a><a href="#grasping">Grasping</a><a href="#watch">Watch</a><a href="#fixwave">Fix waves</a><a href="#home">Home</a><a href="#pages">Track pages</a><a href="#drill">Drill-down</a>
   <a href="#tracks">Per track</a><a href="#checks">Numbers checked</a><a href="#rename">Rename</a><a href="#live">Live vs stale</a>
   <a href="#issues">Issues</a><a href="#decide">Decide</a>
 </nav>
 
-{section("audit", "Independent audit", "", audit2_html(), 1)}
+{section("audit", "This round, and the independent audit", "", round6_html(), 1)}
 {section("grasping", "Grasping's north star is the bench's own verdict, and it moves with the ledger", "Round 3's headline correction, re-read now: same rules, more runs.", grasping_html(), 2)}
 {section("watch", "Watch first", "One recorded walk through the real app: pick a track, read its KPIs, open the roadmap section, go back, open the rig and CAN 16, rename a track. Recorded after fix wave 1, before round 3: its grasping 6 / 10 is the old rule copy's, not today's bench verdict.", hero, 3)}
-{section("fixwave", "What changed in the fix waves", "Each finding, re-measured independently after the lanes reported done (a-i in fix wave 1, b and j in fix wave 2, k-n in fix wave 3, o-t in round 3). The verifiers did not write the fixes.", fw, 4)}
+{section("fixwave", "What changed in the fix waves", "Each finding, re-measured independently after the lanes reported done (a-i in fix wave 1, b and j in fix wave 2, k-n in fix wave 3, o-t in round 3). The verifiers did not write the fixes. The A · B · C switcher these stills show was retired in round 6.", fw, 4)}
 {section("home", "Home: the work tracks", "One calm row per top-level track, in registry priority order. It adapts to however many track notes exist, so a sixth track is one new note.", home, 5)}
-{section("pages", "Each track page", "Title (renamable) → one state line → Needs you → purpose → Key KPIs → Roadmap. The rig adds its deployments under the roadmap. Grasping's capture is round 3's; the others are from the first drive, and their Needs-you numbers predate the one-source fix.", pages, 6)}
+{section("pages", "Each track page", "Title (renamable) → one state line → Needs you → purpose → Key KPIs → Roadmap. The rig adds its deployments under the roadmap. Kinsim's capture is this round's; grasping's is round 3's; the others are from the first drive, and their Needs-you numbers predate the one-source fix.", pages, 6)}
 {section("drill", "Drilling in: KPIs, roadmap, needs, evidence", "Kinsim end to end, then the rig's deployments.", drill, 7)}
 {section("tracks", "Per track: sources, freshness, KPIs, roadmap, gaps", f"Read from the projection the backend served at {esc(gen)} (<code>{esc(PROJ_PATH.name)}</code>). File times are local, with their zone.", track_table(), 8)}
 {section("checks", "Numbers checked against the source files", "Each value recomputed by a separate script (<code>crosscheck.py</code> in the media folder) straight from the loop's own files, not from the adapter, then compared with what the dashboard served at the first drive. 'Projection now' is what the projection used for this page shows; it is not re-derived from source. Grasping's north star is checked against the bench itself in the top section.", checks_table(), 9)}
@@ -1247,7 +1396,8 @@ def build() -> str:
 
 <section id="decide">
   <h2>Decision surface</h2>
-  <div class="decide">{DECISION_R5}</div>
+  <div class="decide">{DECISION_R6}</div>
+  <details class="raw"><summary>Round 5's decision packet, after Codex round 2 (superseded: its siblings and 390 px pages are closed)</summary><div class="decide">{DECISION_R5}</div></details>
   <details class="raw"><summary>Round 4's decision packet, after Codex round 1 (superseded)</summary><div class="decide">{DECISION}</div></details>
   {FB.ui(REPORT_NAME, noun="section", total=12)}
 </section>

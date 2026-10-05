@@ -230,6 +230,28 @@ export function inlineExact(text: string): string {
   return /[\r\n]/.test(text) || markdownIsLossy(text) ? codeSpan(JSON.stringify(text)) : text
 }
 
+/**
+ * True when loop text set on one Markdown line (a heading, the answer line) may not parse back as the same characters:
+ * edge whitespace (a heading drops it, and a line's ends are trimmed), a character Markdown may read as markup
+ * (emphasis, code, links, raw HTML, entities, escapes, strikethrough), or a heading's closing `#` run.
+ * WHY conservative: a twin too many costs one extra line; a twin too few loses what Zach reviewed. The source line
+ * itself always keeps every character (never trimmed, never escaped).
+ */
+export function inlineIsLossy(text: string): boolean {
+  return text !== text.trim() || /[\\`*_[\]<>&~]/.test(text) || /(^|\s)#+$/.test(text)
+}
+
+/**
+ * The `exact <label>: "<JSON>"` twin for loop text on a Markdown line, or [] when the line already carries it exactly.
+ * WHY the same rule as notes and option words (verifier, 2026-10-05): an item title with edge spaces lost them in the
+ * parsed heading, exactly the loss the `exact:` twin already repairs for a note and an option's words. inlineExact()
+ * already shows a line ending or a CR/NUL as JSON on the line itself, so those need no twin.
+ */
+export function inlineTwinLines(text: string, label: string): string[] {
+  if (/[\r\n]/.test(text) || markdownIsLossy(text)) return []
+  return inlineIsLossy(text) ? [exactLine(text, label)] : []
+}
+
 // ------------------------------------------------------------------------------------------- stored form
 
 /** A stored entry as a draft, or null. The store's reader; pure so answers.check.mjs runs it. */

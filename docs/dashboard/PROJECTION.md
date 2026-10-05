@@ -151,12 +151,26 @@ One JSON document is everything the dashboard shows. The backend builds it **liv
 
 ## Media
 
-`media[<id>] = {id, kind: "video"|"html"|"image"|"text", label, path, mime, bytes}`. `text` is an audit write-up (markdown served as plain text). The backend streams a file only when its id is in this map, its path is absolute, its suffix is servable (`.mp4 .webm .html .png .jpg .jpeg .webp .gif .svg .md .txt .json`) and it is a regular file. Everything else is a 404. Videos support HTTP Range so `<video>` seeks. The adapter lists a file only if it exists when the projection is built.
+`media[<id>] = {id, kind: "video"|"html"|"image"|"text", label, path, mime, bytes}`. `text` is an audit write-up (markdown served as plain text). The adapter lists a file only if it exists when the projection is built. Videos support HTTP Range so `<video>` seeks.
+
+**Every `/projection` answer carries `media_rev`**, added by the backend as the object's last member (a stored `projection.json` is otherwise served byte for byte). It is a digest of every media id with its listed `path` and the canonical file that path resolved to (`os.path.realpath`) when that answer was built, so polling an unchanged projection gives the same revision and the same URLs. The backend keeps the targets recorded under each of the last 64 revisions (`MEDIA_REVISIONS_KEPT`, least recently used dropped first).
+
+A media URL is `/media/<id>?rev=<media_rev>` (`shared/api.ts` `mediaUrl`). The backend answers it only from the targets recorded under that revision, never from a later load:
+
+| request | answer |
+|---|---|
+| no `rev`, or a revision the backend does not hold (evicted, or the backend restarted) | 409 `…; reload` |
+| an id that revision did not list, a bad id spelling, a listed path that is not absolute, has a `..` part or an unservable suffix, an entry that did not resolve to a file when recorded, a file that is gone | 404 |
+| the listed path now resolves to a different file than the one recorded (a symlink retargeted) | 409 `…; reload` |
+| the recorded file's own suffix is not servable (`.mp4 .webm .html .png .jpg .jpeg .webp .gif .svg .md .txt .json`) | 403 |
+| otherwise | the recorded canonical file, opened with `vibetracks/safe_open.py` `open_no_symlinks` (a symlink at ANY component at open time is 403), regular files only |
+
+WHY (audit 2026-10-05 round 2, sibling of finding 1): the live projection recomputed its allowlist on any `/projection` load, so another tab or a poll re-authorised a URL minted before an alias was retargeted. On a 409 `MediaView` shows "This changed since you opened it: reload" in place of the player and its "Open in new tab" link (the same line the needs evidence link shows); the reload re-reads `/projection`, and it never retries with a newer revision on its own.
 
 ## `Link` and `Provenance`
 
 - `Link = {label, kind: "media"|"path"|"command", media?: id, value?: string}`. A `media` link opens through the allowlist; `path` and `command` are shown as text to copy.
-- Serving a `media` id (and a `/needs/evidence` entry) records, when the allowlist is built, the file its path resolves to (`os.path.realpath`). At serve time the path is resolved again: a different file (a symlink retargeted after listing) or a resolved file whose own suffix is not served answers 403, and the canonical file is what gets opened (`O_NOFOLLOW`), never the alias.
+- Serving a `media` id or a `/needs/evidence` entry opens the canonical file recorded when the reviewed allowlist was built (`os.path.realpath`), never the alias, through `vibetracks/safe_open.py` `open_no_symlinks`: every component is opened with `O_NOFOLLOW` relative to its parent, so a symlink swapped in at any component between the check and the open is 403, and only a regular file is served. Both are bound to a revision: a media URL carries `rev` (see Media), and a `/needs/evidence` URL is `/needs/evidence?track=&item=&eid=&rev=`, where `eid` is a hash of the item id and the entry as written (never a list index) and `rev` is the document's `evidence_rev`, a hash over every entry with its recorded target. The route rebuilds the document and answers 409 (`the document changed; reload`) when its `evidence_rev` differs, so a reordered, rewritten or retargeted entry is never served under an older link; then 404 for an unknown `eid` or a target that is gone, 415 for an unservable listed suffix, 403 when the recorded target's own suffix is not served, 413 over the size cap.
 - `Provenance = {snapshot, pointer, source, derived}`. `pointer` is a JSON pointer into the snapshot (`*` means every element); `source` is the live file the snapshot block names; `derived` says how a number was computed when it is not a plain read.
 
 ## The BAM adapter (`bam_loops`)

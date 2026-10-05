@@ -302,7 +302,7 @@ class SafeOpenTest(unittest.TestCase):
 
 
 class MediaSymlinkTest(unittest.TestCase):
-    """GET /media/<id> on the backend serves the canonical file recorded when the allowlist was built, or 403."""
+    """GET /media/<id>?rev= on the backend serves the canonical file recorded under that revision, or refuses."""
 
     def setUp(self) -> None:
         self.tmp = tempfile.TemporaryDirectory()
@@ -340,19 +340,30 @@ class MediaSymlinkTest(unittest.TestCase):
         finally:
             conn.close()
 
-    def test_a_listed_symlink_is_served_from_its_canonical_target(self) -> None:
-        self.assertEqual(self.get("/media/clip"), (200, b"listed video"))
+    def media(self, media_id: str, rev: str | None = None) -> tuple[int, bytes]:
+        """``/media/<id>`` under ``rev``, by default the revision a fresh /projection answer hands the page."""
+        if rev is None:
+            status, body = self.get("/projection")
+            self.assertEqual(status, 200)
+            rev = json.loads(body)["media_rev"]
+        return self.get(f"/media/{media_id}?rev={rev}")
 
-    def test_a_symlink_retargeted_after_listing_is_403(self) -> None:
-        self.assertEqual(self.get("/media/clip")[0], 200)  # listed and recorded
+    def test_a_listed_symlink_is_served_from_its_canonical_target(self) -> None:
+        self.assertEqual(self.media("clip"), (200, b"listed video"))
+
+    def test_a_symlink_retargeted_after_listing_is_refused_with_reload(self) -> None:
+        # 409, the needs evidence link's answer: the page offers "This changed since you opened it: reload".
+        status, body = self.get("/projection")
+        rev = json.loads(body)["media_rev"]
+        self.assertEqual(self.media("clip", rev)[0], 200)  # listed and recorded
         self.link.unlink()
         self.link.symlink_to(self.other)
-        status, body = self.get("/media/clip")
-        self.assertEqual(status, 403)
+        status, body = self.media("clip", rev)
+        self.assertEqual(status, 409)
         self.assertNotIn(b"unlisted", body)
 
     def test_a_symlink_to_a_disallowed_suffix_is_403(self) -> None:
-        status, body = self.get("/media/bad")
+        status, body = self.media("bad")
         self.assertEqual(status, 403)
         self.assertNotIn(b"PRIVATE", body)
 
@@ -363,13 +374,15 @@ class MediaSymlinkTest(unittest.TestCase):
         (self.root / "elsewhere" / "clip.mp4").write_bytes(b"SUBSTITUTED video")
         media = {"clip": {"id": "clip", "kind": "video", "label": "c", "path": str(self.root / "dir" / "clip.mp4")}}
         (self.home / "projection.json").write_text(json.dumps({"tracks": [], "media": media}), encoding="utf-8")
-        self.assertEqual(self.get("/media/clip"), (200, b"listed video"))
+        status, body = self.get("/projection")
+        rev = json.loads(body)["media_rev"]
+        self.assertEqual(self.media("clip", rev), (200, b"listed video"))
         swap = _ParentSwap(self.root / "dir", self.root / "elsewhere")
         real_lookup = server.Projection.media_lookup
         with mock.patch.object(server.Projection, "media_lookup",
-                               lambda projection, media_id: swap.arm(real_lookup(projection, media_id))), \
+                               lambda projection, media_id, revision: swap.arm(real_lookup(projection, media_id, revision))), \
                 mock.patch("os.open", side_effect=swap.open):
-            status, body = self.get("/media/clip")
+            status, body = self.media("clip", rev)
         self.assertTrue(swap.swapped, "the hook must have swapped the parent between the check and the open")
         self.assertEqual(status, 403, body)
         self.assertNotIn(b"SUBSTITUTED", body)

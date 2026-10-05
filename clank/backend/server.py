@@ -5,7 +5,8 @@
 
 Routes (Clank proxies ``/api/plugins/vibetracks/<rest>`` here, clank-workbench CLAUDE.md §2.3):
 
-- ``GET /health``            -> ``{ok, live, registry, data_home, projection, projection_exists, media}``
+- ``GET /health``            -> ``{ok, live, registry, data_home, projection, projection_exists, media, media_rev,
+  media_revisions_kept}``
 - ``GET /projection``        -> LIVE when the workspace's ``.vtdash`` names a work-track registry: built on each
   request from the registry by ``vibetracks.dashboard.build.LiveBuilder`` (adapters rerun only when a note, an
   adapter module or a declared source file changed); ``?rebuild=1`` drops that cache first. Without a registry,
@@ -16,14 +17,18 @@ Routes (Clank proxies ``/api/plugins/vibetracks/<rest>`` here, clank-workbench C
   edits only the note's ``vibe-title`` value (``registry.rename_title``); ``vibe-id`` never changes. 400 for a bad
   title (empty, whitespace only, or containing a line break; never trimmed: it is stored exactly as typed) or body, 404 for an unknown id. Answers
   ``{ok, id, title, revision}`` with the note's new revision.
-- ``GET /media/<id>``        -> one file named by ``projection.media[<id>]``, streamed with Range support (so a
-  ``<video>`` seeks) and its real content type. Anything else is 404.
+- ``GET /media/<id>?rev=<media_rev>`` -> one file named by ``media[<id>]`` of the projection that answered with that
+  ``media_rev``, streamed with Range support (so a ``<video>`` seeks) and its real content type. Every /projection
+  answer carries ``media_rev``; the backend keeps the canonical targets recorded under each of the last
+  ``MEDIA_REVISIONS_KEPT`` revisions. A missing, unknown or evicted ``rev`` is 409 (reload), as is a listed path that
+  now resolves elsewhere; an id that revision did not list is 404.
 - ``GET <mount prefix>/...`` -> the callable ``mounts.MOUNTS`` names for that prefix (backend/mounts.py has the
   handler signature), imported lazily; 503 when its import fails, 501 for any method but GET.
 
 The rename is the only write: every other POST, and every PUT, PATCH and DELETE, answers 501. WHY an allowlist built
 from the projection and never a path parameter: the page names media by id only, so a crafted URL cannot reach a file
-the projection does not list (BRIEF G3, local-only).
+the projection does not list (BRIEF G3, local-only); and by revision, so a URL reaches only the files listed in the
+projection it came from.
 
 Data home: ``--data-home`` > ``$VIBETRACKS_DASHBOARD_HOME`` > the ``data_home`` of the workspace's ``.vtdash`` files
 (when they agree) > ``dashboard_data_home`` from vibetracks/sources.py (``~/.local/share/vibetracks/dashboard``).
@@ -32,6 +37,7 @@ Data home: ``--data-home`` > ``$VIBETRACKS_DASHBOARD_HOME`` > the ``data_home`` 
 from __future__ import annotations
 
 import argparse
+import hashlib
 import importlib
 import importlib.util
 import json
@@ -42,6 +48,7 @@ import stat
 import subprocess
 import sys
 import threading
+from collections import OrderedDict
 from http import HTTPStatus
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
@@ -109,6 +116,10 @@ SERVABLE = {
     ".json": "application/json",
 }
 CHUNK = 1 << 16
+#: How many media revisions keep their recorded targets. A page open on an older one is told to reload (409).
+MEDIA_REVISIONS_KEPT = 64
+#: The key the backend adds to every /projection answer; media URLs carry its value as ``?rev=``.
+MEDIA_REV_KEY = "media_rev"
 
 
 def resolve_data_home(cli: str | None, workspace: str | None, environ: dict[str, str] | os._Environ = os.environ) -> Path:
@@ -201,6 +212,79 @@ def canonical_targets(media: Mapping[str, Any]) -> dict[str, str | None]:
     return targets
 
 
+def media_revision(media: Mapping[str, Any], targets: Mapping[str, str | None]) -> str:
+    """A digest of every media id with its listed path and the canonical target recorded for it.
+
+    WHY a digest of the targets and not a counter: the same allowlist resolving to the same files gives the same
+    revision, so a poll or a second tab that changes nothing leaves every media URL (and a playing video) untouched,
+    while a retargeted alias gives a new revision and a new URL.
+    """
+    rows = []
+    for media_id in sorted(targets):
+        entry = media.get(media_id)
+        listed = entry.get("path") if isinstance(entry, dict) else None
+        rows.append([media_id, listed if isinstance(listed, str) else None, targets[media_id]])
+    raw = json.dumps(rows, ensure_ascii=False, separators=(",", ":"))
+    return hashlib.sha256(raw.encode("utf-8")).hexdigest()[:32]
+
+
+class MediaRevisions:
+    """The canonical targets recorded under each media revision handed out: a bounded LRU, newest last.
+
+    WHY (audit 2026-10-05 round 2, sibling of finding 1): the allowlist used to be "whatever the latest /projection
+    load resolved", so another tab or a poll re-authorised a media URL minted before a symlink was retargeted. A
+    /media request now names its revision and is served only from the targets recorded under it; a revision this
+    backend no longer holds (evicted, or a restart) is never rebuilt from the current state: the page must reload.
+    """
+
+    def __init__(self, limit: int = MEDIA_REVISIONS_KEPT):
+        self.limit = limit
+        self._lock = threading.Lock()
+        self._kept: OrderedDict[str, dict[str, tuple[str | None, str | None]]] = OrderedDict()
+
+    def record(self, media: Mapping[str, Any], targets: Mapping[str, str | None]) -> str:
+        revision = media_revision(media, targets)
+        rows: dict[str, tuple[str | None, str | None]] = {}
+        for media_id, target in targets.items():
+            entry = media.get(media_id)
+            listed = entry.get("path") if isinstance(entry, dict) else None
+            rows[media_id] = (listed if isinstance(listed, str) else None, target)
+        with self._lock:
+            # WHY keep the first record of a revision: equal digests mean equal rows, and the original is the one
+            # every URL carrying this revision was minted against.
+            self._kept.setdefault(revision, rows)
+            self._kept.move_to_end(revision)
+            while len(self._kept) > self.limit:
+                self._kept.popitem(last=False)
+        return revision
+
+    def get(self, revision: str) -> dict[str, tuple[str | None, str | None]] | None:
+        with self._lock:
+            rows = self._kept.get(revision)
+            if rows is not None:
+                self._kept.move_to_end(revision)
+            return rows
+
+    def __len__(self) -> int:
+        with self._lock:
+            return len(self._kept)
+
+
+def with_media_rev(raw: bytes, data: Any, revision: str) -> bytes:
+    """``raw`` with ``"media_rev": revision`` added as the object's LAST member; every other byte is left as stored.
+
+    WHY splice and not ``json.dumps(json.loads(raw))``: projection.json is served as written (no number or string is
+    re-spelled), and a key added last wins in ``JSON.parse`` even if the file already had one of that name.
+    """
+    if not isinstance(data, dict):
+        return raw
+    end = raw.rstrip().rfind(b"}")
+    if end < 0:
+        return raw
+    member = json.dumps(MEDIA_REV_KEY).encode("utf-8") + b":" + json.dumps(revision).encode("utf-8")
+    return raw[:end] + (b"," if data else b"") + member + raw[end:]
+
+
 class Projection:
     """projection.json, re-read when its mtime or size changes; the media allowlist comes from it."""
 
@@ -216,13 +300,16 @@ class Projection:
         self._media: dict[str, dict[str, Any]] = {}
         #: media id -> the canonical file its path resolved to when the allowlist was built (None: not servable then)
         self._targets: dict[str, str | None] = {}
+        #: the media revision of the last projection answered; every answer carries it (``media_rev``)
+        self._rev: str | None = None
+        self.revisions = MediaRevisions()
 
     def load(self) -> bytes | None:
         with self._lock:
             try:
                 info = self.path.stat()
             except FileNotFoundError:
-                self._stamp, self._raw, self._media, self._targets = None, None, {}, {}
+                self._stamp, self._raw, self._media, self._targets, self._rev = None, None, {}, {}, None
                 return None
             stamp = (info.st_mtime_ns, info.st_size)
             if stamp != self._stamp:
@@ -231,36 +318,44 @@ class Projection:
                 media = data.get("media") if isinstance(data, dict) else None
                 self._media = media if isinstance(media, dict) else {}
                 self._targets = canonical_targets(self._media)
-                self._raw, self._stamp = raw, stamp
+                self._rev = self.revisions.record(self._media, self._targets)
+                self._raw, self._stamp = with_media_rev(raw, data, self._rev), stamp
+            else:
+                self.revisions.record(self._media, self._targets)  # the revision on screen stays the newest kept
             return self._raw
 
-    def media(self, media_id: str) -> Path | None:
-        """The canonical file to open for ``media_id``, or None when ``media_lookup`` refuses it."""
+    def media(self, media_id: str, revision: str | None) -> Path | None:
+        """The canonical file to open for ``media_id`` under ``revision``, or None when ``media_lookup`` refuses it."""
 
-        return self.media_lookup(media_id)[0]
+        return self.media_lookup(media_id, revision)[0]
 
-    def media_lookup(self, media_id: str) -> tuple[Path | None, int, str]:
-        """``(canonical file, 200, "")``, or ``(None, status, why)``: 404 for an unknown id, a bad spelling or a
-        file that is gone; 403 when the listed path now resolves somewhere other than the file recorded when the
-        allowlist was built, or when the file it resolves to has a suffix this backend does not serve.
+    def media_lookup(self, media_id: str, revision: str | None) -> tuple[Path | None, int, str]:
+        """``(canonical file, 200, "")``, or ``(None, status, why)``.
 
-        WHY re-resolve and compare (audit 2026-10-04, finding 9): the allowlist is a list of paths, and a listed path
-        that is a symlink can be retargeted after listing; checking only the listed spelling's suffix would then
-        stream whatever the link points at now. The caller opens the returned canonical path, never the alias.
+        Looked up ONLY in the targets recorded under ``revision`` (the ``media_rev`` of the projection the page
+        shows), never in the latest load: 409 when that revision is missing, unknown or evicted, or when the listed
+        path now resolves somewhere other than the file recorded under it (reload; the page then gets a revision
+        that lists what is there now); 404 for an id that revision did not list, a bad spelling, an entry that was
+        not servable when recorded, or a file that is gone; 403 when the recorded file's own suffix is not served.
+
+        WHY re-resolve and compare (audit 2026-10-04, finding 9): a listed path that is a symlink can be retargeted
+        after listing; the caller opens the returned canonical path (recorded, symlink-free), never the alias.
         """
 
         if not MEDIA_ID.match(media_id):
             return None, 404, "unknown media id"
-        self._refresh_media()
-        entry = self._media.get(media_id)
-        if not isinstance(entry, dict) or not isinstance(entry.get("path"), str):
+        rows = self.revisions.get(revision) if isinstance(revision, str) and revision else None
+        if rows is None:
+            return None, 409, "this page's media list is no longer held by the backend; reload"
+        row = rows.get(media_id)
+        if row is None:
             return None, 404, "unknown media id"
-        path = Path(entry["path"])
-        if not path.is_absolute() or ".." in path.parts:
+        listed, recorded = row
+        if listed is None:
             return None, 404, "unknown media id"
-        if path.suffix.lower() not in SERVABLE:
+        path = Path(listed)
+        if not path.is_absolute() or ".." in path.parts or path.suffix.lower() not in SERVABLE:
             return None, 404, "unknown media id"  # an unservable listing is no entry at all, as before
-        recorded = self._targets.get(media_id)
         if recorded is None:
             return None, 404, "the listed file was not a servable file when the projection was built"
         try:
@@ -268,18 +363,15 @@ class Projection:
         except OSError:
             return None, 404, "the listed file is gone"
         if current != recorded:
-            return None, 403, "the listed path now resolves to a different file than the one listed"
-        if Path(current).suffix.lower() not in SERVABLE:
-            return None, 403, f"the listed path resolves to a {Path(current).suffix or 'suffix-less'} file, which is not served"
+            return None, 409, "the listed path now resolves to a different file than when this page loaded; reload"
+        if Path(recorded).suffix.lower() not in SERVABLE:
+            return None, 403, f"the listed path resolves to a {Path(recorded).suffix or 'suffix-less'} file, which is not served"
         try:
-            if not Path(current).is_file():
+            if not Path(recorded).is_file():
                 return None, 404, "not a regular file"
         except OSError:
             return None, 404, "not a regular file"
-        return Path(current), 200, ""
-
-    def _refresh_media(self) -> None:
-        self.load()
+        return Path(recorded), 200, ""
 
 
 class LiveProjection(Projection):
@@ -294,19 +386,15 @@ class LiveProjection(Projection):
 
     def load(self, force: bool = False) -> bytes:
         projection = self.builder.build(force=force)
-        raw = json.dumps(projection, ensure_ascii=False).encode("utf-8")
         with self._lock:
             media = projection.get("media")
             self._media = media if isinstance(media, dict) else {}
             self._targets = canonical_targets(self._media)
+            self._rev = self.revisions.record(self._media, self._targets)
+            # A shallow copy: the builder may hand back its cached dict, which must not gain our key.
+            raw = json.dumps({**projection, MEDIA_REV_KEY: self._rev}, ensure_ascii=False).encode("utf-8")
             self._raw = raw
         return raw
-
-    def _refresh_media(self) -> None:
-        # WHY only the first time: a video seeks with many Range requests, and each must not rebuild the projection;
-        # the page always fetches /projection (which rebuilds) before it asks for a media id from it.
-        if self._raw is None:
-            self.load()
 
 
 def rebuild(home: Path) -> tuple[bool, str]:
@@ -465,6 +553,8 @@ def make_handler(projection: Projection, workspace: Path | None = None):
                     "projection": "live" if projection.live else str(projection.path),
                     "projection_exists": raw is not None,
                     "media": len(projection._media),
+                    "media_rev": projection._rev,
+                    "media_revisions_kept": len(projection.revisions),
                 })
             if path == "/projection":
                 force = parse_qs(url.query).get("rebuild", ["0"])[0] in ("1", "true")
@@ -487,7 +577,8 @@ def make_handler(projection: Projection, workspace: Path | None = None):
                 return self._raw(200, raw, "application/json", head=head)
             if path.startswith("/media/"):
                 media_id = unquote(path[len("/media/"):])
-                file, status, why = projection.media_lookup(media_id)
+                revision = parse_qs(url.query).get("rev", [None])[0]
+                file, status, why = projection.media_lookup(media_id, revision)
                 if file is None:
                     return self._json(status, {"error": why})
                 return self._send_file(file, head)

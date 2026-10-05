@@ -6,7 +6,8 @@
 // Regressions these pin (Codex audit 2026-10-04): finding 1 (a draft outlived a changed question and a settled item,
 // and still exported), finding 7 (notes were trimmed and folded to one line; a note alone exported an unoffered `other`);
 // round 2 (2026-10-05) finding 3 (a lone CR let the note escape its fence, CRLF was unrecoverable on Markdown-only
-// channels, and the option's words were trimmed). 31 of these fail against b53567e's exporter.
+// channels, and the option's words were trimmed). 31 of these fail against b53567e's exporter. Verifier 2026-10-05: an
+// item title's edge spaces were lost in the parsed heading; the `exact title:` checks at the end fail against d579e39.
 
 import { register, createRequire } from 'node:module'
 import { test } from 'node:test'
@@ -341,7 +342,7 @@ function exactTwins(markdown) {
   for (const token of md.parse(markdown, {})) {
     if (token.type !== 'inline') continue
     const kids = token.children ?? []
-    if (kids.length === 2 && kids[0].type === 'text' && /^exact( option words)?: $/.test(kids[0].content) && kids[1].type === 'code_inline') {
+    if (kids.length === 2 && kids[0].type === 'text' && /^exact( option words| title| id| option label| track title)?: $/.test(kids[0].content) && kids[1].type === 'code_inline') {
       twins.push({ label: kids[0].content.slice(0, -2), value: JSON.parse(kids[1].content) })
     }
   }
@@ -490,4 +491,99 @@ test('plain titles and labels are left exactly as written (no code span, no trim
   const result = exporter.exportTrack(makeDoc([item], CHAT), lookup(rules.boundDraft(item, 'use_default', '', NOW)), NOW)
   assert.ok(result.markdown.includes('## T47 ·   Bus *voltage*?  \n'))
   assert.ok(result.markdown.includes('- **Answer:** Let the default apply (use_default)'))
+})
+
+// ------------------------------------------------------------------------------------------- verifier 2026-10-05: titles
+
+/** What a CommonMark reader gets back from a heading or paragraph: its inline text, markup markers dropped. */
+function parsedText(inlineToken) {
+  return (inlineToken.children ?? []).map((child) => (child.type === 'text' || child.type === 'code_inline' ? child.content : child.type === 'softbreak' ? '\n' : '')).join('')
+}
+
+const EDGE_TITLES = {
+  trailing: 'Bus voltage?  ',
+  leading: '  Bus voltage?',
+  both: '  Bus voltage?  ',
+  tab: 'Bus voltage?\t',
+  whitespace_only: '   ',
+  nbsp: 'Bus voltage?\u00a0',
+}
+
+for (const [name, title] of Object.entries(EDGE_TITLES)) {
+  for (const [channelName, channel] of Object.entries(CHANNELS)) {
+    test(`title "${name}" on ${channelName}: the heading keeps it as written, and an exact title twin gives it back`, () => {
+      const item = makeItem({ title })
+      const result = exporter.exportTrack(makeDoc([item], channel), lookup(rules.boundDraft(item, 'use_default', '', NOW)), NOW)
+      assert.deepEqual(result.exported, ['kinsim:T47'])
+      assertContained(result.markdown)
+      // Source level: the heading line holds every character of the title, untrimmed.
+      assert.ok(result.markdown.split('\n').includes(`## T47 · ${title}`), JSON.stringify(result.markdown))
+      // Parse level: still one H2, one answer list, and the twin is the title exactly.
+      const tokens = md.parse(result.markdown, {})
+      assert.equal(tokens.filter((token) => token.type === 'heading_open' && token.tag === 'h2').length, 1)
+      assert.equal(tokens.filter((token) => token.type === 'bullet_list_open').length, 1)
+      assert.deepEqual(exactTwins(result.markdown), [{ label: 'exact title', value: title }])
+    })
+  }
+}
+
+// The oracle: whatever the title, a reader of the parsed copy can recover it exactly, from the heading itself or from
+// its twin; and a title the heading already carries exactly gets no twin.
+const ANY_TITLES = [
+  'Bus voltage for the bench?',
+  'Run slow_step_045deg_slow at 44 V',
+  'Is *this* the gate?',
+  '_why_ not',
+  'Use `uv run` here?',
+  'Link [the report](x.html)?',
+  'a <b>bold</b> ask',
+  'Tom &amp; Jerry',
+  'C:\\path\\to',
+  'Issue #',
+  'Issue #12',
+  '~~struck~~ ask',
+  'two  spaces inside',
+]
+
+test('any title: the parsed heading or its exact title twin gives the title back exactly; plain titles get no twin', () => {
+  for (const title of ANY_TITLES) {
+    const item = makeItem({ title })
+    const result = exporter.exportTrack(makeDoc([item], CHAT), lookup(rules.boundDraft(item, 'use_default', '', NOW)), NOW)
+    assertContained(result.markdown)
+    const tokens = md.parse(result.markdown, {})
+    const h2 = tokens[tokens.findIndex((token) => token.type === 'heading_open' && token.tag === 'h2') + 1]
+    const heading = parsedText(h2)
+    const twins = exactTwins(result.markdown).filter((twin) => twin.label === 'exact title')
+    if (heading === `T47 · ${title}`) {
+      // Carried exactly: a twin would only be noise, and must at least agree.
+      assert.ok(twins.length === 0 || twins[0].value === title, JSON.stringify(title))
+    } else {
+      assert.deepEqual(twins, [{ label: 'exact title', value: title }], `the heading reads ${JSON.stringify(heading)} for ${JSON.stringify(title)}`)
+    }
+  }
+  for (const title of ['Bus voltage for the bench?', 'two  spaces inside', 'Issue #12']) {
+    const item = makeItem({ title })
+    const result = exporter.exportTrack(makeDoc([item], CHAT), lookup(rules.boundDraft(item, 'use_default', '', NOW)), NOW)
+    assert.deepEqual(exactTwins(result.markdown), [], JSON.stringify(title))
+  }
+})
+
+test("an option label or track title Markdown would change gets its twin; the answer list and quote stay intact", () => {
+  const label = '  Keep *waiting*  '
+  const item = makeItem({ options: [option('use_default', label, 'Stay at 40 V.'), ...makeItem().options.slice(2)] })
+  for (const [channelName, channel] of Object.entries(CHANNELS)) {
+    const doc = { ...makeDoc([item], channel), track_title: 'Kinematic_Sim ' }
+    const result = exporter.exportTrack(doc, lookup(rules.boundDraft(item, 'use_default', 'n', NOW)), NOW)
+    assertContained(result.markdown)
+    assert.ok(result.markdown.includes(`- **Answer:** ${label} (use_default)`), channelName)
+    const twins = exactTwins(result.markdown)
+    assert.deepEqual(twins.find((twin) => twin.label === 'exact option label'), { label: 'exact option label', value: label }, channelName)
+    assert.deepEqual(twins.find((twin) => twin.label === 'exact track title'), { label: 'exact track title', value: 'Kinematic_Sim ' }, channelName)
+    const tokens = md.parse(result.markdown, {})
+    assert.equal(tokens.filter((token) => token.type === 'bullet_list_open').length, 1, channelName)
+    assert.equal(tokens.filter((token) => token.type === 'blockquote_open').length, 1, channelName)
+    assert.equal(fences(result.markdown).find((token) => token.info === 'text').content, 'n\n', channelName)
+    const comment = new MarkdownIt({ html: true }).parse(result.markdown, {}).find((token) => token.type === 'html_block')
+    assert.ok(comment && comment.content.startsWith('<!-- vibetracks-needs/1'), channelName)
+  }
 })

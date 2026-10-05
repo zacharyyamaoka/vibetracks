@@ -95,7 +95,7 @@ Helpers: `openAsks(doc)` (blocking + no default + pending), `itemsInGroup(doc, g
 | **Zach's note is never altered** | store and export it exactly as typed: never `trim()` it for storage or display (`trim()` only tests for blankness), never fold its lines. Show it with `white-space: pre-wrap` |
 | `<EvidenceLink backend doc item index projection? />` | one evidence entry: opens through the projection's media route when the path is a known media file, else through `/needs/evidence` (which serves only paths the backend itself extracted from that item); a directory or unservable file is shown as its path with a copy button, never as a dead link. A `/needs/evidence` link checks before it opens: when the backend answers 409 it shows "This changed since you opened it: reload" beside the link (the reload button re-reads /needs through the mounted `useNeeds`); it never retries with a newer revision on its own. Another refusal (403, 404) shows "Not opened: <the backend's reason>" |
 | `evidenceHref(...)`, `evidenceUrl(...)`, `evidencePath(doc, item, index)` | the href alone; the backend path `/needs/evidence?track&item&eid&rev` (null for a URL, a directory, or an entry without `eid`) |
-| **`/needs/evidence` is bound to what Zach reviewed** | the URL carries `track`, `item`, `eid` and `rev` (the doc's `evidence_rev`), never an index. The backend rebuilds the doc: a different `evidence_rev` answers **409** `{"error": "the document changed; reload"}` and serves nothing; otherwise it looks the entry up by `eid` and opens only its recorded `target`, through `vibetracks.safe_open.open_no_symlinks` (a symlink at ANY component of the path refuses with 403, not only the last; the `/media/<id>` route opens its files the same way). `requestNeedsReload()` (api.ts) is the reload |
+| **`/needs/evidence` is bound to what Zach reviewed** | the URL carries `track`, `item`, `eid` and `rev` (the doc's `evidence_rev`), never an index. The backend rebuilds the doc: a different `evidence_rev` answers **409** `{"error": "the document changed; reload"}` and serves nothing; otherwise it looks the entry up by `eid` and opens only its recorded `target`, through `vibetracks.safe_open.open_no_symlinks` (a symlink at ANY component of the path refuses with 403, not only the last; the `/media/<id>?rev=` route opens its files the same way, and is bound to the projection's `media_rev` as this route is to `evidence_rev`: PROJECTION.md, Media). `requestNeedsReload()` (api.ts) is the reload |
 | `headerCounts(doc)`, `headerSummary(docs)`, `notReportedText(doc)` | the header's two numbers and their disjoint parts, from needs.py; `null` / `notReported` for a track that reports none (see the counts contract above) |
 | `useFitToScroller(rootRef, reserve?, min?)` | fits your page to the rest of `.vt-scroll` so your panes scroll inside it, less `reserve` (default `CHOOSER_RESERVE`, 56 px) while the pill floats, and only `DOCKED_RESERVE` (12 px) once it is docked in the review bar. Give the root the class `vt-needs-framed` too; the shell then drops its own bottom padding. N2, N3, N4 and N5 use it. Use it for any bar that must stay in view (see CSS) |
 | `hoverTime(iso)` | a stamp for a `title` attribute: `formatLocal(iso, {year: true})` ("2026-10-03 21:25 PDT"), or undefined. Never put a raw ISO stamp in a title or in text |
@@ -140,6 +140,30 @@ Every other track (rig's `chat_paste`, detection's `note_paste`, …) gets no fe
 **The note** is a fenced block (info `text`) inside the `- **Note:**` item, its fence one backtick longer than the longest backtick run in the note (at least three), every line indented by the item's two spaces. CommonMark strips that indent again, so the block's literal is exactly the note plus one final newline: multiline text, pasted code fences and leading or trailing whitespace all survive, and nothing in the note can end the block or restyle the markdown around it. In the jsonl row, `note` is the raw string.
 
 **A note with no option** (an item that offers no "Something else") is never exported as `other`. On a markdown-only channel (`chat_paste`, `note_paste`) it goes out as `- **Answer:** no option chosen (note only)` plus its note; on a channel whose rows need a choice (`bam-triage-answer/1`: needs.py reads only rows whose choice is one of the three) it is left out and named: "note only, this loop needs an option".
+
+**`exact:` lines.** Markdown cannot give every text back as typed: CommonMark turns a CR or CRLF into LF and NUL into U+FFFD, a lone surrogate cannot be written as UTF-8, and a quote drops its text's leading and trailing whitespace. When that would happen, the copy adds one line that carries the text losslessly: the label, then the text as a JSON string in a code span (no Markdown reader unescapes inside one), so `JSON.parse` of the span gives back exactly what was typed or written (`exactLine`, answerRules.ts). Ordinary answers carry none.
+
+- `exact option words:` follows the option's quote when its words hold a CR, NUL or lone surrogate, or have leading or trailing whitespace. It sits after a blank line, so it cannot be read as part of the loop's quoted words. Every channel, kinsim included.
+- `exact:` follows the note's fenced block when the note holds a CR, NUL or lone surrogate (the fence keeps edge whitespace already). Only where no JSONL row carries the note, which means the markdown-only channels (`chat_paste`, `note_paste`). On `bam-triage-answer/1` the row's `note` is the raw string, so there is no `exact:` line.
+
+The real exporter's output for a `chat_paste` answer whose option words start with two spaces, contain a CRLF and end with two spaces, and whose note contains a CRLF:
+
+````markdown
+## T2 · Flash diff on controller 192551cb (plan D2)
+- **Answer:** Go with the recommendation (accept_recommendation)
+  >   Approve the diff.
+  > Then read it back.  
+
+  exact option words: `"  Approve the diff.\r\nThen read it back.  "`
+- **Note:**
+  ```text
+  ok, but log
+  the readback
+  ```
+  exact: `"ok, but log\r\nthe readback"`
+````
+
+A reader that needs the exact text takes the code span after `exact option words:` or `exact:` and `JSON.parse`s it. The quote and the fenced block stay the readable form. A heading's title or an answer label that holds a line break or a character Markdown cannot carry is written inline the same way, as a JSON string in a code span (`inlineExact`), so it cannot break its line.
 
 ## CSS
 
