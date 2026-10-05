@@ -72,8 +72,9 @@ class RealRegistryTest(unittest.TestCase):
         self.assertEqual(by_id["rig"].children, ["can12", "can16"])
         self.assertEqual(by_id["kinsim"].roadmap, {"projector": "kinsim", "sources": ["kinsim_curriculum_dir", "kinsim_home"]})
         self.assertEqual(by_id["rig"].roadmap["projector"], "rig")
-        for track_id in ("grasping", "detection", "pyblocks"):
-            self.assertIsNone(by_id[track_id].roadmap)
+        self.assertEqual(by_id["grasping"].roadmap, {"projector": "grasping", "sources": ["grasp_bench_dir"]})
+        self.assertEqual(by_id["detection"].roadmap, {"projector": "detection", "sources": ["detection_dir"]})
+        self.assertIsNone(by_id["pyblocks"].roadmap)
         for track in tracks:
             self.assertRegex(track.id, registry.TRACK_ID)
             self.assertEqual(track.status, "running")

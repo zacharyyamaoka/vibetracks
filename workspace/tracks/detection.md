@@ -7,7 +7,9 @@ vibe-priority: 4
 vibe-owner: hyperspectral planning session
 vibe-adapter: detection
 vibe-sources: [detection_queue_log]
-vibe-roadmap: null
+vibe-roadmap:
+  projector: detection
+  sources: [detection_dir]
 vibe-children: []
 ---
 

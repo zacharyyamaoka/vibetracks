@@ -7,7 +7,9 @@ vibe-priority: 3
 vibe-owner: grasp-bench session
 vibe-adapter: grasping
 vibe-sources: [grasping_ledger, grasping_curriculum]
-vibe-roadmap: null
+vibe-roadmap:
+  projector: grasping
+  sources: [grasp_bench_dir]
 vibe-children: []
 ---
 

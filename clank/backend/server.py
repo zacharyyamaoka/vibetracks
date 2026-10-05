@@ -518,6 +518,10 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--workspace")
     parser.add_argument("--data-home")
     args = parser.parse_args(argv)
+    if args.workspace:
+        # WHY: mounted handlers (the roadmap projector) find the registry through this, not the process cwd,
+        # which Clank happens to set to the workspace but nothing else guarantees.
+        os.environ["VIBETRACKS_WORKSPACE"] = args.workspace
     home = resolve_data_home(args.data_home, args.workspace)
     server = serve(args.port, home, workspace=args.workspace)
     # Exit on SIGTERM (clank-workbench CLAUDE.md §2.4): the host stops the process group this way.
