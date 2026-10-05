@@ -141,8 +141,8 @@ def findings(path: Path) -> tuple[list[dict], str]:
             fid, severity, domain, rest = match.groups()
             text = re.sub(r"\[[^\]]+\]\([^)]+\)(, )?", "", rest).lstrip(" —").strip()
             out.append({"id": fid, "severity": severity, "domain": domain, "headline": re.split(r"(?<=\.)\s", text, maxsplit=1)[0]})
-        elif line.startswith("**VERDICT"):
-            verdict = line.strip("*").replace("VERDICT: ", "")
+        elif line.strip().strip("*").startswith("VERDICT:"):  # bold or plain: the judge writes both
+            verdict = line.strip().strip("*").replace("VERDICT: ", "").strip("*").strip()
     return out, verdict
 
 
@@ -217,11 +217,48 @@ def audit_round(n: int, prefix: str, commits: dict[str, list[str]]) -> str:
     by_hand = [f["id"] for f in items if f["id"] not in commits and f["id"] in UNNAMED_FIXES]
     state = ("every finding has a fix commit" if not unfixed else f"no fix commit for {', '.join(unfixed)}") + (
         f" ({', '.join(by_hand)} by a commit that does not name it; see its row)" if by_hand else "")
-    return (f'<h3>Round {n}: {esc(verdict)} → fixed</h3>'
+    # WHY "PASS" is not followed by "→ fixed": a passing round had no blocker or major; its minors are listed with their
+    # fix commits like any other finding, but the heading must say what the judge said.
+    heading = f'Round {n}: {esc(verdict)}' + ('' if verdict.startswith('PASS') else ' → fixed')
+    if not items:
+        return (f'<h3>{heading}</h3><p class="small dim">No findings. Audit file: <code class="path">{esc(path)}</code></p>')
+    return (f'<h3>{heading}</h3>'
             f'<p class="small dim">{len(items)} findings ({prefix}01–{prefix}{len(items):02d}); {state}. '
             f'Audit file: <code class="path">{esc(path)}</code></p>'
             f'<div class="tablewrap"><table class="grid"><thead><tr><th>id</th><th>severity</th><th>finding</th><th>fixed in</th></tr></thead>'
             f'<tbody>{rows}</tbody></table></div>')
+
+
+DECISIONS = """
+<h3>Done and proved</h3>
+<ul class="small">
+  <li>The roadmap is a live widget in variant A's track page for kinsim, rig, grasping and detection, read from each loop's current
+      files through the work-track registry; pyblocks shows “No roadmap reported yet.” The recordings above measure every step.</li>
+  <li>Freshness is honest end to end: a served fallback says “Not current: &lt;reason&gt;”, a failed refresh says so too, and the
+      dashboard's Reload re-projects (measured above).</li>
+  <li>Grasping's numbers moved from 2 green to 0 proven / 5 claimed on purpose: 60 of its 62 ledger rows never recorded their
+      environment options, and the scored code changed after the winning runs. That is the evidence rule working, not a regression.</li>
+  <li>Tests on the final head: full repo suite 334 OK, plugin backend 23 OK, widget 158 passed with a clean type check, projector
+      322 passed (1 bam_ws-only skip).</li>
+</ul>
+<h3>Needs you (each with the default if you say nothing)</h3>
+<ol class="small">
+  <li><b>Integrate the roadmap branch into <code>claude/vibetracks-dashboard</code>?</b> Recommended yes, once the Dashboard lane's own
+      Codex pass is green. Default: a merge commit on that unpushed lane branch after both sides pass; never <code>main</code>.</li>
+  <li><b>The three kinsim-dashboard roadmap candidates still in the merge-ready queue</b> (lens bar, React Flow, the bam_ws API) were
+      built before the roadmap moved here. Recommended: supersede them. Default: leave them held and unlanded.</li>
+  <li><b>Grasping has no proven rung until its loop re-runs its gates</b> at its current code with <code>env_options</code> recorded.
+      That is the grasping loop's work, not this lane's. Default: nothing is sent to it (loops are read-only from here).</li>
+  <li><b>The Progress column's “19 / 62” counts claimed rungs too.</b> The Dashboard lane will add “· 4 proven”, read from this
+      widget's counts. Default: they ship that.</li>
+</ol>
+<h3>Deliberately not done</h3>
+<ul class="small">
+  <li>Clank's 390 px sidebar and title overlap, and its <code>.clank</code> console noise: the Clank host's, not this widget's.</li>
+  <li>A Clank plugin-settings page: Clank has no reader for a plugin's settings section yet, so the dashboard renders the Roadmap
+      settings itself; the section is already in Clank's <code>SettingsSection</code> shape for when it does.</li>
+  <li>Nothing was written to any loop's worktree, to Vibe Tracks <code>main</code>, or to your own dashboard's ports.</li>
+</ul>"""
 
 
 CSS = r"""
@@ -453,7 +490,9 @@ the recorder shows the panel again afterwards because Clank saves its layout int
 </ol>"""
 
     commits = fixed_in()
-    audit = audit_round(1, "V", commits) + audit_round(2, "W", commits) + audit_round(3, "X", commits)
+    rounds = [n for n in range(1, 10) if (AUDITS / f"2026-10-04-vibetracks-roadmap-r{n}.md").is_file()]
+    audit = "".join(audit_round(n, "VWXYZQ"[n - 1], commits) for n in rounds)
+    last_verdict = findings(AUDITS / f"2026-10-04-vibetracks-roadmap-r{rounds[-1]}.md")[1]
     where = landed()
 
     page = f"""<!doctype html>
@@ -474,7 +513,8 @@ the recorder shows the panel again afterwards because Clank saves its layout int
   {'inside' if where['main'] else 'not in'} <code>main</code>. Integrating it is your call.</p>
   <p class="built">Recorded headless from the running lane at {esc(recorded)}: {passed} of {n_checks} measured checks pass
   ({len(HERO['steps'])} hero steps, {len(HERO['stills'])} stills), 0 page errors. Each calm head's numbers were checked against the
-  live document the API serves. Codex rounds 1–3 asked for fixes, and every finding has a fix commit; round 4 is running.
+  live document the API serves. Codex ran {len(rounds)} read-only rounds; the last one says {esc(last_verdict)}, and every
+  finding of every round has a fix commit.
   This page is about {OUT_SIZE_MB} MB, so open it in a browser, not the desktop preview.</p>
   <div class="launch"><pre id="launch-cmd">{esc(RECORD_CMD)}</pre><button id="copy-launch" type="button">Copy</button></div>
   <p class="small dim">That re-records everything against the lane at <code>{esc(LANE_URL)}</code> (already running; open it to click around).
@@ -499,9 +539,7 @@ never on the toolbar.</p>{lines}</section>
 Nothing in the product was changed to make this report.</p>{found}</section>
 <section id="audit"><h2>Audit trail</h2><p class="lead">Codex (read-only) attacked the lane after each round of work. A finding counts
 as fixed here when a commit names it (one exception, marked in its row); the round files are linked as paths.</p>{audit}</section>
-<section id="audit-round-4"><h3>Round 4</h3><div class="placeholder">Round 4 running. Its verdict is added here when it finishes.
-Prompt: <code class="path">{esc(AUDITS / '2026-10-04-vibetracks-roadmap-r4-prompt.md')}</code></div></section>
-<section id="decisions"><h2>Decision surface</h2><div class="placeholder">Filled in by the orchestrator.</div></section>
+<section id="decisions"><h2>Decision surface</h2>{DECISIONS}</section>
 
 <footer class="end">Generated by docs/roadmap/build_roadmap_report.py from {esc(MEDIA / 'hero.json')} (recorded {esc(HERO['recorded_at'])}).</footer>
 </div>
