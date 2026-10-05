@@ -13,3 +13,10 @@ workspace/.clank/
 vibetracks.plugins.pinned.json
 # Proof captures show BAM loop data and bench video frames; they live in the main checkout reports/media (excluded), never in this public repo.
 docs/dashboard/proof/
+# Storybook for the dashboard plugin (clank/.storybook): its install and its static build.
+clank/node_modules/
+clank/storybook-static/
+# Story fixtures are real BAM loop data captured from a running lane (clank/stories/capture_fixtures.py): local only,
+# never in this public repo. Only their README is tracked.
+clank/stories/fixtures/**
+!clank/stories/fixtures/README.md
