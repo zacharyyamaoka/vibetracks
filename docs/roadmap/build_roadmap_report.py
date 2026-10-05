@@ -16,7 +16,7 @@ WHY the numbers come from hero.json: a hand-typed number in a report outlives th
 refreshes the report. WHY every capture is inlined exactly once: Zach reviews by reading, from any device; the lightbox
 re-uses the clicked <img>'s src instead of a second copy. The page is past the desktop preview's 2,097,024-byte data:
 URL ceiling (the build prints the measured size), so it is browser-only and lives in the gitignored reports/media/ half.
-WHY sections with fixed ids (audit-round-3, decisions): the orchestrator fills them after this build, by id.
+WHY sections with fixed ids (audit-round-4, decisions): the orchestrator fills them after this build, by id.
 """
 from __future__ import annotations
 
@@ -34,6 +34,10 @@ OUT = Path("/home/bam/vibetracks/reports/media/vibetracks-roadmap-2026-10-04.htm
 REPO = Path("/home/bam/vibetracks-roadmap")
 AUDITS = Path("/home/bam/bam_ws/reports/media/audits")
 LANE_URL = "http://127.0.0.1:4400/?vtdash=Agent%20work.vtdash"
+# The commits the Found section names (read from git log; verified to exist at build time like every other sha shown).
+DASHBOARD_BASE = "29cbe13"  # the Dashboard lane's tip this branch is rebased onto
+RELOAD_FIX = "29cbe13"      # adds variants/a/roadmapReload.tsx
+FOCUS_FIX = "791966e"       # focus.ts and the worded phase
 RECORD_CMD = ("cd ~/vibetracks-roadmap && uv run --no-project --with playwright==1.55.0 python3 docs/roadmap/record_roadmap_widget.py "
               f"--url http://127.0.0.1:4400/ --out {MEDIA}")
 # The desktop preview builds `data:text/html,` + encodeURIComponent(html) and refuses a URL longer than this.
@@ -100,8 +104,14 @@ def step_note(label: str, m: dict) -> str:
     if label == "A named run opens its own record":
         return f"file page shows `{m['shownPath']}` = the clicked run's own path · allowlisted: {m['allowlisted']}"
     if label == "History back restores the focus card":
-        return (f"trail `{m['trail']}` · lens {m['lens']} · `rmopen={m['route']['rmopen']}` · proof tab shown · card in view "
-                f"without scrolling: {m['inViewAfterBack']} · keyboard focus: {m['focused'] or 'none'}")
+        b, a = m["back"], m["arrow"]
+        return (f"trail `{b['trail']}` · lens {b['lens']} · `rmopen={b['route']['rmopen']}` · proof tab shown · card in view "
+                f"without scrolling: {m['inViewAfterBack']} · keyboard focus on `{b['active']}` · then one → (no click: "
+                f"{m['clicksBetween']} clicks) selected {a['sel']}, focus on {a['focused']}")
+    if label == "The dashboard's Reload re-projects the roadmap":
+        urls = [r["url"] for r in m["requests"] if "url" in r]
+        statuses = [str(r["status"]) for r in m["requests"] if "status" in r]
+        return (f"the tracks page's Reload sent `{urls[0]}` → {', '.join(statuses)} · kinsim's calm head after it: “{m['calmAfter']}”")
     if label == "Back to the tracks":
         return "tracks page (L1) again, route `#vt`"
     if label == "Pyblocks: No roadmap reported yet":
@@ -119,7 +129,7 @@ def steps_list() -> str:
 
 
 # ---- the audit trail ----------------------------------------------------------------------------------------------
-FINDING = re.compile(r"^\*\*([VW]\d\d) — (\w+) — ([\w_]+)\*\* — (.*)$")
+FINDING = re.compile(r"^\*\*([A-Z]\d\d) — (\w+) — ([\w_]+)\*\* — (.*)$")
 
 
 def findings(path: Path) -> tuple[list[dict], str]:
@@ -136,6 +146,28 @@ def findings(path: Path) -> tuple[list[dict], str]:
     return out, verdict
 
 
+_shas: set[str] = set()
+
+
+def sha(value: str) -> str:
+    """A commit id as the page shows it, remembered so the build can prove each one exists (git cat-file -e)."""
+    _shas.add(value)
+    return f"<code>{esc(value)}</code>"
+
+
+def verify_shas() -> None:
+    missing = [value for value in sorted(_shas)
+               if subprocess.run(["git", "-C", str(REPO), "cat-file", "-e", f"{value}^{{commit}}"], capture_output=True).returncode]
+    assert not missing, f"the page names commits that do not exist: {missing}"
+
+
+def landed() -> dict[str, bool]:
+    """Whether this branch's HEAD is inside the Dashboard lane's branch or main (measured, never assumed)."""
+    def inside(ref: str) -> bool:
+        return subprocess.run(["git", "-C", str(REPO), "merge-base", "--is-ancestor", "HEAD", ref], capture_output=True).returncode == 0
+    return {"claude/vibetracks-dashboard": inside("claude/vibetracks-dashboard"), "main": inside("main")}
+
+
 def fixed_in() -> dict[str, list[str]]:
     """Finding id → the commits whose subject names it ("Codex V04 V05", or a range "V06-V10")."""
     log = subprocess.run(["git", "-C", str(REPO), "log", "--format=%h\t%s", "-60"], capture_output=True, text=True, check=True).stdout
@@ -145,7 +177,7 @@ def fixed_in() -> dict[str, list[str]]:
         codex = re.search(r"\(Codex ([^)]*)\)", subject)
         if not codex:
             continue
-        for token in re.findall(r"[VW]\d\d(?:-[VW]\d\d)?", codex.group(1)):
+        for token in re.findall(r"[A-Z]\d\d(?:-[A-Z]\d\d)?", codex.group(1)):
             if "-" in token:
                 lo, hi = token.split("-")
                 ids = [f"{lo[0]}{n:02d}" for n in range(int(lo[1:]), int(hi[1:]) + 1)]
@@ -166,10 +198,10 @@ UNNAMED_FIXES = {
 
 def fix_cell(fid: str, commits: dict[str, list[str]]) -> str:
     if fid in commits:
-        return " ".join(f"<code>{esc(c)}</code>" for c in commits[fid])
+        return " ".join(sha(c) for c in commits[fid])
     if fid in UNNAMED_FIXES:
-        sha, why = UNNAMED_FIXES[fid]
-        return f'<code>{esc(sha)}</code><span class="dim blk small">{esc(why)}</span>'
+        commit, why = UNNAMED_FIXES[fid]
+        return f'{sha(commit)}<span class="dim blk small">{esc(why)}</span>'
     return '<span class="badt">none</span>'
 
 
@@ -267,6 +299,9 @@ table.grid tbody th{font-weight:700;white-space:nowrap}
 .steps .t{font:12.5px var(--mono);color:var(--dim2);padding-top:2px}
 ul.plain{margin:0;padding-left:20px;max-width:66em} ul.plain li{margin:0 0 10px;font-size:14px}
 .issues{margin:0;padding-left:20px;max-width:66em} .issues li{margin:0 0 12px;font-size:14px} .issues b{display:block}
+.tag{display:inline-block;font-size:11px;font-weight:700;letter-spacing:.03em;color:var(--dim);border:1px solid var(--line2);border-radius:999px;padding:0 8px;margin-left:6px;vertical-align:1px}
+.tag.ok{color:var(--ok);border-color:var(--ok)}
+.tag code{font-size:11px;border:0;background:none;padding:0}
 .placeholder{border:1px dashed var(--line2);border-radius:12px;padding:14px 18px;color:var(--dim);background:var(--panel)}
 footer.end{margin-top:40px;color:var(--dim2);font-size:12px}
 """
@@ -323,10 +358,10 @@ def build() -> str:
 
     hero = f"""
 <figure class="hero">
-  <video controls autoplay muted loop playsinline preload="auto" aria-label="Hero: tracks, kinsim, roadmap calm head, full board, Depth, arrow keys, RB0's proof, a named run, back, pyblocks">
+  <video controls autoplay muted loop playsinline preload="auto" aria-label="Hero: tracks, kinsim, roadmap calm head, full board, Depth, arrow keys, RB0's proof, a named run, back, Reload, pyblocks">
     <source src="{data_uri(MEDIA / media['mp4'], 'video/mp4')}" type="video/mp4"></video>
   <img id="hero-gif" class="gif hidden" alt="Hero as a GIF" src="{data_uri(MEDIA / media['gif'], 'image/gif')}">
-  <figcaption><b>Tracks → Kinematic Sim → Roadmap → Expand → Depth → arrow keys → RB0's proof → a named run → Back → Pyblocks ({media['clip_s']:.0f} s, {media['speed']}× speed)</b>
+  <figcaption><b>Tracks → Kinematic Sim → Roadmap → Expand → Depth → arrow keys → RB0's proof → a named run → Back, then → → Tracks → Reload → Pyblocks ({media['clip_s']:.0f} s, {media['speed']}× speed)</b>
   <span class="cap">Recorded headless from the running lane at {esc(LANE_URL)} on live data, {esc(recorded)}. The blue dot is the pointer.
   Times below are offsets in this clip; each step's line is what the recorder measured in the page at that moment.</span></figcaption>
 </figure>
@@ -380,7 +415,8 @@ the recorder shows the panel again afterwards because Clank saves its layout int
       reads as “No roadmap reported yet.” The kinsim dashboard read one loop's file.</li>
   <li><b>Freshness.</b> Both densities say “as of HH:MM” (the projection's own time). When a projection fails and an older good document
       is served, or a refresh fails, a calm “Not current: &lt;reason&gt;” line appears beside it; a green count from a failed
-      projection never reads as current. The widget polls every 30 s.</li>
+      projection never reads as current. The widget polls every 30 s, and the dashboard's own Reload re-projects every roadmap on the
+      page (<code>&amp;refresh=1</code>).</li>
   <li><b>A settings page instead of a toolbar.</b> Line style (Curved / Elbow) moved to the dashboard's settings page as a Clank
       <code>SettingsSection</code>, so it can later move into Clank's plugin settings unchanged. The board's toolbar keeps lens,
       direction and card size: navigation, not settings.</li>
@@ -390,25 +426,35 @@ the recorder shows the panel again afterwards because Clank saves its layout int
       so the mouse's back button and a reload restore the lens, the picked rung and its tab.</li>
 </ul>"""
 
+    reload_step = next(st for st in HERO["steps"] if st["label"].startswith("The dashboard's Reload"))["measured"]
+    kinsim_calm = STILLS["calm-kinsim"]["measured"]
     found = f"""
 <ol class="issues">
-  <li><b>The dashboard's reload does not reach the roadmap yet</b>The widget exposes <code>reload()</code> (re-project now) from
-      <code>useRoadmap</code>, but the track page never calls it: the tracks page's Reload re-reads the projection only. Until the
-      Dashboard lane wires it, a roadmap refreshes on its 30 s poll.</li>
-  <li><b>Keyboard focus is not restored after Back</b>After history back from a named run, the focus card and the Depth lens come back
-      (measured), but keyboard focus is on {esc(back['focused'] or 'nothing')}, so arrow keys need a click on the board first.</li>
-  <li><b>→ in the Depth lens moves by column, not by rung number</b>From RB2, → went to {esc(arrows['sels'][-1])}: in Depth, RB3 sits
-      in RB1's column (it can be climbed in parallel), and ↓ reaches it. Expected for the layout; noted because it surprises.</li>
-  <li><b>Kinsim's head shows the loop's raw phase word</b>“Wave 4, between_waves” is the stored phase, rendered verbatim (truthful
-      rendering). A friendlier word would be the projector's job, not the widget's.</li>
-  <li><b>Host chrome, not the widget</b>At 390 px Clank's title overlaps its layout picker and its left panel crowds the pane (see the
-      phone still). On every load Clank asks for <code>.clank/settings.json</code>, <code>tree.json</code> and <code>views.json</code> (404)
-      and retries <code>mkdir .clank</code> (409); the console shows these, and the dashboard throws no page errors
-      (recorder: {len(HERO['page_errors'])} page errors). The review-only Proposal switcher covers the bottom of a tall focus card.</li>
+  <li><b>The dashboard's Reload now reaches the roadmap <span class="tag ok">fixed in {sha(RELOAD_FIX)}</span></b>The Dashboard lane's
+      <code>variants/a/roadmapReload.tsx</code> registers every mounted roadmap's <code>reload()</code> with variant A's own reload.
+      Measured: the tracks page's Reload sent <code>{esc(next(r["url"] for r in reload_step["requests"] if "url" in r))}</code>
+      (HTTP {esc(next(r["status"] for r in reload_step["requests"] if "status" in r))}), and kinsim's calm head was still drawn after it.</li>
+  <li><b>Keyboard focus comes back after Back <span class="tag ok">fixed in {sha(FOCUS_FIX)}</span></b>After history back from a named run
+      the RB0 card holds keyboard focus (<code>{esc(back['back']['active'])}</code>), and one → with no click moved the selection to
+      {esc(back['arrow']['sel'])}.</li>
+  <li><b>The calm head says the phase in words <span class="tag ok">fixed in {sha(FOCUS_FIX)}</span></b>Kinsim's head now reads
+      “{esc(kinsim_calm['stage'])}”; the loop's raw token stays one hover away in its title (<code>{esc(kinsim_calm['phaseTitle'])}</code>),
+      so no stored character is lost.</li>
+  <li><b>→ in the Depth lens moves by column, not by rung number <span class="tag">expected</span></b>The arrow walk went
+      {esc(' → '.join(arrows['sels']))}: in Depth, rungs that can be climbed in parallel share a column, and ↓ reaches them.
+      Noted because it surprises.</li>
+  <li><b>The Proposal switcher covers the bottom of a tall focus card <span class="tag">Dashboard lane's</span></b>The review-only switcher
+      is theirs; a compact pill is in their next wave.</li>
+  <li><b>At 390 px Clank's sidebar crowds the pane and its title overlaps the layout picker <span class="tag">Clank host's</span></b>Logged as a
+      deliberate not-done. The phone still is taken with Clank's left panel hidden; the widget itself has no horizontal scroll.</li>
+  <li><b>Clank's console noise <span class="tag">Clank host's</span></b>On every load Clank asks for <code>.clank/settings.json</code>,
+      <code>tree.json</code> and <code>views.json</code> (404) and retries <code>mkdir .clank</code> (409). The dashboard throws no page
+      errors (recorder: {len(HERO['page_errors'])}).</li>
 </ol>"""
 
     commits = fixed_in()
-    audit = (audit_round(1, "V", commits) + audit_round(2, "W", commits))
+    audit = audit_round(1, "V", commits) + audit_round(2, "W", commits) + audit_round(3, "X", commits)
+    where = landed()
 
     page = f"""<!doctype html>
 <html lang="en"><head><meta charset="utf-8">
@@ -423,11 +469,12 @@ the recorder shows the panel again afterwards because Clank saves its layout int
   <h1>The roadmap, live inside Vibe Tracks</h1>
   <p class="verdict">The roadmap is now a live widget on the Vibe Tracks dashboard's track page for kinsim, rig, grasping and
   detection; pyblocks honestly says “No roadmap reported yet.”</p>
-  <p class="qual">The catch: the dashboard's own Reload does not reach it yet. The widget has <code>reload()</code>, but the
-  Dashboard lane has not wired it, so a roadmap refreshes on its 30-second poll.</p>
+  <p class="qual">Verified in the real app, on the roadmap branch rebased onto the Dashboard lane's {sha(DASHBOARD_BASE)}. Not landed:
+  the roadmap branch is {'inside' if where['claude/vibetracks-dashboard'] else 'not in'} <code>claude/vibetracks-dashboard</code> and
+  {'inside' if where['main'] else 'not in'} <code>main</code>. Integrating it is your call.</p>
   <p class="built">Recorded headless from the running lane at {esc(recorded)}: {passed} of {n_checks} measured checks pass
   ({len(HERO['steps'])} hero steps, {len(HERO['stills'])} stills), 0 page errors. Each calm head's numbers were checked against the
-  live document the API serves. Codex rounds 1 and 2 asked for fixes, and every finding has a fix commit; round 3 is running.
+  live document the API serves. Codex rounds 1–3 asked for fixes, and every finding has a fix commit; round 4 is running.
   This page is about {OUT_SIZE_MB} MB, so open it in a browser, not the desktop preview.</p>
   <div class="launch"><pre id="launch-cmd">{esc(RECORD_CMD)}</pre><button id="copy-launch" type="button">Copy</button></div>
   <p class="small dim">That re-records everything against the lane at <code>{esc(LANE_URL)}</code> (already running; open it to click around).
@@ -448,12 +495,12 @@ and its focus card grows out of it, proof first.</p>{board}</section>
 never on the toolbar.</p>{lines}</section>
 <section id="phone"><h2>At phone width</h2>{phone_html}</section>
 <section id="changed"><h2>What changed since the kinsim dashboard</h2>{changed}</section>
-<section id="found"><h2>Found in the real app (not fixed here)</h2><p class="lead">Nothing in the product was changed to make this
-report; these are for their owners.</p>{found}</section>
+<section id="found"><h2>Found in the real app</h2><p class="lead">What the recordings turned up, and where each one stands now.
+Nothing in the product was changed to make this report.</p>{found}</section>
 <section id="audit"><h2>Audit trail</h2><p class="lead">Codex (read-only) attacked the lane after each round of work. A finding counts
 as fixed here when a commit names it (one exception, marked in its row); the round files are linked as paths.</p>{audit}</section>
-<section id="audit-round-3"><h3>Round 3</h3><div class="placeholder">Round 3 running. Its verdict is added here when it finishes.
-Prompt: <code class="path">{esc(AUDITS / '2026-10-04-vibetracks-roadmap-r3-prompt.md')}</code></div></section>
+<section id="audit-round-4"><h3>Round 4</h3><div class="placeholder">Round 4 running. Its verdict is added here when it finishes.
+Prompt: <code class="path">{esc(AUDITS / '2026-10-04-vibetracks-roadmap-r4-prompt.md')}</code></div></section>
 <section id="decisions"><h2>Decision surface</h2><div class="placeholder">Filled in by the orchestrator.</div></section>
 
 <footer class="end">Generated by docs/roadmap/build_roadmap_report.py from {esc(MEDIA / 'hero.json')} (recorded {esc(HERO['recorded_at'])}).</footer>
@@ -475,10 +522,13 @@ if __name__ == "__main__":
     first = build()
     OUT_SIZE_MB = f"{len(first.encode()) / 1e6:.1f}"
     _inlined.clear()
+    _shas.clear()
     page = build()
+    verify_shas()
     OUT.write_text(page, encoding="utf-8")
     size = OUT.stat().st_size
     url = encoded_size(page)
     verdict = "preview-openable" if url <= PREVIEW_CAP else "browser-only (over the desktop preview's cap)"
     print(f"wrote {OUT}  {size:,} bytes on disk, {len(_inlined)} media inlined once each")
+    print(f"commits shown, each verified with git cat-file -e: {' '.join(sorted(_shas))}")
     print(f"preview data: URL {url:,} bytes vs cap {PREVIEW_CAP:,}: {verdict}")

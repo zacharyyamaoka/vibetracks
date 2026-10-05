@@ -3,8 +3,8 @@
 Drives an already-running Clank + Vibe Tracks dashboard lane (never starts or stops one) in its own headless Chrome,
 on variant A (drill-down pages): the tracks page → kinsim's track page → the Roadmap section's calm head → Expand →
 the Depth lens → arrow keys along a lane → a click on RB0 grows the focus card with its proof → its named run opens its
-own record → history back (what the mouse's back button does) restores the card → back to the tracks → pyblocks says
-"No roadmap reported yet". Then the stills, each in a fresh browser context with its own predicate: the calm head per
+own record → history back (what the mouse's back button does) restores the card with keyboard focus, and → moves on →
+back to the tracks → the dashboard's own Reload re-projects the roadmap → pyblocks says "No roadmap reported yet". Then the stills, each in a fresh browser context with its own predicate: the calm head per
 track, the full board, the focus card, the settings page's Roadmap section and the board in elbow lines, pyblocks, and
 a 390 px phone-width calm head. Read-only: the line-style change lives in this browser context's localStorage.
 
@@ -24,6 +24,7 @@ from __future__ import annotations
 import argparse
 import asyncio
 import json
+import re
 import subprocess
 import time
 from pathlib import Path
@@ -108,6 +109,9 @@ CALM = """async (track) => {
     docProven: doc.rungs.filter((r) => r.status === 'green' || r.status === 'done').length,
     docTotal: doc.rungs.length, docClaimed: doc.rungs.filter((r) => r.status === 'claimed').length,
     stripLanes: document.querySelectorAll('[data-testid="vt-roadmap-strip"] .vt-rm-strip-lane').length,
+    // The stage clause is the sentence's first clause unless it starts with the rungs ("climbing …", "next …").
+    stage: (() => { const first = (sentence || '').split(' · ')[0]; return /^(climbing|next) /.test(first) ? null : first })(),
+    phaseTitle: document.querySelector('[data-testid="vt-roadmap-current"]')?.getAttribute('title') ?? null,
     generatedAt: doc.generated_at,
   }
 }"""
@@ -120,14 +124,17 @@ SELECTED = ("(() => { const t = document.querySelector('[data-testid=\"vt-roadma
 
 
 def calm_ok(m: dict) -> bool:
+    # WHY the stage must be words (Zach's dashboard header already says "Between waves"): "between_waves" is the loop's
+    # file spelling. Rung ids may carry underscores (grasping's toy.xy_rz), so only the stage clause is checked.
+    worded = m["stage"] is None or ("_" not in m["stage"] and not re.search(r"\b[a-z]+_[a-z_]+\b", m["stage"]))
     return (bool(m["sentence"]) and m["asOf"] == m["expectAsOf"] and m["shownTotal"] == m["docTotal"]
-            and m["shownProven"] == m["docProven"] and m["shownClaimed"] == m["docClaimed"] and m["stripLanes"] > 0)
+            and m["shownProven"] == m["docProven"] and m["shownClaimed"] == m["docClaimed"] and m["stripLanes"] > 0 and worded)
 
 
 EXPECT = {
     "Tracks page": lambda m: m["rows"][:5] == ["kinsim", "rig", "grasping", "detection", "pyblocks"],
     "Open kinsim's track page": lambda m: m["page"] == "kinsim" and m["route"]["track"] == "kinsim",
-    "Roadmap calm head": lambda m: calm_ok(m) and m["inView"],
+    "Roadmap calm head": lambda m: calm_ok(m) and m["inView"] and "between waves" in m["stage"],
     "Expand: the full lens board": lambda m: m["route"]["rmopen"] == "1" and m["rungs"] == m["docTotal"] and m["lens"] == "ladder",
     "Depth lens: the same cards glide": lambda m: m["lens"] == "depth" and m["moved"] > 0 and m["route"]["rm"].get("lens") == "depth",
     # Zach, Oct 3: arrow keys move the selection between rungs and the view follows.
@@ -135,8 +142,14 @@ EXPECT = {
         and all(m["axis"].get(s) == "robots" for s in m["sels"]) and m["focused"] == m["sels"][-1],
     "Click RB0: the focus card with its proof": lambda m: m["trail"] == "RB0" and m["proof"] and m["runs"] >= 1 and m["firstRun"].startswith("rb0-"),
     "A named run opens its own record": lambda m: m["page"] and m["shownPath"] == m["clickedPath"] and m["route"]["file"] == m["clickedPath"],
-    "History back restores the focus card": lambda m: m["trail"] == "RB0" and m["proof"] and m["lens"] == "depth" and m["route"]["rmopen"] == "1",
+    # Zach drives this with mouse Back plus arrow keys: after Back the picked card must hold keyboard focus, so the very
+    # next ArrowRight moves the selection with no click in between.
+    "History back restores the focus card": lambda m: m["back"]["trail"] == "RB0" and m["back"]["proof"] and m["back"]["lens"] == "depth"
+        and m["back"]["route"]["rmopen"] == "1" and m["back"]["activeIsCard"] and m["arrow"]["sel"] not in (None, "RB0")
+        and m["arrow"]["focused"] == m["arrow"]["sel"] and m["clicksBetween"] == 0,
     "Back to the tracks": lambda m: m["l1"],
+    "The dashboard's Reload re-projects the roadmap": lambda m: m["l1"] and any("url" in r for r in m["requests"])
+        and any(r.get("status") == 200 for r in m["requests"]) and bool(m["calmAfter"]),
     "Pyblocks: No roadmap reported yet": lambda m: m["none"] == "No roadmap reported yet." and not m["loading"] and not m["calm"],
 }
 
@@ -259,9 +272,16 @@ async def record_hero(browser, url: str, out: Path, width: int, height: int) -> 
 
     async def history_back() -> None:
         # What the mouse's back button does: the browser's history.back(), which fires popstate.
+        await page.evaluate("window.__clicks = 0; addEventListener('click', () => { window.__clicks += 1 }, true)")
         await page.evaluate("history.back()")
         await page.wait_for_selector('[data-testid="vt-roadmap-proof"]')
         await page.wait_for_timeout(400)
+        back = await page.evaluate(f"(() => ({{ ...{focus}, activeIsCard: document.activeElement === document.querySelector('[data-testid=\"vt-rung-RB0\"]'),"
+                                   " active: document.activeElement ? document.activeElement.tagName + (document.activeElement.dataset.testid ? '#' + document.activeElement.dataset.testid : '') : null }))()")
+        await page.keyboard.press("ArrowRight")
+        await page.wait_for_timeout(800)
+        arrow = await page.evaluate(SELECTED)
+        await page.evaluate("([b, a]) => { window.__back = b; window.__arrow = a }", [back, arrow])
         await page.evaluate("""window.__inView = (() => { const r = document.querySelector('[data-testid="vt-roadmap-focus"]').getBoundingClientRect();
           return r.bottom > 0 && r.top < innerHeight })()""")
         # WHY scroll after measuring: the clip should show the restored card; whether the page restored the reader's
@@ -275,6 +295,31 @@ async def record_hero(browser, url: str, out: Path, width: int, height: int) -> 
         await crumb.click()
         await page.wait_for_selector('[data-testid="vt-a-l1"]')
         await page.wait_for_timeout(700)
+
+    async def reload_all() -> None:
+        # The tracks page's footer Reload is variant A's own reload: it re-reads the projection, then calls every
+        # mounted roadmap's reload() (variants/a/roadmapReload.tsx), which asks /doc to re-project (&refresh=1).
+        seen: list[dict] = []
+        def on_request(request) -> None:
+            if "/roadmap/doc?track=kinsim&refresh=1" in request.url:
+                seen.append({"url": request.url.split("/api/", 1)[-1]})
+        def on_response(response) -> None:
+            if "/roadmap/doc?track=kinsim&refresh=1" in response.url:
+                seen.append({"status": response.status})
+        page.on("request", on_request)
+        page.on("response", on_response)
+        button = page.locator('[data-testid="vt-a-reload"]')
+        await smooth_into_view(page, '[data-testid="vt-a-reload"]', "center", 500)
+        await glide_to(page, button, 200)
+        await button.click()
+        for _ in range(60):
+            if any("status" in item for item in seen):
+                break
+            await page.wait_for_timeout(250)
+        await page.wait_for_timeout(600)
+        page.remove_listener("request", on_request)
+        page.remove_listener("response", on_response)
+        await page.evaluate("(s) => { window.__refreshes = s }", seen)
 
     async def open_pyblocks() -> None:
         row = page.locator('[data-testid="vt-a-track-row"][data-track="pyblocks"]')
@@ -308,8 +353,12 @@ async def record_hero(browser, url: str, out: Path, width: int, height: int) -> 
                "({ page: Boolean(document.querySelector('[data-testid=\"vt-a-file\"]')), clickedPath: window.__clicked,"
                " shownPath: document.querySelector('[data-testid=\"vt-a-file\"] code')?.textContent ?? null, route: " + ROUTE + ","
                " allowlisted: !/not in the projection's media allowlist/.test(document.querySelector('[data-testid=\"vt-a-file\"]')?.textContent || '') })")
-    await step("History back restores the focus card", history_back, f"(() => ({{ ...{focus}, inViewAfterBack: window.__inView }}))()")
+    await step("History back restores the focus card", history_back,
+               "({ back: window.__back, arrow: window.__arrow, clicksBetween: window.__clicks, inViewAfterBack: window.__inView })")
     await step("Back to the tracks", to_tracks, "({ l1: Boolean(document.querySelector('[data-testid=\"vt-a-l1\"]')), route: " + ROUTE + " })")
+    await step("The dashboard's Reload re-projects the roadmap", reload_all,
+               "(() => { const c = document.querySelector('[data-testid=\"vt-a-track-row\"][data-track=\"kinsim\"] [data-testid=\"vt-roadmap-answer\"]');"
+               " return { requests: window.__refreshes, calmAfter: c ? c.dataset.sentence : null, l1: Boolean(document.querySelector('[data-testid=\"vt-a-l1\"]')) } })()")
     await step("Pyblocks: No roadmap reported yet", open_pyblocks,
                "({ none: document.querySelector('[data-testid=\"vt-roadmap-none\"]')?.textContent ?? null,"
                " loading: Boolean(document.querySelector('[data-testid=\"vt-roadmap-loading\"]')), calm: Boolean(document.querySelector('[data-testid=\"vt-roadmap-calm\"]')) })")
@@ -458,28 +507,34 @@ async def record_stills(browser, url: str, out: Path, width: int, height: int) -
     return {"stills": shots, "page_errors": errors}
 
 
-# WHY 1.25x: the journey takes ~24 s in real time (every step waits for its glide and its measurement); the clip should
-# be the 12-20 s a reader watches. Every step's clip_t_s is its offset in hero.mp4 after this speed-up.
-SPEED = 1.25
+# WHY a computed speed-up: the journey takes ~30 s in real time (every step waits for its glide, its measurement and, for
+# Reload, a real re-projection); the clip should be the <= 20 s a reader watches, and never slower than 1.25x.
+# Every step's clip_t_s is its offset in hero.mp4 after the speed-up.
+MIN_SPEED, CLIP_MAX_S = 1.25, 20.0
+
+
+def speed_for(duration: float) -> float:
+    return round(max(MIN_SPEED, (duration + 0.8) / CLIP_MAX_S), 2)
 
 
 def encode(out: Path, offset: float, duration: float) -> dict:
-    """raw.webm → hero.mp4 (H.264, muted, trimmed to the journey, SPEED×), a small hero.gif fallback, and a .webp of
+    """raw.webm → hero.mp4 (H.264, muted, trimmed to the journey, speed_for(duration)×), a small hero.gif fallback, and a .webp of
     every still (what the report inlines; the .png stays as the lossless original)."""
     raw, mp4, gif = out / "raw.webm", out / "hero.mp4", out / "hero.gif"
     trim = ["-ss", f"{offset:.2f}", "-t", f"{duration + 0.8:.2f}"]
+    speed = speed_for(duration)
     subprocess.run(["ffmpeg", "-y", "-loglevel", "error", *trim, "-i", str(raw), "-an", "-c:v", "libx264", "-preset", "slow",
-                    "-crf", "30", "-pix_fmt", "yuv420p", "-vf", f"setpts=PTS/{SPEED},scale=1280:-2", "-movflags", "+faststart", str(mp4)], check=True)
+                    "-crf", "30", "-pix_fmt", "yuv420p", "-vf", f"setpts=PTS/{speed},scale=1280:-2", "-movflags", "+faststart", str(mp4)], check=True)
     # WHY 5 fps at 480 px, 32 colours, diff-rectangle frames: the GIF only covers a viewer that cannot play H.264, and it
     # is inlined, so it is kept near 1 MB rather than sharp (6 fps / 560 px / 48 colours was 2.5 MB).
     subprocess.run(["ffmpeg", "-y", "-loglevel", "error", *trim, "-i", str(raw), "-vf",
-                    f"setpts=PTS/{SPEED},fps=5,scale=480:-2:flags=lanczos,split[a][b];[a]palettegen=max_colors=32:stats_mode=diff[p];"
+                    f"setpts=PTS/{speed},fps=5,scale=480:-2:flags=lanczos,split[a][b];[a]palettegen=max_colors=32:stats_mode=diff[p];"
                     "[b][p]paletteuse=dither=bayer:bayer_scale=5:diff_mode=rectangle",
                     str(gif)], check=True)
     for png in sorted((out / "stills").glob("*.png")):
         subprocess.run(["ffmpeg", "-y", "-loglevel", "error", "-i", str(png), "-c:v", "libwebp", "-quality", "82", str(png.with_suffix(".webp"))], check=True)
-    return {"mp4": mp4.name, "mp4_bytes": mp4.stat().st_size, "gif": gif.name, "gif_bytes": gif.stat().st_size, "speed": SPEED,
-            "clip_s": round((duration + 0.8) / SPEED, 2)}
+    return {"mp4": mp4.name, "mp4_bytes": mp4.stat().st_size, "gif": gif.name, "gif_bytes": gif.stat().st_size, "speed": speed,
+            "clip_s": round((duration + 0.8) / speed, 2)}
 
 
 async def record(url: str, out: Path, width: int, height: int) -> dict:
@@ -491,7 +546,7 @@ async def record(url: str, out: Path, width: int, height: int) -> dict:
         await browser.close()
     media = encode(out, hero["journey_offset_s"], hero["journey_s"])
     for item in hero["steps"]:
-        item["clip_t_s"] = round(item["t_s"] / SPEED, 2)
+        item["clip_t_s"] = round(item["t_s"] / media["speed"], 2)
     failed = [s["label"] for s in hero["steps"] if not s["ok"]] + [s["label"] for s in stills["stills"] if not s["ok"]]
     errors = hero["page_errors"] + stills["page_errors"]
     return {"url": url, "viewport": [width, height], **{k: hero[k] for k in ("journey_offset_s", "journey_s")},
