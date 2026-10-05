@@ -15,6 +15,7 @@ from pathlib import Path
 from unittest import mock
 from urllib.parse import parse_qs, quote
 
+from vibetracks.roadmap import api
 from vibetracks.roadmap.api import handle
 
 PNG = b"\x89PNG\r\n\x1a\n" + bytes(range(64))
@@ -62,6 +63,11 @@ class RoadmapApiTestCase(unittest.TestCase):
                                        "kinsim_curriculum_dir": str(self.tmp / "no-kinsim"), "rig_loop_dir": str(self.tmp / "no-rig"), "grasp_bench_dir": str(self.tmp / "no-grasping"), "detection_dir": str(self.tmp / "no-detection")}),
                            encoding="utf-8")
         patcher = mock.patch.dict(os.environ, {"VIBETRACKS_SOURCES": str(sources)})
+        patcher.start()
+        self.addCleanup(patcher.stop)
+        # no live projector either: a stored document of a track with one is served only as its loop's stale snapshot
+        # (tests/test_roadmap_api_r2.py, Codex W01), and these cases pin the stored file served as it is
+        patcher = mock.patch.dict(api.PROJECTORS, clear=True)
         patcher.start()
         self.addCleanup(patcher.stop)
 

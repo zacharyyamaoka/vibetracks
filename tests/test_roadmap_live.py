@@ -70,6 +70,12 @@ class LiveDocTestCase(unittest.TestCase):
         self.tmp = Path(os.path.realpath(temporary.name))
         (self.tmp / "loop").mkdir()
         self.loop = fixture_body(fixtures.kinsim_loop)(self.tmp / "loop")
+        for directory, _dirs, files in os.walk(self.tmp / "loop"):  # a loop at rest: nothing written mid-projection
+            for name in files:
+                path = os.path.join(directory, name)
+                if not os.path.islink(path):
+                    stat = os.stat(path)
+                    os.utime(path, ns=(stat.st_atime_ns, stat.st_mtime_ns - 30_000_000_000))
         self.docs = self.tmp / "docs"
         self.docs.mkdir()
         sources = self.tmp / "sources.json"
@@ -203,7 +209,7 @@ class FailedProjectionTest(LiveDocTestCase):
     def test_a_failure_falls_back_to_the_stored_document(self) -> None:
         self.counting(side_effect=RuntimeError("boom"), wraps=None)
         self.store("kinsim", {"schema": SCHEMA, "title": "Stored", "generated_at": "2026-01-01T00:00:00+00:00",
-                              "warnings": ["its own"]})
+                              "loop": "kinsim", "roots": {"repo": str(self.loop.repo)}, "warnings": ["its own"]})
         status, document = get_json("/doc", "track=kinsim")
         self.assertEqual((status, document["title"]), (200, "Stored"))
         self.assertTrue(document["warnings"][0].startswith("stale:"), document["warnings"])
@@ -223,9 +229,12 @@ class UnknownTrackTest(LiveDocTestCase):
 
     def test_a_builtin_track_whose_loop_is_absent_is_404_or_its_stored_document(self) -> None:
         self.assertEqual(get_json("/doc", "track=rig"), (404, {"error": "no roadmap reported yet"}))
-        stored = {"schema": SCHEMA, "title": "Rig loop", "generated_at": "2026-10-03T19:00:00+00:00"}
+        stored = {"schema": SCHEMA, "title": "Rig loop", "generated_at": "2026-10-03T19:00:00+00:00", "loop": "rig",
+                  "roots": {"repo": str(self.tmp / "no-rig-loop")}}
         self.store("rig", stored)
-        self.assertEqual(get_json("/doc", "track=rig"), (200, stored))
+        status, document = get_json("/doc", "track=rig")
+        self.assertEqual((status, {**document, "warnings": []}), (200, {**stored, "warnings": []}))
+        self.assertTrue(document["warnings"][0].startswith("stale: the rig loop is not on this machine"))
 
 
 class EvidenceLiveTest(LiveDocTestCase):

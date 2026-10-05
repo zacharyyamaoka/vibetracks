@@ -148,7 +148,9 @@ class V07AllowlistTest(_NoRegistry):
                     "end_line": None, "exists": True, "why_unresolved": None}
 
         evidence = {**link(declared), "id": "e1", "facts": {"protocol": {"extra_metadata": smuggled}, "deep": [smuggled]}}
-        self.store("rig", {"schema": SCHEMA, "title": "Rig", "generated_at": "t", "sources": [],
+        # the rig loop is absent here, so its stored snapshot answers (W01: it must be that loop's, at that checkout)
+        self.store("rig", {"schema": SCHEMA, "title": "Rig", "generated_at": "t", "sources": [], "loop": "rig",
+                           "roots": {"repo": str(self.tmp / "no-rig-loop")},
                            "rungs": [{"evidence": [evidence], "x": smuggled}], "work": [{"x": {"nested": smuggled}}],
                            "facts": smuggled, "anything": [smuggled]})
         self.assertEqual(get_json("/evidence", f"track=rig&path={quote(str(declared), safe='')}")[0], 200)
@@ -259,7 +261,8 @@ class V09UnknownSourceKeyTest(_WithRegistry):
 class V10AuthoritativeRegistryTest(_WithRegistry):
     def setUp(self) -> None:
         super().setUp()
-        self.store("kinsim", {"schema": SCHEMA, "title": "Stored", "generated_at": "2026-01-01T00:00:00+00:00"})
+        self.store("kinsim", {"schema": SCHEMA, "title": "Stored", "generated_at": "2026-01-01T00:00:00+00:00",
+                              "loop": "kinsim", "roots": {"repo": str(self.loop.repo)}})
 
     def test_codex_reproduction_a_null_roadmap_never_serves_the_stored_file(self) -> None:
         self.note("kinsim", "null")

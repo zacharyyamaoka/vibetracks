@@ -11,7 +11,9 @@ are read on every request (``load_sources``), so a changed ``sources.json`` need
 ``/doc`` projects the loop's current files with ``vibetracks.roadmap.projector`` (``project_kinsim``, ``project_rig``)
 and caches the document per (track, projector, sources) under a stamp of its inputs and of every file it links to
 (``_stamp``); ``refresh=1`` projects again regardless. A failed projection serves the last good document of that same
-configuration with a ``warnings`` entry saying it is stale and why; 503 only when there is no good document at all.
+configuration, else the stored document when it is that configuration's (``_owned``), with a ``warnings`` entry saying
+it is stale and why; 503 only when there is no such document at all. A failure is retried when its stamp moves, and
+after ``_RETRY_FAILED_S`` regardless.
 ``/evidence`` takes its allowlist from that same document, through the same cache, and only from the schema's declared
 Link locations (``_links``).
 """
@@ -24,6 +26,8 @@ import os
 import re
 import subprocess
 import threading
+import time
+from collections import OrderedDict
 from collections.abc import Callable, Iterator, Mapping
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
@@ -69,11 +73,16 @@ class UnknownSourceKey(Exception):
 # ---------------------------------------------------------------- live projectors
 @dataclass(frozen=True)
 class LiveProjector:
-    """One loop's live projection: what marks its loop present, which files stamp it, which checkout's HEAD, the call."""
+    """One loop's live projection: what marks its loop present, which files stamp it, which checkout's HEAD, the call.
+
+    ``loop`` is the ``loop`` its documents carry, and ``keys`` the ``sources.py`` keys it reads.
+    """
 
     name: str
+    loop: str
     title: str
     present: Callable[[Mapping[str, str]], bool]
+    keys: frozenset[str]
     inputs: Callable[[Mapping[str, str]], list[Path]]
     checkout: Callable[[Mapping[str, str]], Path]
     project: Callable[[Mapping[str, str], str], dict]
@@ -93,15 +102,15 @@ def _rig_inputs(sources: Mapping[str, str]) -> list[Path]:
 #: The CLI's own calls (``projector/__main__.py``, ``command_project``): the kinsim projector is handed the curriculum
 #: directory and finds the checkout (and so git history) from it, the rig projector likewise from its loop directory.
 KINSIM = LiveProjector(
-    name="kinsim", title="Kinsim curriculum",
+    name="kinsim", loop="kinsim", title="Kinsim curriculum",
     present=lambda sources: (Path(sources["kinsim_curriculum_dir"]) / "curriculum.json").is_file(),
-    inputs=_kinsim_inputs, checkout=lambda sources: Path(sources["kinsim_curriculum_dir"]),
+    keys=frozenset({"kinsim_curriculum_dir", "kinsim_home"}), inputs=_kinsim_inputs, checkout=lambda sources: Path(sources["kinsim_curriculum_dir"]),
     project=lambda sources, now: project_kinsim(Path(sources["kinsim_curriculum_dir"]), Path(sources["kinsim_home"]), now=now),
 )
 RIG = LiveProjector(
-    name="rig", title="Rig loop",
+    name="rig", loop="rig", title="Rig loop",
     present=lambda sources: (Path(sources["rig_loop_dir"]) / "ladder.json").is_file(),
-    inputs=_rig_inputs, checkout=lambda sources: Path(sources["rig_loop_dir"]),
+    keys=frozenset({"rig_loop_dir"}), inputs=_rig_inputs, checkout=lambda sources: Path(sources["rig_loop_dir"]),
     project=lambda sources, now: project_rig(Path(sources["rig_loop_dir"]), now=now),
 )
 def _grasping_inputs(sources: Mapping[str, str]) -> list[Path]:
@@ -113,15 +122,15 @@ def _grasping_inputs(sources: Mapping[str, str]) -> list[Path]:
 
 
 GRASPING = LiveProjector(
-    name="grasping", title="Grasp bench",
+    name="grasping", loop="grasping", title="Grasp bench",
     present=lambda sources: (Path(sources["grasp_bench_dir"]) / "src" / "grasp_bench" / "curriculum.py").is_file(),
-    inputs=_grasping_inputs, checkout=lambda sources: Path(sources["grasp_bench_dir"]),
+    keys=frozenset({"grasp_bench_dir"}), inputs=_grasping_inputs, checkout=lambda sources: Path(sources["grasp_bench_dir"]),
     project=lambda sources, now: project_grasping(Path(sources["grasp_bench_dir"]), now=now),
 )
 DETECTION = LiveProjector(
-    name="detection", title="Hyperspectral ladder (planned)",
+    name="detection", loop="detection", title="Hyperspectral ladder (planned)",
     present=lambda sources: (Path(sources["detection_dir"]) / "ladder_data.py").is_file(),
-    inputs=lambda sources: [Path(sources["detection_dir"]) / "ladder_data.py"],
+    keys=frozenset({"detection_dir"}), inputs=lambda sources: [Path(sources["detection_dir"]) / "ladder_data.py"],
     checkout=lambda sources: Path(sources["detection_dir"]),
     project=lambda sources, now: project_detection(Path(sources["detection_dir"]), now=now),
 )
@@ -175,6 +184,12 @@ def _resolve(track: str) -> tuple[bool, tuple[LiveProjector, Mapping[str, str]] 
     for source_key in keys:
         if not isinstance(source_key, str) or source_key not in sources:
             raise UnknownSourceKey(f"registry for {track} names unknown source key {source_key}")
+    # WHY the destination keys too (Codex W04): {grasp_bench_dri: detection_dir} named a real source, so it resolved,
+    # added a key no projector reads and left grasp_bench_dir on its default, projecting another loop's data silently.
+    for input_key in named if isinstance(named, Mapping) else []:
+        if input_key not in projector.keys:
+            raise UnknownSourceKey(f"registry for {track} maps unknown destination key {input_key} (the {projector.name} "
+                                   f"projector reads {', '.join(sorted(projector.keys))})")
     if isinstance(named, Mapping):  # {projector input: sources.py key}: read each input from the named key
         sources.update({input_key: sources[source_key] for input_key, source_key in named.items()})
     return True, (projector, sources)
@@ -185,7 +200,8 @@ def projector_for(track: str) -> tuple[LiveProjector, Mapping[str, str]] | None:
 
     The track registry from the Dashboard lane maps each track id to ``{"projector": <PROJECTORS key> | null,
     "sources": [<sources.py keys>] | {<projector input>: <sources.py key>}}``; without a reachable registry the built-in
-    table answers. Raises ``UnknownSourceKey`` when the registry names a source key ``load_sources()`` lacks.
+    table answers. Raises ``UnknownSourceKey`` when the registry names a source key ``load_sources()`` lacks, or maps a
+    destination key the projector does not read.
     """
 
     return _resolve(track)[1]
@@ -201,11 +217,20 @@ class _Cache:
     body: bytes | None = None
     #: Why the projection at ``stamp`` failed; None when ``document`` is the projection at ``stamp``.
     failure: str | None = None
+    #: ``_clock()`` when that projection failed.
+    failed_at: float | None = None
 
 
-#: Keyed by ``_cache_key``: (track, projector name, the resolved sources).
-_CACHES: dict[tuple, _Cache] = {}
+#: Keyed by ``_cache_key``: (track, projector name, the resolved sources), least recently used first.
+_CACHES: OrderedDict[tuple, _Cache] = OrderedDict()
 _CACHES_LOCK = threading.Lock()
+#: How many configurations of one track keep an entry: the most recently used ones.
+_CONFIGURATIONS_PER_TRACK = 4
+#: A failed projection is tried again on the first request this many seconds after it failed, stamp moved or not.
+_RETRY_FAILED_S = 60.0
+#: How far before a projection started a newly linked file's mtime may sit and still count as written during it.
+_MTIME_SLACK_NS = 2_000_000_000
+_clock = time.monotonic
 
 
 def _cache_key(track: str, projector: LiveProjector, sources: Mapping[str, str]) -> tuple:
@@ -218,12 +243,16 @@ def _cache_key(track: str, projector: LiveProjector, sources: Mapping[str, str])
 def _cache(track: str, projector: LiveProjector, sources: Mapping[str, str]) -> _Cache:
     key = _cache_key(track, projector, sources)
     with _CACHES_LOCK:
-        if key not in _CACHES:
-            # an older configuration of the track can never be served again, so its entry is dropped, not kept
-            for stale in [other for other in _CACHES if other[0] == track]:
-                del _CACHES[stale]
-            _CACHES[key] = _Cache()
-        return _CACHES[key]
+        cache = _CACHES.get(key)
+        if cache is None:
+            cache = _CACHES[key] = _Cache()
+        _CACHES.move_to_end(key)
+        # WHY a bounded most-recently-used set, not "drop every other configuration" (Codex W05): a request that resolved
+        # the old sources just before they changed reaches here after the current configuration's request, and dropping
+        # the others then threw away the current configuration's last good document, so its next failure was a 503.
+        for evicted in [other for other in _CACHES if other[0] == track][:-_CONFIGURATIONS_PER_TRACK]:
+            del _CACHES[evicted]
+        return cache
 
 
 def _cached_document(track: str, projector: LiveProjector, sources: Mapping[str, str]) -> dict | None:
@@ -241,6 +270,52 @@ def _head(checkout: Path) -> str | None:
     if completed.returncode != 0:
         return None
     return completed.stdout.strip() or None
+
+
+def _toplevel(path: Path) -> str | None:
+    try:
+        completed = subprocess.run(["git", "-C", str(path), "rev-parse", "--show-toplevel"], capture_output=True,
+                                   text=True, timeout=_GIT_TIMEOUT_S, check=False)
+    except (OSError, subprocess.TimeoutExpired):
+        return None
+    if completed.returncode != 0 or not completed.stdout.strip():
+        return None
+    return os.path.realpath(completed.stdout.strip())
+
+
+def _same_checkout(repo: object, checkout: Path) -> bool:
+    """Whether a document's ``roots.repo`` is the checkout ``checkout`` lies in.
+
+    Their git toplevels when ``checkout`` is in a git checkout here; otherwise the normalized paths, ``checkout`` being
+    ``repo`` or a directory under it (the projectors are handed a directory inside their checkout, e.g. the curriculum's).
+    """
+
+    if not isinstance(repo, str) or not repo.startswith("/"):
+        return False
+    mine = _toplevel(checkout) if checkout.exists() else None
+    if mine is not None:
+        return os.path.isdir(repo) and _toplevel(Path(repo)) == mine
+    checkout_path, repo_path = os.path.normpath(str(checkout)), os.path.normpath(repo)
+    return checkout_path == repo_path or checkout_path.startswith(repo_path.rstrip("/") + "/")
+
+
+def _owned(document: dict, projector: LiveProjector, sources: Mapping[str, str]) -> bool:
+    """Whether a stored document is an earlier projection of this configuration: the projector's loop, its checkout."""
+
+    roots = document.get("roots") if isinstance(document.get("roots"), Mapping) else {}
+    return document.get("loop") == projector.loop and _same_checkout(roots.get("repo"), projector.checkout(sources))
+
+
+def _stored_fallback(track: str, projector: LiveProjector, sources: Mapping[str, str]) -> dict | None:
+    """The stored document of ``track`` when it may stand in for this configuration's live one (``_owned``), else None."""
+
+    try:
+        stored = _read_document(track)
+    except _InvalidDocument:
+        return None
+    if stored is None or not _owned(stored[1], projector, sources):
+        return None
+    return stored[1]
 
 
 def _file_stamps(paths: Iterator[Path] | list[Path]) -> tuple:
@@ -297,6 +372,29 @@ def _stamp(projector: LiveProjector, sources: Mapping[str, str], document: dict 
             _file_stamps(_linked_files(document)))
 
 
+def _settled_stamp(projector: LiveProjector, sources: Mapping[str, str], basis: dict | None, before: tuple,
+                   document: dict, started_ns: int) -> tuple | None:
+    """The stamp to keep for ``document``, projected from what ``before`` stamped; None to project again next request.
+
+    WHY not simply the stamp read after projecting (Codex W02): a file rewritten while the projector ran was read at
+    its old version, and stamping its new version blessed that old verdict until something else moved. So the declared
+    inputs, HEAD and the earlier document's linked files are read again and must equal ``before``; a file only the new
+    document links to has no earlier reading, so it must have been written before the projection started (less
+    ``_MTIME_SLACK_NS`` for coarse filesystem timestamps). The cost: a file being written right now re-projects on each
+    request until it settles, which is right, since the data it carries is still moving.
+    """
+
+    after = _stamp(projector, sources, basis)
+    if after != before:
+        return None
+    known = {stamp[0] for stamp in before[-1]}
+    linked = _file_stamps(_linked_files(document))
+    for path, *stat in linked:
+        if path not in known and stat[0] is not None and stat[0] >= started_ns - _MTIME_SLACK_NS:
+            return None
+    return after[:-1] + (linked,)
+
+
 def _now() -> str:
     return datetime.now(timezone.utc).isoformat(timespec="seconds")
 
@@ -332,34 +430,37 @@ def _live(track: str, projector: LiveProjector, sources: Mapping[str, str], refr
     # WHY one lock per track, held across the projection: the backend is threaded and a projection takes seconds of git
     # calls; concurrent requests for one track wait for that one projection and then read its result from the cache.
     with cache.lock:
-        stamp = _stamp(projector, sources, cache.document)
-        if refresh or stamp != cache.stamp:
+        # WHY the stored fallback's links join the stamp while there is no good document in memory (Codex W06): a cold
+        # start whose projection failed for want of a linked file otherwise never noticed that file coming back.
+        fallback = None if cache.document is not None else _stored_fallback(track, projector, sources)
+        basis = cache.document if cache.document is not None else fallback
+        stamp = _stamp(projector, sources, basis)
+        # WHY retry a failure after _RETRY_FAILED_S even on an unmoved stamp: the stamp cannot see every cause of a
+        # failure (a file outside it, a git lock, a transient error), and a failure kept forever is a dashboard stuck stale.
+        retry = cache.failure is not None and cache.failed_at is not None and _clock() - cache.failed_at >= _RETRY_FAILED_S
+        if refresh or stamp != cache.stamp or retry:
+            started_ns = time.time_ns()
             try:
                 document = _project(projector, sources)
             # WHY every exception, not only ProjectionError: a projector bug on one odd loop row must leave the dashboard
             # on the last good document with the reason shown, not turn the track into a 500. Its stamp still covers the
             # last good document's linked files, so a failure is retried as soon as one of them changes or comes back.
             except Exception as error:  # noqa: BLE001
-                cache.stamp, cache.failure = stamp, f"{type(error).__name__}: {error}"
+                cache.stamp, cache.failure, cache.failed_at = stamp, f"{type(error).__name__}: {error}", _clock()
             else:
-                # the declared inputs and HEAD as read before projecting (a change during it re-projects next time),
-                # plus the new document's own linked files
-                cache.stamp = stamp[:-1] + (_file_stamps(_linked_files(document)),)
-                cache.document, cache.body, cache.failure = document, _encode(document), None
+                cache.stamp = _settled_stamp(projector, sources, basis, stamp, document, started_ns)
+                cache.document, cache.body, cache.failure, cache.failed_at = document, _encode(document), None, None
         if cache.failure is None and cache.body is not None and cache.document is not None:
             return cache.body, cache.document
         failure, last_good = cache.failure, cache.document
     if last_good is not None:
         return _stale(last_good, f"stale: projecting the {track} loop live failed ({failure}); this is the last good "
                                  f"projection, generated {last_good.get('generated_at')}")
-    try:
-        stored = _read_document(track)
-    except _InvalidDocument:
-        stored = None
-    if stored is None:
-        raise _Unavailable(f"projecting the {track} loop live failed ({failure}) and there is no earlier document")
-    return _stale(stored[1], f"stale: projecting the {track} loop live failed ({failure}); this is the stored document, "
-                             f"generated {stored[1].get('generated_at')}")
+    if fallback is None:
+        raise _Unavailable(f"projecting the {track} loop live failed ({failure}) and there is no earlier document of "
+                           f"the {projector.loop} loop at {projector.checkout(sources)}")
+    return _stale(fallback, f"stale: projecting the {track} loop live failed ({failure}); this is the stored document, "
+                            f"generated {fallback.get('generated_at')}")
 
 
 # ---------------------------------------------------------------- requests
@@ -431,6 +532,16 @@ def _document(track: str, refresh: bool = False) -> tuple[bytes, dict]:
     authoritative, live = _resolve(track)
     if live is not None and live[0].present(live[1]):
         return _live(track, live[0], live[1], refresh)
+    # WHY a track with a live projector takes only its own loop's snapshot, always marked stale (Codex W01): any
+    # <track>.json was served before, so a track pointed at another loop or checkout showed that loop's old green rungs
+    # under its name, and an absent loop's snapshot read as current. Ineligible means 404, as if no file were there.
+    if live is not None:
+        projector, sources = live
+        stored = _read_document(track)
+        if stored is None or not _owned(stored[1], projector, sources):
+            raise _NoRoadmap
+        return _stale(stored[1], f"stale: the {projector.loop} loop is not on this machine; showing the stored "
+                                 f"snapshot, generated {stored[1].get('generated_at')}")
     # WHY no stored fallback once the registry has decided there is no roadmap (Codex V10): a track whose note says null,
     # names an unknown projector, or is not in the registry at all has been switched off by Zach, and an old snapshot
     # left in roadmap_docs_dir must not bring it back. Without a reachable registry the stored file still answers.
