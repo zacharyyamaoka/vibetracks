@@ -13,6 +13,7 @@
 
 import type { Iteration, Kpi, KpiValue, Projection, Track } from '../../shared'
 import { shortDay, valueAt, valueDomain as valueDomainOf } from '../../shared'
+import { formatLocal } from '../../shared/time'
 
 export interface Column {
   /** Iteration id, or `day:YYYY-MM-DD`. */
@@ -163,13 +164,13 @@ export function trendDomain(kpi: Kpi): [number, number] {
   return low === high ? [low - 1, high + 1] : [low, high]
 }
 
-/** "2026-10-03T05:53:39+00:00" → "10-03 05:53 UTC": the clock the source wrote, never re-zoned to this machine. */
+/** "2026-10-03T05:53:39+00:00" → "10-02 22:53 PDT": local time with its zone, like every other stamp on the page.
+ * WHY not the source's own zone: printing "since 10-05 00:55 UTC" beside "17:55 PDT" showed one moment as two
+ * different clocks; the raw stamp (source zone) stays in the caller's title attribute. Bare dates stay bare days. */
 export function formatSince(since: string | null): string {
   if (!since) return ''
-  if (since.length <= 10) return shortDay(since)
-  const offset = since.slice(19).replace(/^\.\d+/, '')
-  const zone = offset === '+00:00' || offset === 'Z' ? 'UTC' : offset.replace('-', '−')
-  return `${since.slice(5, 10)} ${since.slice(11, 16)}${zone ? ` ${zone}` : ''}`
+  if (/^\d{4}-\d{2}-\d{2}$/.test(since)) return shortDay(since)
+  return formatLocal(since)
 }
 
 /** A KPI is a loop-progress burn-up when its target is a scope ("of 62 rungs"): draw it as steps from 0. */

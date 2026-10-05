@@ -38,6 +38,7 @@ import { RoadmapWidget, useRoadmap, type RoadmapWidgetState } from '../../roadma
 import { buildColumns, columnIndexOfIteration, shortMarker, type XAxis } from './columns'
 import { Drawer } from './Drawer'
 import { Wall } from './Wall'
+import { formatLocal } from '../../shared/time'
 import './shared-timeline.css'
 
 export const NAME = 'Shared timeline'
@@ -587,7 +588,8 @@ function TrackView({ projection, track, columns, cursor, selectedColumn, onCurso
         </section>
       ) : null}
       <p className="vt-b-prov vt-b-trackprov" title={track.provenance.source ?? undefined}>
-        {projection.source.live ? 'live' : 'snapshot'} of {projection.source.snapshot_generated_at?.replace('T', ' ').slice(0, 16) ?? projection.as_of} · adapter {projection.source.adapter}
+        {projection.source.live ? 'live' : 'snapshot'} of{' '}
+        <span title={projection.source.snapshot_generated_at ?? projection.as_of}>{formatLocal(projection.source.snapshot_generated_at ?? projection.as_of)}</span> · adapter {projection.source.adapter}
         {projection.source.live ? '' : ' · not live yet'}
       </p>
     </div>

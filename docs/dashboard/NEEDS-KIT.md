@@ -35,11 +35,18 @@ A proposal owns **only its own folder**: `clank/src/needs/n1/` … `n5/`. Do not
 
 Served by `GET /needs?track=<id>` (one doc) and `GET /needs` (`vibetracks-needs-all/1`: `{schema, generated_at, tracks: NeedsDoc[]}`). Written by `vibetracks/dashboard/needs.py`, which reads the loops' **live** files on every request (kinsim's worktree is found by its branch). Types: `clank/src/needs/types.ts`.
 
-**Tracks today:** `kinsim` (57 items, live, answers by `jsonl_append`), `rig` (17 items, live, answers by `chat_paste`), and `grasping`, `detection`, `pyblocks`, which have no structured questions yet. Those return `items: []` with `source.note` saying where their questions live and `answer_channel` saying how an answer would get back. Show that note; never invent items for them.
+**Tracks:** the work-track registry's (`vibetracks.dashboard.registry`, workspace `$VIBETRACKS_WORKSPACE`), in its row order, and `track_title` is the registry's `vibe-title`, so a rename shows here too.
+
+- `kinsim` (live triage, answers by `jsonl_append`) and `rig` (live triage, answers by `chat_paste`).
+- `grasping`: one `approval` item per model id from `curriculum.py` CELLS with status `needs` whose reason names a download approval, parsed by the grasping adapter's own `needs_cells()`. `local_id` is the model id (`M5.ggcnn`); `ask` is "Approve downloading <model id>?" (the only words not in the file: CELLS carry reasons, not questions); `context_md` is the model's title, licence and notes and the cells it holds by their own reason, verbatim. No default is recorded, so they group `no_default`. `blocks` are `cell`s, not rungs: the adapter's frontier rule counts wave-1 cells and gates only, so an approval never blocks now. Answers go by `chat_paste`, naming model ids verbatim.
+- `detection`: the vault plan note's `## Needs you` items, parsed by the detection adapter's own `parse_needs_section()`, every field verbatim (`context_md` is the whole item, nested bullets and wikilinks included). `blocks` are the rungs the item says it blocks. A stated default has `applies.unit` `unstated` (the note never says when it fires), state `pending`; an item with no `*Default if silent:*` has unit `never` ("no default recorded").
+- `pyblocks` and any registry track needs.py has no source for: `items: []`, `source.note` saying where the questions live, and **every count null** ("not reported", never 0).
 
 **Per doc:** `track`, `track_title`, `generated_at`, `iteration {unit, n, phase, finished}`, `source {adapter, paths, commit, live, note}`, `answer_channel {kind, target, row_schema, read_back}`, `counts`, `items`.
 
-`counts`: `open` (raw status open), `blocking_now`, `no_default` (waits for Zach forever), `waiting` (default pending, blocks nothing), `defaulting` (open, but its default is already in effect), `answered`, `defaulted`, `closed`, `total`.
+`counts`: `open` (raw status open), `blocking_now`, **`wants_you`** (groups blocking + no_default + waiting: open items whose default is NOT already in effect), `no_default` (waits for Zach forever), `waiting` (default pending, blocks nothing), `defaulting` (open, but its default is already in effect), `answered`, `defaulted`, `closed`, `total`. Every value is null on a doc with no structured source.
+
+**The frozen counts contract.** needs.py is the ONE source of every Needs-you number. The projection's `needs_you_count` is `{open: counts.wants_you, blocking: counts.blocking_now}` for the same track (build.py fills it from this doc, and its `needs_you` list from these items), so a page header must show exactly `B blocking · M open` with `B = counts.blocking_now`, `M = counts.wants_you`, and "not reported" when they are null. `tests/test_dashboard_needs_counts.py` pins it.
 
 **Per item** (every field the source has, verbatim):
 
@@ -53,9 +60,9 @@ Served by `GET /needs?track=<id>` (one doc) and `GET /needs` (`vibetracks-needs-
 | `context_base_md`, `updates[]` | rig items grow by appended `UPDATE <header>: …` paragraphs (rig T2 is ~3.9 KB, 5 updates). `updates` holds them oldest first; the newest matters most |
 | `context_summary` | only when a loop emits one; always `null` today. The dashboard never invents one |
 | `recommendation_md` | the loop's recommendation, verbatim |
-| `default {text_md, applies {unit, after}, state}` | what happens if Zach is silent, and when. `applies.unit` `never` = it waits for him. `state` is **computed** (`pending`, `in_effect`, `none`); do not trust `status` alone, since loops leave items open after their default applied |
-| `options[]` | the three implicit choices, each with the loop's own words: `accept_recommendation` (detail = recommendation), `use_default` (detail = default; labelled "Keep waiting (no default)" for `never` items), `other` (needs a note) |
-| `blocks[] {id, kind, label}` | the rungs or packages it holds, with their titles |
+| `default {text_md, applies {unit, after}, state}` | what happens if Zach is silent, and when. `applies.unit` `never` = it waits for him (`text_md` is `""`); `unstated` = there is a default but the source never says when it fires (`after` null; say "when: not stated", never "after unstated null"). `state` is **computed** (`pending`, `in_effect`, `none`); do not trust `status` alone, since loops leave items open after their default applied |
+| `options[]` | the implicit choices, each with the loop's own words: `accept_recommendation` (detail = recommendation; **absent** when the source records no recommendation, as for grasping and detection), `use_default` (detail = default; labelled "Keep waiting (no default)" for `never` items), `other` (needs a note) |
+| `blocks[] {id, kind, label}` | what it holds, with titles: rungs or packages (triage, detection), `cell`s (grasping, label "env title · tier N"). `blocking_now`, not a non-empty `blocks`, says whether it blocks now |
 | `blocking_now` | open, unanswered, default not in effect, and blocks something |
 | `group` | `blocking`, `no_default`, `waiting`, `defaulting`, `answered`, `done`. `GROUP_LABEL` has the words |
 | `evidence[] {label, kind, value, path, line, is_dir}` | paths named in the item's text that exist on disk, as absolute paths; URLs |

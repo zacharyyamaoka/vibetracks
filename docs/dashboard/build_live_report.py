@@ -13,6 +13,7 @@ Inputs (all in MEDIA, written by the headless drive; none of them is hand-typed 
     fixwave-facts.json      the fix-wave verifier's measurements (verify-fixwave.mjs): rung cells, purposes, labels,
                             headers, switcher rects, the reload fan-out, the detection scroll positions
     timescan-facts.json     every clock time on the home, iteration and item pages without a zone, or in UTC
+    timescan-after.json     the times lane's after-scan (79 pages); verify-2/times-verify2.json the verifier's own
     projection-*.json       the projection the backend served at check time (sources, freshness, roadmap declaration)
     *.webp / hero-live-tracks.mp4 / .gif   the captures
 
@@ -46,6 +47,12 @@ import report_feedback as FB  # noqa: E402
 FACTS = json.loads((MEDIA / "drive-facts.json").read_text())
 FW = json.loads((MEDIA / "fixwave-facts.json").read_text())
 TS = json.loads((MEDIA / "timescan-facts.json").read_text())
+TS_AFTER = json.loads((MEDIA / "timescan-after.json").read_text())
+TS_V2 = json.loads((MEDIA / "verify-2" / "times-verify2.json").read_text())
+assert TS_AFTER["pass"] and TS_AFTER["totals"]["bad"] == 0 and TS_AFTER["totals"]["forbidden"] == 0, "times after-scan is not clean"
+NEEDS_MEDIA = Path("/home/bam/vibetracks/reports/media/vibetracks-needs-you-2026-10-04")
+NEEDS_REPORT = "/home/bam/vibetracks/reports/media/vibetracks-needs-you-2026-10-04.html"
+NEEDS_COUNTS = json.loads((NEEDS_MEDIA / "verify-2" / "counts.json").read_text())
 EV = json.loads((MEDIA / "evidence-facts.json").read_text())
 CHECKS = json.loads((MEDIA / "source-checks.json").read_text())
 PROJ_PATH = sorted(MEDIA.glob("projection-*.json"))[-1]
@@ -78,14 +85,18 @@ def inline_md(s: str) -> str:
     return s
 
 
+MIME = {".webp": "image/webp", ".png": "image/png", ".gif": "image/gif"}
+
+
 def fig(name: str, label: str, cap: str, cls: str = "") -> str:
     """A still with a two-tier caption: bold label (what it is), then the dim line (what to notice)."""
     alt = f"{label}"
-    with Image.open(MEDIA / name) as image:  # WHY the real size: the fix-wave crops are not 1440x900
+    path = Path(name) if name.startswith("/") else MEDIA / name
+    with Image.open(path) as image:  # WHY the real size: the fix-wave crops are not 1440x900
         width, height = image.size
     return (
         f'<figure class="cell {cls}"><button class="zoom" type="button" aria-label="Open {esc(alt)} full size">'
-        f'<img width="{width}" height="{height}" alt="{esc(alt)}" src="{data_uri(MEDIA / name, "image/webp")}"></button>'
+        f'<img width="{width}" height="{height}" alt="{esc(alt)}" src="{data_uri(path, MIME[path.suffix])}"></button>'
         f'<figcaption><b>{inline_md(label)}</b><span class="cap">{inline_md(cap)}</span></figcaption></figure>'
     )
 
@@ -281,11 +292,14 @@ def _fix_rows() -> list[tuple[str, str, bool, str]]:
         ("a", "Grasping's home row contradicted itself; rung cell showed the newest phase", g["rung"].startswith(g["status"].split(" 30 of")[0]),
          f"Grasping: status '{g['status'].split(' 30 of')[0]}', rung '{g['rung']}'. Rung cell source per row: {rung_src} "
          "(pyblocks has no rung and says 'latest wave: v5-#10 · b07c38b · no roadmap declared')."),
-        ("b", "Every human-facing time in local time with a zone", False,
-         f"Adapter text is fixed (state details read '10-04 17:55 PDT'). But the page's own 'since …' formatter still prints the "
-         f"source's zone: {', '.join(utc_lines)} say 'since … UTC' and {', '.join(offset_lines)} say '… −07:00', so kinsim's line reads "
-         f"'wave 4 closed 10-04 17:55 PDT … since 10-05 00:55 UTC'. The iteration and item pages print {l3_bare} clock times with no "
-         "zone at all (evidence timestamps on the 7 tracks' newest iteration and item pages), UTC ones among them (grasping runs '2026-10-05 03:28' = 10-04 20:28 PDT)."),
+        ("b", "Every human-facing time in local time with a zone", TS_AFTER["pass"],
+         f"Fixed in fix wave 2. One shared formatter (local time + zone name, raw ISO on hover) replaced columns.ts formatSince and the "
+         f"slice(0,16) in EvidenceList, ItemPage, B's Drawer and snapshot line, C's detail and N1-N5. The times lane's scan: "
+         f"{TS_AFTER['totals']['pages']} pages, {TS_AFTER['totals']['clocks']} clocks, {TS_AFTER['totals']['bad']} bad, "
+         f"{TS_AFTER['totals']['forbidden']} UTC/offset; {TS_AFTER['totals']['verbatimInLoopProse']} zoneless clocks are the loops' own prose, "
+         f"each found in the source data. The verifier's independent scan: {TS_V2['tot']['clocks']} clocks, {TS_V2['tot']['ok']} 'PDT'; "
+         f"the rest ({TS_V2['tot']['verbatim']} prose, {TS_V2['tot']['zoneless']} 'UPDATE 17:15' headers, {TS_V2['tot']['bad']} 'at 14:54 UTC' and "
+         f"{TS_V2['tot']['iso']} raw ISO) are the loops' words, shown verbatim. Kinsim's line now reads 'since 10-04 17:55 PDT'; grasping's runs '10-04 20:28 PDT'."),
         ("c", "Purpose whole in the projection, clamped to 3 lines with more/less", True,
          f"Purposes {purp} characters, identical to the rendered text. Rig at 1440: {tog['closed']['lines']} lines + '{tog['closed']['toggle']}' "
          f"→ {tog['open']['lines']} lines + '{tog['open']['toggle']}' (aria-expanded {tog['open']['expanded']}) → back to {tog['closedAgain']['lines']}. "
@@ -308,7 +322,32 @@ def _fix_rows() -> list[tuple[str, str, bool, str]]:
          "READS equals vibe-sources key for key on all five; an audit hook over every open/listdir finds nothing outside the declared paths. "
          "Re-run here: dropping any one key is caught except 3 keys nested inside another declared folder (grasping_out_dir, "
          "detection_queue_log, pyblocks_windows), as the lane reported. bam_loops still reads its frozen snapshot, which is not a track adapter."),
+        ("j", "Needs-you counts: the cell agrees with the page it opens", _needs_one_source(),
+         "needs.py is now the only source: the projection's needs_you_count is {open: wants_you, blocking: blocking_now} of the doc /needs "
+         "serves. Measured by the verifier: " + "; ".join(f"{t} '{c}'" for t, c in _home_cells().items())
+         + ", and N6's header carries the same numbers. N1-N5's own headers still disagree; detail in the Needs-you report, "
+         + NEEDS_REPORT + "."),
     ]
+
+
+def _home_cells() -> dict:
+    return {r["t"]: r["cell"].replace(" | ", " · ") for r in NEEDS_COUNTS if r["prop"] == "n6"}
+
+
+def _cell_numbers(cell: str) -> tuple[str, str]:
+    """'1 blocking | 3 open' -> ('1', '3'); 'none blocking | 7 open' -> ('0', '7'); 'not reported' -> ('null', 'null')."""
+    if cell == "not reported":
+        return "null", "null"
+    m = re.fullmatch(r"(\d+|none) blocking \| (\d+) open", cell)
+    assert m, f"unexpected home cell: {cell!r}"
+    return ("0" if m[1] == "none" else m[1]), m[2]
+
+
+def _needs_one_source() -> bool:
+    """True when, on every track, the N6 header's data-blocking/data-open equal the home cell that opened it."""
+    rows = [r for r in NEEDS_COUNTS if r["prop"] == "n6"]
+    heads = {r["t"]: next(a for a in r["attrs"] if a.get("tid") == "vt-n6-head") for r in rows}
+    return len(rows) == 5 and all(_cell_numbers(r["cell"]) == (heads[r["t"]]["b"], heads[r["t"]]["o"]) for r in rows)
 
 
 FIXES = _fix_rows()
@@ -319,32 +358,30 @@ def fix_table() -> str:
         f'<tr><td class="num">{esc(i)}</td><td>{esc(issue)}</td>'
         f'<td class="{"okt" if ok else "badt"}">{"fixed" if ok else "NOT FIXED"}</td><td class="small">{esc(ev)}</td></tr>'
         for i, issue, ok, ev in FIXES)
-    return ('<div class="tablewrap"><table class="grid"><thead><tr><th></th><th>Issue from the integration check</th><th>Verdict</th>'
+    return ('<div class="tablewrap"><table class="grid"><thead><tr><th></th><th>Issue</th><th>Verdict</th>'
             '<th>Measured on the live lane after a backend restart</th></tr></thead><tbody>' + rows + "</tbody></table></div>")
 
 
 ISSUES = [
-    ("Times: the page still mixes zones (owner: UI lane, variant A + shared)", "The adapters now write '10-04 17:55 PDT', but four UI "
-     "formatters print ISO stamps as given. `columns.ts formatSince` keeps the source's zone ('since 10-05 00:55 UTC' beside "
-     "'17:55 PDT'; '−07:00' on rig and detection). `shared/EvidenceList.tsx`, `ItemPage.tsx` and the home footer slice "
-     "`when.replace('T',' ').slice(0,16)`, which drops the zone: grasping's runs read '2026-10-05 03:28', eight hours ahead of the "
-     "gallery beside them at '2026-10-04 19:14'. Fix: one shared formatter, local time with the zone name (Intl, timeZoneName "
-     "'short'), used by all four (variants B and C have the same slice)."),
+    ("One red test, one type error (owner: whoever lands the wave)", "`tests/test_dashboard_adapters_live.py:209` still expects the "
+     "stripped purpose: change `first_paragraph(body, limit=None)` to `first_paragraph(body, limit=None, raw=True)`. 223 of 224 pass. "
+     "`tsc` reports TS2532 at `clank/src/needs/n2/index.tsx:387`: N2 sums a count that can now be null (missing, not 0)."),
+    ("CAN 12 and CAN 16 say 'nothing open' but open 'Not reported'", "Their track pages print 'Needs you · nothing open' from the old "
+     "child counts, while the page that link opens says 'Not reported' (/needs answers 404 for them) with the raw id 'can16' as its title. "
+     "Make the line null / 'not reported', or hide it for deployments."),
+    ("N1-N5 still break the counts contract", "Only N6 reads the frozen counts. N1 shows no blocking number, N2 '0 of 11 answered', N3 "
+     "'8 questions want you' on rig, and N1/N2/N5 show pyblocks' null as 0. Detail and stills in the Needs-you report."),
     ("Roadmap widget is a stub (expected)", "Every Roadmap section says 'Roadmap widget pending (roadmap session)' and "
-     "`GET /api/plugins/vibetracks/roadmap/<id>` answers 404. That is expected until branch `claude/vibetracks-roadmap` "
-     "(now ddd9bca) merges. Until then the home rung cell uses each loop's own `rung` (four tracks) and is honest where there is none."),
-    ("The fix wave is uncommitted", "The adapters and UI are in commit 0942c17, but the fix wave is 32 modified files plus 6 "
-     "untracked ones (clamp.tsx, roadmapReload.tsx, the reads test, the needs files) in /home/bam/vibetracks-dashboard. A peer's "
+     "`GET /api/plugins/vibetracks/roadmap/<id>` answers 404, until branch `claude/vibetracks-roadmap` merges. The home rung cell uses "
+     "each loop's own `rung` meanwhile."),
+    ("The fix waves are uncommitted", "Commit 29cbe13 holds fix wave 1; fix wave 2 (needs source, shell, N6, times) is about 30 modified "
+     "files plus new ones (n6/, shared/time.ts, tests/test_dashboard_needs_counts.py) in /home/bam/vibetracks-dashboard. A peer's "
      "`git stash -u` there would take them."),
-    ("Purpose drops markdown characters", "`notes.first_paragraph` deletes every `*`, `_` and backtick. Today only backticks go "
-     "(kinsim's `status.json` loses its code marks), but an identifier like loop_events would read loopevents. Owner: Python lane."),
     ("Sources in agent worktrees", "Kinsim, rig and grasping still read from agent worktrees a sweep could delete. The row would "
      "then say 'not reporting', truthfully."),
-    ("Small things", "rig.py's docstring cites tests/test_dashboard_adapter_reads.py, which does not exist (the test is "
-     "test_dashboard_adapters_live.py). Kinsim's W4 'from' line has an empty separator ('loop_events.jsonl · · events'). Variants "
-     "B and C still use the right-aligned line-clamp with no visible ellipsis."),
-    ("Needs page count differs from the row", "Kinsim's needs link opens the other workflow's page; its count rules belong to "
-     "that workflow and were not checked here."),
+    ("Small things", "The purpose's code span wraps mid-token on rig ('loo|p-status.json'). In n5 and the n4 provenance line, a few "
+     "stamps inside concatenated strings have no raw ISO on hover. Variants B and C still use the right-aligned line-clamp with no "
+     "visible ellipsis."),
     ("Clank shell errors (not the dashboard)", "The shell's usual .clank/*.json 404s and fs mkdir 409s. No error came from the "
      "dashboard code, and no window error fired."),
 ]
@@ -356,32 +393,35 @@ DECISION = f"""
 <ul>
   <li><strong>Done and proved:</strong>
     <ul>
-      <li>{NFIXED} of {len(FIXES)} findings of the integration check are fixed, measured on the live lane after a backend restart
-          (table above). Grasping's row now reads Tier 2 in both cells; four rows show the loop's own current rung → next.</li>
+      <li>{NFIXED} of {len(FIXES)} tracked findings are fixed and measured (table above). New this wave, times: every time
+          the UI formats reads local time with its zone ({TS_AFTER['totals']['clocks']} clocks on {TS_AFTER['totals']['pages']} pages, 0 UTC,
+          0 offset, 0 zoneless from a formatter), with the raw ISO on hover.</li>
+      <li>Needs-you counts have one source: home cell = track line = page header = /needs on all five tracks; pyblocks reads 'not reported',
+          never 0. The Needs-you page itself (N6, Back, the chooser) is reported in <code>{esc(NEEDS_REPORT)}</code>.</li>
       <li>Home still shows exactly the five work tracks: {esc(FACTS['home']['header'])}.</li>
       <li>{len(CHECKS)} KPI values on five tracks plus CAN 16 recomputed from the loops' own files: all match.</li>
-      <li>Rename round trip: two POSTs to <code>/tracks/pyblocks/title</code>, <code>vibe-id</code> unchanged, sha256 identical
-          afterwards ({esc(FACTS['rename']['before']['sha'][:12])}…), in the drive and again in the hero recording.</li>
-      <li>205 tests pass; typecheck clean; 0 window errors and 0 dashboard console errors.</li>
+      <li>Rename round trip left the note byte-identical, in the first drive and again in this wave's verify pass.</li>
+      <li>The purpose now keeps its markdown: inline code renders, no character is lost.</li>
     </ul></li>
-  <li><strong>Left:</strong>
+  <li><strong>Left</strong> (next; only the roadmap merge waits on you):
     <ul>
-      <li><b>Times (not fixed).</b> One shared UI formatter for every ISO stamp: local time with the zone name. Owner: UI lane.
-          Next, not blocked.</li>
-      <li>Roadmap widget: merge <code>claude/vibetracks-roadmap</code>, then re-drive the Roadmap section and the rung cell. Blocked on you.</li>
-      <li>Codex audit of the fix wave (not run in this pass).</li>
+      <li>The red test and the N2 type error (two one-line fixes).</li>
+      <li>CAN 12 / CAN 16 'nothing open' vs 'Not reported'.</li>
+      <li>Roadmap widget: merge <code>claude/vibetracks-roadmap</code>, then re-drive the Roadmap section. Blocked on you.</li>
+      <li>A Codex audit of both fix waves (not run).</li>
+      <li>The stills in Home, Track pages and Drill-down are from the first drive, before this wave: their Needs-you numbers are the old ones.</li>
     </ul></li>
   <li><strong>Needs you</strong> (each has a default that keeps work moving if you say nothing):
     <ol>
-      <li><b>Merge the roadmap widget</b> (<code>claude/vibetracks-roadmap</code>, now ddd9bca) into <code>claude/vibetracks-dashboard</code>?
-          Recommendation: yes; it is what replaces the stub. Default: nothing is merged; the section keeps saying pending, which is expected.</li>
-      <li><b>Commit the fix wave</b> on <code>claude/vibetracks-dashboard</code> so a peer's stash cannot take it?
-          Recommendation: yes, once the time formatter lands. Default: left uncommitted, as this task's rules require.</li>
+      <li><b>Merge the roadmap widget</b> (<code>claude/vibetracks-roadmap</code>) into <code>claude/vibetracks-dashboard</code>?
+          Recommendation: yes; it replaces the stub. Default: nothing is merged; the section keeps saying pending.</li>
+      <li><b>Commit both fix waves</b> on <code>claude/vibetracks-dashboard</code> so a peer's stash cannot take them?
+          Recommendation: yes, once the red test is fixed. Default: left uncommitted, as this task's rules require.</li>
       <li><b>Durable homes for loop files</b> now in agent worktrees (rig loop, grasp ledger, kinsim loop dir)?
           Recommendation: a stable path per loop. Default: unchanged; a sweep would turn a row 'not reporting', honestly.</li>
     </ol></li>
-  <li><strong>Deliberately not done:</strong> this pass is a verifier: no product code changed, no commits, no vault edits. Only the
-      vibetracks plugin backend was restarted; the Clank lane was left running. The rename was reverted and checked byte-identical.</li>
+  <li><strong>Deliberately not done:</strong> no commits, no vault edits. Loop prose that carries its own clock ('at 14:54 UTC',
+      'UPDATE 21:30') is shown as written, under the truth rule, not converted.</li>
 </ul>
 """
 
@@ -554,6 +594,9 @@ def build() -> str:
               "Current rung → next (the loop's own rung from its status file; Pyblocks has none and says 'latest wave … · no roadmap declared'), Last moved (the build's "
               "heartbeat, 'stale' past the 24 h stall rule), Needs you (blocking · open; 'not reported' when unknown, never 0). "
               "CAN 12 and CAN 16 are not on this page.")
+        + fig(str(NEEDS_MEDIA / "verify-2" / "home.png"), "Home after fix wave 2",
+              "Needs you now reads the page's own numbers: " + "; ".join(f"{t} '{c}'" for t, c in _home_cells().items())
+              + ". Times carry their zone ('read 10-04 21:20 PDT').")
         + "</div>" + home_rows()
     )
 
@@ -578,9 +621,9 @@ def build() -> str:
         fig("04-kinsim-roadmap.webp", "Roadmap section, expanded",
             "Expand writes rmopen=1 into the URL. The widget slot renders the stub ('Roadmap widget pending'), then the links "
             "the adapter supplies (Wave 4 report, ROADMAP.md, TRIAGE.md, status.json, runs.jsonl, loop_events.jsonl)."),
-        fig("05-kinsim-needs.webp", "Needs you link (the other workflow's page)",
-            f"The state line's 'Needs you · 1 blocking · 11 open →' goes to {k.get('needsHash')}. This page belongs to the "
-            "concurrent Needs-you workflow; shown only to prove the link lands."),
+        fig("05-kinsim-needs.webp", "Needs you link (the other workflow's page, first drive)",
+            f"At this capture the state line read 'Needs you · 1 blocking · 11 open →' and went to {k.get('needsHash')}. It now reads "
+            "'1 blocking · 3 open', the numbers of the N6 page it opens (see the Needs-you report)."),
         fig("06-kinsim-iteration.webp", "L3: the W4 iteration",
             f"Opened from the W4 column head ({k.get('l3hash')}). What changed, then every KPI at W4 with its change vs W3 and "
             "its evidence count."),
@@ -634,12 +677,18 @@ def build() -> str:
         fig("fw-home-maxscroll.webp", "Home at max scroll", "The review switcher sits below the last row and the Reload line."),
         fig("fw-kinsim-maxscroll.webp", "Kinematic Sim at max scroll", "The switcher clears the links block at the bottom of the page."),
     ]) + "</div>" + """
-<h3>Still wrong: times</h3>""" + '<div class="g1">' + "".join([
-        fig("fw-kinsim-stateline.webp", "Kinematic Sim state line",
+<h3>Times: before and after (fixed in fix wave 2)</h3>""" + '<div class="g2">' + "".join([
+        fig("fw-kinsim-stateline.webp", "Before: Kinematic Sim state line",
             "'wave 4 closed 10-04 17:55 PDT' and 'since 10-05 00:55 UTC' are the same moment in two zones on one line."),
-        fig("fw-grasping-iteration-times.webp", "Grasping, latest wave: evidence times",
+        fig("fw2-kinsim-stateline.png", "After: the same line in one zone",
+            "'wave 4 closed 10-04 17:55 PDT · … · since 10-04 17:55 PDT'. The Needs-you line beside it now reads '1 blocking · 3 open', the page's own numbers."),
+        fig("fw-grasping-iteration-times.webp", "Before: Grasping, latest wave, evidence times",
             "The gallery reads local '2026-10-04 19:14'; the runs read '2026-10-05 03:28', which is UTC with the zone dropped (10-04 20:28 PDT)."),
-    ]) + "</div>"
+        fig("fw2-grasping-iteration-times.png", "After: the same list",
+            "The gallery reads '10-04 19:14 PDT' and the runs '10-04 20:28 PDT' / '20:31 PDT': one zone, named, and the raw ISO on hover."),
+    ]) + "</div>" + '<div class="g1">' + fig("verify-2/times-item_grasping_20261005T032840Z_M3_bandit.png",
+        "After, checked by the verifier: one grasping run's own page",
+        "'run · pass · 10-04 20:28 PDT · T1 · seed 2'. The episodes file name below still carries the ledger's UTC stamp (20261005T032840Z); it is a path shown verbatim, not a displayed time.") + "</div>"
 
     page = f"""<!doctype html>
 <html lang="en"><head><meta charset="utf-8">
@@ -649,34 +698,35 @@ def build() -> str:
 <body><div class="wrap">
 
 <header class="top">
-  <div class="date">2026-10-04 · integration check, re-verified after the fix wave</div>
+  <div class="date">2026-10-04 · integration check, re-verified after fix wave 2</div>
   <h1>Vibe Tracks: your five work tracks, live</h1>
-  <p class="verdict">{NFIXED} of {len(FIXES)} issues from the integration check are fixed and measured. Home shows each loop's real
-  current rung → next, and Grasping's row no longer contradicts itself. Not fixed: times. The adapters now write local time, but the
-  page still prints some times in UTC or with no zone. The roadmap widget is still a stub until its branch merges, as expected.</p>
+  <p class="verdict">{NFIXED} of {len(FIXES)} tracked findings are fixed and measured, times and the Needs-you counts included: every time the UI
+  formats is local with its zone, and every Needs-you cell now shows the numbers of the page it opens. Still open: one red test, one type
+  error, and CAN 12 / CAN 16 saying 'nothing open' over a 'Not reported' page. The roadmap widget is still a stub until its branch merges.</p>
   <p class="built">Restarted the vibetracks backend and drove the running lane headless at {esc(gen)}.
   {sum(c["match"] for c in CHECKS)} of {len(CHECKS)} KPI values matched when recomputed from the loops' own files. The rename
-  round trip left the note byte-identical. Typecheck clean; 205 of 205 tests pass. Nothing committed. This page is over the desktop
-  preview's size cap, so open it in the browser.</p>
+  round trip left the note byte-identical. Re-checked after fix wave 2 by an independent verifier: 223 of 224 tests pass, tsc has one
+  error (N2). Nothing committed. This page is over the desktop preview's size cap, so open it in the browser. The Needs-you page has its
+  own report: <code>{esc(NEEDS_REPORT)}</code>.</p>
   <div class="launch"><pre id="launch-cmd">{esc(LAUNCHER)}</pre><button id="copy-launch" type="button">Copy</button></div>
 </header>
 
 <nav class="toc" aria-label="Sections">
-  <a href="#watch">Watch</a><a href="#fixwave">Fix wave</a><a href="#home">Home</a><a href="#pages">Track pages</a><a href="#drill">Drill-down</a>
+  <a href="#watch">Watch</a><a href="#fixwave">Fix waves</a><a href="#home">Home</a><a href="#pages">Track pages</a><a href="#drill">Drill-down</a>
   <a href="#tracks">Per track</a><a href="#checks">Numbers checked</a><a href="#rename">Rename</a><a href="#live">Live vs stale</a>
   <a href="#issues">Issues</a><a href="#decide">Decide</a>
 </nav>
 
 {section("watch", "Watch first", "One recorded walk through the real app: pick a track, read its KPIs, open the roadmap section, go back, open the rig and CAN 16, rename a track.", hero, 1)}
-{section("fixwave", "What changed in the fix wave", "Each finding of the integration check, re-measured independently after the Python and UI lanes reported done. The verifier did not write the fixes.", fw, 2)}
+{section("fixwave", "What changed in the fix waves", "Each finding, re-measured independently after the lanes reported done (b and j in fix wave 2, the rest in fix wave 1). The verifiers did not write the fixes.", fw, 2)}
 {section("home", "Home: the work tracks", "One calm row per top-level track, in registry priority order. It adapts to however many track notes exist, so a sixth track is one new note.", home, 3)}
-{section("pages", "Each track page", "Title (renamable) → one state line → Needs you → purpose → Key KPIs → Roadmap. The rig adds its deployments under the roadmap.", pages, 4)}
+{section("pages", "Each track page", "Title (renamable) → one state line → Needs you → purpose → Key KPIs → Roadmap. The rig adds its deployments under the roadmap. These captures are from the first drive; their Needs-you numbers predate the one-source fix.", pages, 4)}
 {section("drill", "Drilling in: KPIs, roadmap, needs, evidence", "Kinsim end to end, then the rig's deployments.", drill, 5)}
 {section("tracks", "Per track: sources, freshness, KPIs, roadmap, gaps", f"Read from the projection the backend served at {esc(gen)} (<code>{esc(PROJ_PATH.name)}</code>). File times are local, with their zone.", track_table(), 6)}
 {section("checks", "Numbers checked against the source files", "Each value recomputed by a separate script (<code>crosscheck.py</code> in the media folder) straight from the loop's own files, not from the adapter, then compared with what the dashboard served.", checks_table(), 7)}
 {section("rename", "Renaming a track", "", rename, 8)}
 {section("live", "What is live, what is stale, and why", "", live_status(), 9)}
-{section("issues", "Issues still open", "The verifier changed no product code; these are for their owners. Fixed issues moved to the fix-wave table above.", '<ol class="issues">' + ''.join(f'<li><b>{esc(t)}</b>{inline_md(d)}</li>' for t, d in ISSUES) + '</ol>', 10)}
+{section("issues", "Issues still open", "The verifiers changed no product code; these are for their owners. Fixed issues moved to the fix-wave table above.", '<ol class="issues">' + ''.join(f'<li><b>{esc(t)}</b>{inline_md(d)}</li>' for t, d in ISSUES) + '</ol>', 10)}
 
 <section id="decide">
   <h2>Decision surface</h2>

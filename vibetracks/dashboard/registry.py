@@ -265,7 +265,9 @@ def _work_track(path: Path, content: str, frontmatter: dict[str, Any], body: str
         stall_hours=stall_hours,
         # WHY the whole paragraph (limit=None): the default cuts near 240 characters with no mark, which hid the end
         # of every purpose ("Its live fold is stat"). The page clamps it with an explicit ellipsis and a "more" toggle.
-        purpose=first_paragraph(body, limit=None),
+        # WHY raw=True: the default strips every *, _ and backtick, which turned `pll_filter_hz` into "pllfilterhz";
+        # the page renders the inline markdown itself, so the stored characters arrive as written.
+        purpose=first_paragraph(body, limit=None, raw=True),
         heartbeat_declared=heartbeat_declared,
     )
 

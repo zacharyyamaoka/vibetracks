@@ -1,9 +1,40 @@
 /* The "Needs you" kit's own few rules, rooted in .vt-dash .vt-needs, in @layer base (clank-workbench CLAUDE.md §1.5).
    Proposals root their CSS in .vt-dash .vt-needs-n<k> inside their own folder. */
 @layer base {
-  /* WHY the chooser sits above the A · B · C switcher (bottom 14px, ~30px tall): both stay clickable. */
+  /* WHY the chooser takes the A · B · C switcher's corner: Dashboard.tsx hides A · B · C on the needs page (it has no
+     effect there). It is one pill that opens its list upward, so the corner it covers stays small. */
   .vt-dash .vt-switcher.vt-needs-switcher {
-    bottom: 52px;
+    bottom: 14px;
+    flex-direction: column;
+    align-items: stretch;
+    gap: 2px;
+  }
+  .vt-dash .vt-needs-switcher .vt-needs-switch-menu {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    padding-bottom: 3px;
+    border-bottom: 1px solid var(--vt-line);
+  }
+  .vt-dash .vt-needs-switcher .vt-needs-switch-menu .vt-btn {
+    text-align: left;
+  }
+  .vt-dash .vt-needs-switcher .vt-needs-switch-pill {
+    display: inline-flex;
+    align-items: center;
+  }
+  .vt-dash .vt-needs-switcher .vt-needs-switch-pill .vt-switch-label {
+    padding: 0 6px 0 0;
+  }
+  .vt-dash .vt-needs-switcher .vt-needs-switch-caret {
+    margin-left: 6px;
+    color: var(--vt-faint);
+  }
+  /* WHY 80px of bottom padding on the whole needs page: the needs pill floats over the bottom-right corner (bottom
+     14px, ~31px tall, so its top edge is ~45px up). At max scroll the last answer control must sit above it, never
+     under it (measured with elementFromPoint, every proposal × kinsim and rig). */
+  .vt-dash .vt-needs {
+    padding-bottom: 80px;
   }
   .vt-dash .vt-needs-back-row {
     padding: 10px 48px 0;

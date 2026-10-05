@@ -86,17 +86,21 @@ def parse_frontmatter(markdown: str) -> tuple[dict[str, Any], str]:
     return loaded, markdown[match.end():]
 
 
-def first_paragraph(body: str, *, limit: int | None = 240) -> str:
+def first_paragraph(body: str, *, limit: int | None = 240, raw: bool = False) -> str:
     """A plain-text summary from the first prose paragraph of the body.
 
     ``limit`` (default 240) stops collecting lines once that many characters are in and cuts at ``limit + 40``;
     ``None`` returns the whole first paragraph, uncut (the dashboard registry's ``purpose``: the page clamps it
     visually with an explicit ellipsis instead of losing the end of the sentence here).
+
+    ``raw`` (default False) keeps every ``*``, ``_`` and backtick as written. WHY: the default strip is right for a
+    plain-text card summary but mangles identifiers (``pll_filter_hz`` -> ``pllfilterhz``); the dashboard registry
+    renders inline markdown itself, so it asks for the paragraph verbatim (truthful-rendering rule).
     """
     lines: list[str] = []
     in_fence = False
-    for raw in body.splitlines():
-        line = raw.strip()
+    for source_line in body.splitlines():
+        line = source_line.strip()
         if line.startswith("```"):
             in_fence = not in_fence
             continue
@@ -104,7 +108,7 @@ def first_paragraph(body: str, *, limit: int | None = 240) -> str:
             if lines:
                 break
             continue
-        lines.append(re.sub(r"[*_`]", "", line))
+        lines.append(line if raw else re.sub(r"[*_`]", "", line))
         if limit is not None and len(" ".join(lines)) >= limit:
             break
     return " ".join(lines) if limit is None else " ".join(lines)[:limit + 40]

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Build the media-rich review report for the five Vibe Tracks Needs-you proposals (N1-N5).
+"""Build the media-rich review report for the Vibe Tracks Needs-you page: N6 (the default now), the shared fixes, N1-N5.
 
     python3 /home/bam/vibetracks-dashboard/docs/dashboard/build_needs_report.py
 
@@ -7,7 +7,7 @@ Writes ONE self-contained file:
     /home/bam/vibetracks/reports/media/vibetracks-needs-you-2026-10-04.html
 
 Same structure and house style as build_report.py (the three-proposal dashboard report). The proposals', research and
-judges' words live in needs_data.py; the captures and hero videos are the builders' own, in MEDIA.
+judges' words live in needs_data.py, which sits in MEDIA (not in this repo); the captures and hero videos are the builders' own, in MEDIA.
 
 WHY one file with everything inlined: Zach reviews by reading, not by clicking around (/rate bad 2026-10-04).
 Every still and hero video is a data: URI, each inlined exactly ONCE: the lightbox re-uses the clicked <img>'s src at
@@ -20,15 +20,24 @@ from __future__ import annotations
 
 import base64
 import html
+import importlib.util
+import io
 import re
 import sys
 from pathlib import Path
 
-HERE = Path(__file__).resolve().parent
-sys.path.insert(0, str(HERE))
-import needs_data as D  # noqa: E402
+from PIL import Image
 
 MEDIA = Path("/home/bam/vibetracks/reports/media/vibetracks-needs-you-2026-10-04")
+# WHY the data module lives beside the captures, not in this repo: it quotes the BAM loops' own questions and
+# answers, which must not live in the public dashboard repo. Imported by absolute path; a missing file is a hard stop.
+DATA = MEDIA / "needs_data.py"
+if not DATA.is_file():
+    sys.exit(f"build_needs_report: {DATA} is missing. It holds the loop text this report quotes and lives only in the "
+             "reports media folder (never in the repo). Restore it there, then re-run.")
+_spec = importlib.util.spec_from_file_location("needs_data", DATA)
+D = importlib.util.module_from_spec(_spec)
+_spec.loader.exec_module(D)
 FB_DIR = Path("/home/bam/vibetracks/reports/media/dashboard-prior-art-2026-10-03")
 OUT = Path("/home/bam/vibetracks/reports/media/vibetracks-needs-you-2026-10-04.html")
 REPORT_NAME = OUT.name
@@ -289,6 +298,132 @@ def judges_html() -> str:
     return table + "".join(quotes)
 
 
+# ---- wave 2: N6 and the shared fixes ------------------------------------------------------------------------------
+def png_uri(path: Path) -> str:
+    """A PNG capture re-encoded to WebP in memory (a third of the bytes; nothing is written next to the capture)."""
+    key = str(path)
+    assert path.exists(), f"missing media: {path}"
+    assert key not in _inlined, f"would inline twice: {path}"
+    _inlined.add(key)
+    buf = io.BytesIO()
+    with Image.open(path) as image:
+        image.convert("RGB").save(buf, "WEBP", quality=84, method=5)
+    return "data:image/webp;base64," + base64.b64encode(buf.getvalue()).decode()
+
+
+def still(rel: str, label: str, cap: str) -> str:
+    """Two-tier caption: the bold label says what it is, the dim line says what to notice."""
+    path = Path(rel) if rel.startswith("/") else MEDIA / rel
+    return (
+        '<figure class="cell w2"><button class="zoom nocrop" type="button" aria-label="Open '
+        f'{esc(label)} full size"><img alt="{esc(label)}" loading="lazy" src="{png_uri(path)}"></button>'
+        f'<figcaption><b>{esc(label)}</b><span class="cap">{esc(cap)}</span></figcaption></figure>'
+    )
+
+
+W2 = ["N6", "N1", "N2"]
+assert set(D.JUDGE_N6) == set(W2)
+MEAN2 = {n: weighted(D.JUDGE_N6[n]) for n in W2}
+ORDER2 = sorted(W2, key=lambda n: -MEAN2[n])
+assert ORDER2 == ["N1", "N6", "N2"], f"wave-2 judge order changed: {ORDER2} - re-check the verdict and decision"
+# The judge's stated totals must reproduce, or the report says which one does not.
+STATED_OFF = {n: D.JUDGE_N6_STATED[n] for n in W2 if abs(D.JUDGE_N6_STATED[n] - MEAN2[n]) > 0.05}
+NAME2 = {"N6": D.N6["name"], "N1": NAME["N1"], "N2": NAME["N2"]}
+
+
+def n6_html() -> str:
+    hero = (
+        '<figure class="hero6"><video controls autoplay muted loop playsinline preload="auto" data-n="N6">'
+        f'<source src="{data_uri(MEDIA / D.N6["hero"], "video/mp4")}" type="video/mp4"></video>'
+        f'<img id="hero6-gif" class="hidden" alt="N6 hero as a GIF" src="{data_uri(MEDIA / D.N6["hero_gif"], "image/gif")}">'
+        f'<figcaption><b><span class="ltr">N6</span> {esc(D.N6["hero_label"])}</b>'
+        f'<span class="cap">{esc(D.N6["hero_caption"])}</span></figcaption></figure>'
+    )
+    stills = '<div class="stills">' + "".join(still(*x) for x in D.N6["stills"]) + "</div>"
+    crit_head = "".join(f'<th class="num">{esc(nm)}<small>{w}</small></th>' for _k, nm, w in D.CRITERIA)
+    ncols = 3 + len(D.CRITERIA)
+    rows = []
+    for n in ORDER2:
+        r = D.JUDGE_N6[n]
+        cells = "".join(f'<td class="num">{s:g}</td>' for s, _e in r["f"])
+        stated = (f'<small class="off">judge wrote {D.JUDGE_N6_STATED[n]:g}</small>' if n in STATED_OFF else "")
+        rows.append(
+            f'<tr class="jrow"><th scope="row"><span class="ltr">{n}</span> {esc(NAME2[n])}</th>'
+            f'<td class="num wt">{MEAN2[n]:.1f}{stated}</td>{cells}'
+            f'<td class="gate {"ok" if r["gates"] else "bad"}">{"pass" if r["gates"] else "FAIL"}</td></tr>'
+        )
+        ev = "".join(
+            f'<div class="ev"><b>{k.upper()} {esc(nm)} · {r["f"][i][0]:g}/5</b><p>{inline_md(r["f"][i][1])}</p></div>'
+            for i, (k, nm, _w) in enumerate(D.CRITERIA)
+        ) + f'<div class="ev"><b>Gates · {"pass" if r["gates"] else "FAIL"}</b><p>{inline_md(r["gate_note"])}</p></div>'
+        rows.append(f'<tr class="evrow"><td colspan="{ncols}"><details><summary>Evidence · {n}</summary>{ev}</details></td></tr>')
+    off_note = "".join(
+        f" The judge wrote {D.JUDGE_N6_STATED[n]:g} for {n}; its raw scores give {MEAN2[n]:.1f}, which is what the table shows."
+        for n in STATED_OFF)
+    table = (
+        '<div class="tablewrap"><table class="scores"><thead><tr><th></th><th class="num">Weighted<small>of 100</small></th>'
+        + crit_head + '<th class="gate">Gates</th></tr></thead><tbody>' + "".join(rows) + "</tbody></table></div>"
+        f'<p class="small dim">One judge drove N6, N1 and N2 on today\'s build, after the shared fixes. Weighted = Σ weight × score / 5 '
+        f'(weights {" / ".join(str(w) for _k, _n, w in D.CRITERIA)}), recomputed here from the raw scores.{esc(off_note)}</p>'
+    )
+    wrong = "".join(f"<li><b>{esc(h)}</b> <span>{inline_md(t)}</span></li>" for h, t in D.N6_STILL_WRONG)
+    return f"""
+<article class="prop n6" id="prop-N6">
+  <header class="prophead"><span class="ltr big">N6</span>
+    <h3>{esc(D.N6['name'])} <span class="deftag">now the default</span></h3>
+    <div class="meanbadge" title="today's judge, weighted">{MEAN2['N6']:.1f}<small>/ 100 · today's judge</small></div>
+    <p class="thesis">{inline_md(D.N6['thesis'])}</p>
+  </header>
+  {hero}
+  <h4>Stills <small>(after the shared fixes)</small></h4>
+  {stills}
+  <h4>Scores: N6 vs N1 vs N2</h4>
+  <p class="jverdict">{inline_md(D.JUDGE_N6_VERDICT)}</p>
+  {table}
+  <h4>What is still wrong in N6 <small>(the judge's list, in fix order)</small></h4>
+  <ol class="wrong">{wrong}</ol>
+  {FB.strip("N6", "N6 · " + D.N6['name'], noun="proposal")}
+</article>"""
+
+
+def shared_html() -> str:
+    head = ("<tr><th>Track</th><th>Home cell · before</th><th>Needs page · before</th>"
+            "<th>Home cell · after</th><th>Needs page · after (N6 header)</th></tr>")
+    body = "".join(
+        f'<tr><th scope="row">{esc(t)}</th><td class="was">{esc(hb)}</td><td class="was">{esc(pb)}</td>'
+        f"<td>{esc(ha)}</td><td>{esc(pa)}</td></tr>" for t, hb, pb, ha, pa in D.COUNTS)
+    still_open = "".join(f"<li>{inline_md(x)}</li>" for x in D.COUNTS_STILL_OPEN)
+    s = {Path(rel).name: (rel, lab, cap) for rel, lab, cap in D.SHARED_STILLS}
+    fig = lambda name: still(*s[name])  # noqa: E731
+    return f"""
+<div class="fix">
+  <h3>1 · Counts: one source <span class="okt">fixed</span></h3>
+  <p class="lead">{inline_md(D.COUNTS_NOTE)}</p>
+  <div class="tablewrap"><table class="counts"><thead>{head}</thead><tbody>{body}</tbody></table></div>
+  <div class="stills two-up">{fig("home.png")}{fig("counts-n2-rig.png")}</div>
+  <h4>Still open around the counts</h4><ul class="open">{still_open}</ul>
+  {FB.strip("S1", "Shared fix · counts", noun="section")}
+</div>
+<div class="fix">
+  <h3>2 · Back goes where you came from <span class="okt">fixed</span></h3>
+  <p class="lead">{inline_md(D.BACK_NOTE)}</p>
+  {FB.strip("S2", "Shared fix · back", noun="section")}
+</div>
+<div class="fix">
+  <h3>3 · The chooser no longer covers answers <span class="okt">fixed</span></h3>
+  <p class="lead">{inline_md(D.CHOOSER_NOTE)}</p>
+  <div class="stills">{fig("fix-shell-chooser-open.png")}{fig("overlap2-n3-rig-rest.png")}{fig("overlap2-n4-kinsim-max.png")}</div>
+  {FB.strip("S3", "Shared fix · chooser", noun="section")}
+</div>
+<div class="fix">
+  <h3>4 · Times in local time with the zone <span class="okt">fixed</span></h3>
+  <p class="lead">{inline_md(D.TIMES_NOTE)}</p>
+  <div class="stills one-up">{still(*D.TIMES_STILL)}</div>
+  <p class="small dim">Before/after stills and both scans: the live-tracks report, <code>/home/bam/vibetracks/reports/media/vibetracks-live-tracks-2026-10-04.html</code>.</p>
+  {FB.strip("S4", "Shared fix · times", noun="section")}
+</div>"""
+
+
 # ---- page --------------------------------------------------------------------------------------------------------
 CSS = r"""
 :root{
@@ -300,6 +435,8 @@ CSS = r"""
 *{box-sizing:border-box}
 html{scroll-behavior:smooth}
 body{margin:0;background:var(--bg);color:var(--fg);font:15px/1.55 var(--sans);-webkit-text-size-adjust:100%}
+h2.wave1{margin:64px 0 0;padding-top:24px;border-top:1px solid var(--line2);font-size:26px}
+h2.wave1 small{font-weight:500;color:var(--dim2);font-size:15px}
 .wrap{max-width:1360px;margin:0 auto;padding:0 16px 120px}
 h1{font-size:34px;line-height:1.15;margin:0 0 12px;letter-spacing:-.02em}
 h2{font-size:22px;margin:0 0 6px;letter-spacing:-.01em}
@@ -461,6 +598,32 @@ tr.meanrow th,tr.meanrow td{background:var(--panel);border-bottom:2px solid var(
 .decide>ul>li{margin:12px 0}
 .decide li ul{margin-top:4px}
 footer.end{margin-top:40px;color:var(--dim2);font-size:12px}
+
+/* wave 2: N6 + shared fixes */
+.prop.n6{border-color:var(--line2)}
+.deftag{font-size:11px;font-weight:700;color:var(--accent);border:1px solid var(--accent);border-radius:5px;padding:1px 6px;margin-left:8px;vertical-align:.15em}
+.hero6{margin:18px 0 0}
+.hero6 video,.hero6 img{width:100%;max-width:1100px;display:block;border:1px solid var(--line2);border-radius:10px;background:#111;aspect-ratio:1280/800}
+.stills{display:grid;grid-template-columns:repeat(3,1fr);gap:16px}
+.stills.two-up{grid-template-columns:1fr 1fr;margin-top:16px}
+.stills.one-up{grid-template-columns:minmax(0,820px)}
+.zoom.nocrop{aspect-ratio:auto}
+.zoom.nocrop img{width:100%;margin:0}
+.jverdict{font-size:14px;max-width:62em}
+.off{display:block;font-size:10.5px;font-weight:500;color:var(--warn)}
+ol.wrong{margin:0;padding-left:20px;font-size:14px;max-width:66em}
+ol.wrong li{margin:0 0 8px} ol.wrong span{color:var(--dim)}
+.fix{border:1px solid var(--line);border-radius:14px;padding:18px 22px 12px;margin:0 0 20px}
+.fix h3{font-size:17px}
+.okt{font-size:11px;font-weight:700;color:var(--ok);border:1px solid var(--ok);border-radius:5px;padding:1px 6px;margin-left:6px;vertical-align:.15em}
+table.counts{border-collapse:collapse;width:100%;min-width:760px;font-size:13px}
+table.counts th,table.counts td{padding:8px 10px;border-bottom:1px solid var(--line);text-align:left;vertical-align:top}
+table.counts thead th{font-size:11.5px;color:var(--dim);background:var(--panel)}
+table.counts td.was{color:var(--dim2)}
+ul.open{margin:0;padding-left:20px;font-size:13.5px;max-width:66em} ul.open li{margin:0 0 6px}
+.small{font-size:13px} .dim{color:var(--dim)}
+@media(max-width:980px){.stills{grid-template-columns:1fr 1fr}}
+@media(max-width:820px){.stills,.stills.two-up{grid-template-columns:1fr}.fix{padding:14px}}
 """
 
 # Light-theme override of the house feedback module, which was written dark. WHY an override block rather
@@ -537,7 +700,12 @@ JS = r"""
   document.addEventListener('keydown', function(e){ if (e.key === 'Escape' && lb.classList.contains('open')) closeLb(); });
 
   // five autoplaying videos at once is heavy: run only the ones on screen
-  var vids = document.querySelectorAll('.vid video');
+  // WHY the GIF only on error: it is the fallback for a viewer that cannot play H.264, not a second hero.
+  var v6 = document.querySelector('.hero6 video'), g6 = document.getElementById('hero6-gif');
+  function toGif6(){ v6.classList.add('hidden'); g6.classList.remove('hidden'); }
+  if (v6){ var s6 = v6.querySelector('source'); if (s6) s6.addEventListener('error', toGif6);
+    if (!v6.canPlayType('video/mp4')) toGif6(); }
+  var vids = document.querySelectorAll('.vid video, .hero6 video');
   if ('IntersectionObserver' in window){
     var io = new IntersectionObserver(function(entries){
       entries.forEach(function(en){
@@ -564,10 +732,11 @@ def build() -> str:
 
     first, second = ORDER[0], ORDER[1]
     verdict = (
-        f"Five working Needs-you pages on your real loop data. Both judges rank {first} · {NAME[first]} first "
-        f"({MEAN[first]:.0f}) with {second} · {NAME[second]} one point behind ({MEAN[second]:.0f}); the splice they "
-        f"both name is {first}'s lane with {second}'s context table on every card, plus fixing the home count that "
-        f"disagrees with the page it opens."
+        f"N6 · {D.N6['name']} is now the default Needs-you page, and every Needs-you count agrees with the page it opens: "
+        f"home cell, track line and N6 header read the same numbers on all five tracks. But today's judge scores N6 "
+        f"{MEAN2['N6']:.0f}, below N1 at {MEAN2['N1']:.0f} (N2 {MEAN2['N2']:.0f}): it is the only page with the full "
+        f"context and no keypress, and it still offers a fake ↵ where there is no recommendation and pushes its "
+        f"options below the fold at 1280 × 800."
     )
     mean_line = " · ".join(f"{n} {MEAN[n]:.1f}" for n in ORDER)
     # grid first, so GRID_USED is known when the details pick their extra stills; the page below places them in order.
@@ -576,37 +745,62 @@ def build() -> str:
     props = "".join(proposal_html(n) for n in ORDER)
     prior = prior_art_html()
     judges = judges_html()
+    n6 = n6_html()
+    shared = shared_html()
 
     page = f"""<!doctype html>
 <html lang="en"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Vibe Tracks Needs-you: five working proposals</title>
+<title>Vibe Tracks Needs-you</title>
 <style>{CSS}{FB.CSS}{FB_LIGHT}</style></head>
 <body><div class="wrap">
 
 <header class="top">
   <div class="date">2026-10-04</div>
-  <h1>Vibe Tracks Needs-you: five working proposals</h1>
+  <h1>Vibe Tracks Needs-you: N6 is the default</h1>
   <p class="verdict">{esc(verdict)}</p>
-  <p class="built">Built on the live lane at 127.0.0.1:4390 against the real /needs data · answers only ever copy out, nothing is sent · branch claude/vibetracks-dashboard · scored by two independent judges, no Codex audit in this report.</p>
+  <p class="built">Built on the live lane at 127.0.0.1:4390 against the real /needs data · answers only ever copy out, nothing is sent · branch claude/vibetracks-dashboard, uncommitted · N1–N5 scored by two judges in the first wave, N6 vs N1 vs N2 by one judge on today's build, all re-checked by an independent verifier; no Codex audit in this report · browser-only (over the desktop preview's size cap).</p>
   <div class="launch"><pre id="launch-cmd">{esc(LAUNCHER)}</pre><button id="copy-launch" type="button">Copy</button></div>
   <div class="reach">
     <h4>How to reach it</h4>
     <ol>
       <li>Run the launcher above. It starts or reuses this checkout's lane and opens the dashboard.</li>
-      <li>Go to a track page and click <strong>Needs you</strong>, or paste <code>#vt?track=kinsim&amp;needs=1</code> after the dashboard URL (<code>{esc(DASH_URL)}</code>). <code>track=rig</code> gives the six rig asks, and no track gives all nine.</li>
-      <li>Choose N1 to N5 in the temporary chooser at the bottom right. It remembers the pick, and the A · B · C layout switcher under it is separate.</li>
+      <li>Click a <strong>Needs you</strong> cell on home or a track page (one click lands on card 1 of N6), or paste <code>#vt?track=kinsim&amp;needs=1</code> after the dashboard URL (<code>{esc(DASH_URL)}</code>). <code>track=rig</code> gives the six rig asks, and no track gives all nine.</li>
+      <li>N6 opens unless you picked another. The pill at the bottom right ("Needs you N6 · Lane + context ▾") switches between N1 and N6 and remembers the pick.</li>
     </ol>
   </div>
 </header>
 
 <nav class="toc" aria-label="Sections">
-  <a href="#watch">Watch</a><a href="#compare">Compare</a><a href="#proposals">Proposals</a>
-  <a href="#prior">Prior art</a><a href="#judges">Judges</a><a href="#decide">Decide</a>
+  <a href="#n6">N6</a><a href="#shared">Shared fixes</a><a href="#decide">Decide</a>
+  <a href="#watch">N1–N5 videos</a><a href="#compare">Compare</a><a href="#proposals">Proposals</a>
+  <a href="#prior">Prior art</a><a href="#judges">Judges</a>
 </nav>
 
+<section id="n6">
+  <h2>N6 · Lane + context, now the default</h2>
+  <p class="lead">The splice both first-wave judges named, built and then judged against N1 and N2 on today's build.</p>
+  {n6}
+</section>
+
+<section id="shared">
+  <h2>Shared fixes</h2>
+  <p class="lead">Four seams every proposal shared, which broke before any of them rendered. All four are fixed in the shell and the backend; what each fix leaves open is named with it.</p>
+  {shared}
+</section>
+
+<section id="decide">
+  <h2>Decision</h2>
+  <p class="lead">For this wave. The first-wave sections for N1–N5 follow it unchanged.</p>
+  <div class="decide">{D.DECISION_N6}</div>
+  <details class="limits"><summary>The first wave's decision packet (superseded)</summary>{DECISION}</details>
+  {FB.ui(REPORT_NAME, noun="proposal", total=10)}
+</section>
+
+<h2 class="wave1">The first wave: N1–N5 <small>(unchanged)</small></h2>
+
 <section id="watch">
-  <h2>Watch first</h2>
+  <h2>N1–N5: watch first</h2>
   <p class="lead">One recorded run through each page on the real data, 13 to 20 seconds each, muted and looping. All five start on kinsim's blocking T47 and end on a copied answer block.</p>
   {videos}
 </section>
@@ -635,13 +829,9 @@ def build() -> str:
   {judges}
 </section>
 
-<section id="decide">
-  <h2>Decision</h2>
-  <div class="decide">{DECISION}</div>
-  {FB.ui(REPORT_NAME, noun="proposal", total=5)}
-</section>
 
-<footer class="end">Generated by docs/dashboard/build_needs_report.py from needs_data.py and the 2026-10-04 captures.</footer>
+
+<footer class="end">Generated by docs/dashboard/build_needs_report.py from {esc(str(DATA))} and the 2026-10-04 captures.</footer>
 </div>
 
 <div id="lb" role="dialog" aria-modal="true" aria-label="Full-size screenshot"><button type="button">Close (Esc)</button><img alt=""><div class="lbcap"></div></div>
@@ -661,3 +851,4 @@ if __name__ == "__main__":
     assert len([p for p in _inlined if p.endswith(".webp")]) == n_stills, "a still was not inlined"
     print(f"wrote {OUT}  {size:,} bytes ({size/1e6:.2f} MB), {len(_inlined)} media inlined once each")
     print("means:", {n: round(MEAN[n], 1) for n in NS})
+    print("wave 2, today's judge (recomputed):", {n: round(MEAN2[n], 1) for n in W2}, "stated totals that do not reproduce:", STATED_OFF)

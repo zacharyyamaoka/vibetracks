@@ -15,6 +15,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { CopyOut, EvidenceLink, GROUP_LABEL, choiceLabel, effectiveChoice, isComplete, type Choice, type NeedsDoc, type NeedsItem, type NeedsOption, type NeedsProposalProps } from '../kit'
 import { Md } from './md'
+import { formatLocal } from '../../shared/time'
 import './style/n4.css'
 
 export const NAME = 'Decision cards'
@@ -57,12 +58,11 @@ function isEditable(target: EventTarget | null): boolean {
   return target.isContentEditable || ['INPUT', 'TEXTAREA', 'SELECT'].includes(target.tagName) || Boolean(target.closest('.cm-editor'))
 }
 
+// WHY formatLocal (time-format wave): every stamp on every page reads one way, local time with its zone; a proposal
+// formatting its own stamps drifted (no zone, or the source's zone).
 function formatTs(ts: string | null): string | null {
   if (!ts) return null
-  if (/^\d{4}-\d{2}-\d{2}$/.test(ts)) return ts
-  const date = new Date(ts)
-  if (Number.isNaN(date.getTime())) return ts
-  return date.toLocaleString('en-US', { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' })
+  return formatLocal(ts)
 }
 
 /** When the default fires, in words; a computed state says so. */
@@ -638,8 +638,8 @@ function Card({
             </>
           ) : null}
           <p className="vt-small vt-faint n4-provenance">
-            {openedAt || opened ? `Opened ${[openedAt, opened].filter(Boolean).join(', ')}` : 'Opening time not recorded'}
-            {item.updated.ts && item.updated.ts !== item.created.ts ? ` · updated ${formatTs(item.updated.ts)}` : ''}
+            <span title={item.created.ts ?? undefined}>{openedAt || opened ? `Opened ${[openedAt, opened].filter(Boolean).join(', ')}` : 'Opening time not recorded'}</span>
+            {item.updated.ts && item.updated.ts !== item.created.ts ? <span title={item.updated.ts}>{` · updated ${formatTs(item.updated.ts)}`}</span> : ''}
             {` · loop status "${item.raw_status}" · ${item.kind}`}
             {` · answers go by ${doc.answer_channel.kind.replace('_', ' ')}${doc.answer_channel.target ? ` to ${doc.answer_channel.target}` : ''}`}
           </p>

@@ -206,7 +206,7 @@ class LiveAdaptersTest(unittest.TestCase):
     def test_purpose_is_the_whole_first_paragraph(self) -> None:
         for work_track in self.tracks:
             body = parse_frontmatter(Path(work_track.note_path).read_text(encoding="utf-8"))[1]
-            self.assertEqual(work_track.purpose, first_paragraph(body, limit=None), work_track.id)
+            self.assertEqual(work_track.purpose, first_paragraph(body, limit=None, raw=True), work_track.id)
             self.assertFalse(work_track.purpose.endswith("…"))
         self.assertTrue(any(len(t.purpose) > 280 for t in self.tracks), "no purpose is long enough to prove the uncut read")
 

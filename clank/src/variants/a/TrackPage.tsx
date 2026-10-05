@@ -7,7 +7,7 @@
 //   (d) the rig's deployments as a quiet sub-list, each opening its own page.
 // Every track (loop or deployment) renders through this one template: "solve the display once".
 
-import { useLayoutEffect, useRef, useState } from 'react'
+import { Fragment, useLayoutEffect, useRef, useState, type ReactNode } from 'react'
 import type { PluginBackend } from '@clank/api'
 import type { Projection, Route, Track } from '../../shared'
 import { Breadcrumb, StatusWord, childrenOf, formatKpiValue, formatValue, latestValue, northStar, trackById, valueAt } from '../../shared'
@@ -15,6 +15,7 @@ import { RoadmapWidget, type RoadmapSettings, type RoadmapWidgetState } from '..
 import { evidenceOwningMedia, formatSince, unitWord } from './columns'
 import { isReporting, lastMoved, needsCount, purposeOf, registryOf, sourceKind } from './live'
 import { openRung, type Nav } from './nav'
+import { openNeeds } from '../../needs'
 import { TrackMenu, TrackName, type Renamer } from './rename'
 import { useRegisteredRoadmap } from './roadmapReload'
 import { Scorecard } from './Scorecard'
@@ -54,7 +55,11 @@ export function TrackPage({ projection, track, title, nav, xAxis, showDeltas, ba
       <p className="vt-a-stateline" data-testid="vt-a-stateline">
         <StatusWord status={track.state} />
         {track.state.detail ? <span className="vt-faint"> · {track.state.detail}</span> : null}
-        {track.state.since ? <span className="vt-faint"> · since {formatSince(track.state.since)}</span> : null}
+        {track.state.since ? (
+          <span className="vt-faint">
+            {' '}· since <span title={track.state.since}>{formatSince(track.state.since)}</span>
+          </span>
+        ) : null}
         <span className="vt-faint"> · last moved </span>
         <span className={moved.stale ? 'vt-tone-stale' : 'vt-faint'} title={moved.detail ?? undefined}>
           {moved.text}
@@ -198,7 +203,7 @@ function Purpose({ text, source }: { text: string; source: string | null }) {
   return (
     <div className="vt-a-purposebox" data-testid="vt-a-purpose">
       <p ref={box} className={`vt-sub vt-a-purpose${open ? '' : ' vt-a-clamp-3'}`} title={source ? `from ${source}` : undefined}>
-        {text}
+        <InlineMarkdown text={text} />
       </p>
       {overflows || open ? (
         <button type="button" className="vt-btn vt-a-link vt-a-more" aria-expanded={open} data-testid="vt-a-purpose-toggle" onClick={() => setOpen(!open)}>
@@ -207,6 +212,118 @@ function Purpose({ text, source }: { text: string; source: string | null }) {
       ) : null}
     </div>
   )
+}
+
+/** The purpose paragraph's inline Markdown (code spans, **bold**, *italic* / _italic_, [links](https://…)) as
+ * elements. WHY a tiny renderer and not a library: four inline forms, no block syntax, and the rule that no character
+ * is lost — a marker that does not close (a lone `*`, a snake_case `_`) stays as literal text, code-span content is
+ * kept verbatim, and a link whose target is not http(s) stays as its literal `[text](target)`. */
+export function InlineMarkdown({ text }: { text: string }) {
+  return <>{renderInline(text, 'm')}</>
+}
+
+const WORD = /[\p{L}\p{N}]/u
+
+function renderInline(text: string, keyPrefix: string): ReactNode[] {
+  const out: ReactNode[] = []
+  let plain = ''
+  let i = 0
+  const flush = () => {
+    if (plain) out.push(plain)
+    plain = ''
+  }
+  const key = () => `${keyPrefix}.${out.length}`
+  while (i < text.length) {
+    const ch = text[i]
+    if (ch === '\\' && i + 1 < text.length && /[`*_[\]()\\]/.test(text[i + 1])) {
+      // A backslash escape: the marker is shown, the escaping backslash is markup.
+      plain += text[i + 1]
+      i += 2
+      continue
+    }
+    if (ch === '`') {
+      let run = 1
+      while (text[i + run] === '`') run++
+      const fence = '`'.repeat(run)
+      let close = text.indexOf(fence, i + run)
+      while (close !== -1 && text[close + run] === '`') {
+        let skip = close
+        while (text[skip] === '`') skip++
+        close = text.indexOf(fence, skip)
+      }
+      if (close !== -1) {
+        flush()
+        out.push(
+          <code key={key()} className="vt-a-code">
+            {text.slice(i + run, close)}
+          </code>,
+        )
+        i = close + run
+        continue
+      }
+      plain += fence
+      i += run
+      continue
+    }
+    if (ch === '[') {
+      const link = /^\[([^\]\n]+)\]\((\S+?)\)/.exec(text.slice(i))
+      if (link && /^https?:\/\//i.test(link[2])) {
+        flush()
+        out.push(
+          <a
+            key={key()}
+            href={link[2]}
+            target="_blank"
+            rel="noreferrer"
+            title={link[2]}
+            style={{ color: 'inherit', textDecoration: 'underline', textDecorationColor: 'var(--vt-line)', textUnderlineOffset: 2 }}
+            onClick={(event) => event.stopPropagation()}
+          >
+            {renderInline(link[1], key())}
+          </a>,
+        )
+        i += link[0].length
+        continue
+      }
+    }
+    if (ch === '*' || ch === '_') {
+      const double = text[i + 1] === ch
+      const marker = double ? ch + ch : ch
+      const close = findClose(text, i, marker)
+      if (close !== -1) {
+        flush()
+        const inner = renderInline(text.slice(i + marker.length, close), key())
+        out.push(double ? <strong key={key()}>{inner}</strong> : <em key={key()}>{inner}</em>)
+        i = close + marker.length
+        continue
+      }
+      plain += marker
+      i += marker.length
+      continue
+    }
+    plain += ch
+    i++
+  }
+  flush()
+  return out.map((node, index) => (typeof node === 'string' ? <Fragment key={`${keyPrefix}.t${index}`}>{node}</Fragment> : node))
+}
+
+/** The index of the marker closing an emphasis opened at `open`, or -1. Openers must be followed by a non-space and,
+ * for `_`, not sit inside a word (snake_case stays literal); closers must follow a non-space. */
+function findClose(text: string, open: number, marker: string): number {
+  const start = open + marker.length
+  if (start >= text.length || /\s/.test(text[start])) return -1
+  if (marker[0] === '_' && open > 0 && WORD.test(text[open - 1])) return -1
+  let at = text.indexOf(marker, start + 1)
+  while (at !== -1) {
+    const before = text[at - 1]
+    const after = text[at + marker.length] ?? ''
+    const doubled = after === marker[0] && marker.length === 1
+    const intraword = marker[0] === '_' && WORD.test(after)
+    if (!/\s/.test(before) && !doubled && !intraword && !(marker.length === 1 && before === marker[0])) return at
+    at = text.indexOf(marker, at + 1)
+  }
+  return -1
 }
 
 /** "Needs you · 2 blocking · 5 open →", opening the track's Needs-you page (#vt?track=<id>&needs=1). */
@@ -220,7 +337,7 @@ function NeedsLine({ track, nav }: { track: Track; nav: Nav }) {
         : `${count.blocking ?? 0} blocking · ${count.open} open`
   return (
     <p className="vt-a-needsline">
-      <button type="button" className="vt-btn vt-a-needs-go" data-testid="vt-a-needs-line" onClick={() => nav.go({ track: track.id, needs: '1' })}>
+      <button type="button" className="vt-btn vt-a-needs-go" data-testid="vt-a-needs-line" onClick={() => openNeeds(nav.go, nav.route, track.id)}>
         <span>Needs you</span>
         <span className="vt-faint"> · </span>
         <span className={count.blocking ? 'vt-tone-warn' : 'vt-faint'}>{words}</span>

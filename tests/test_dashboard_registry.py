@@ -226,8 +226,30 @@ class FirstParagraphLimitTest(unittest.TestCase):
             (ws / "tracks" / "long.md").write_text(note("long", "Long").split("---\n\n", 1)[0] + "---\n\n" + body,
                                                    encoding="utf-8")
             track = registry.load_registry(ws)[0]
-        self.assertEqual(track.purpose, first_paragraph(body, limit=None))
+        self.assertEqual(track.purpose, first_paragraph(body, limit=None, raw=True))
         self.assertGreater(len(track.purpose), 280)
+
+    def test_default_still_strips_markup_for_other_callers(self) -> None:
+        body = "Tune `pll_filter_hz` on **can16** and *watch* it.\n"
+        self.assertEqual(first_paragraph(body), "Tune pllfilterhz on can16 and watch it.")
+        self.assertEqual(first_paragraph(body, limit=None), "Tune pllfilterhz on can16 and watch it.")
+
+    def test_raw_keeps_every_character(self) -> None:
+        body = "Tune `pll_filter_hz` on **can16** and *watch* it.\nSecond __line__.\n\nNext paragraph.\n"
+        self.assertEqual(first_paragraph(body, limit=None, raw=True),
+                         "Tune `pll_filter_hz` on **can16** and *watch* it. Second __line__.")
+
+    def test_registry_purpose_keeps_identifiers_verbatim(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            ws = Path(tmp)
+            (ws / "tracks").mkdir()
+            (ws / "Agent work.vtdash").write_text(json.dumps({"registry": "Work tracks.vibetrack"}), encoding="utf-8")
+            (ws / "Work tracks.vibetrack").write_text(DESCRIPTOR, encoding="utf-8")
+            (ws / "tracks" / "rig.md").write_text(
+                note("rig", "Rig").split("---\n\n", 1)[0] + "---\n\n# Rig\n\nTunes `pll_filter_hz` on **can16**.\n",
+                encoding="utf-8")
+            track = registry.load_registry(ws)[0]
+        self.assertEqual(track.purpose, "Tunes `pll_filter_hz` on **can16**.")
 
 
 if __name__ == "__main__":

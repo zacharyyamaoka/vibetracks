@@ -28,6 +28,8 @@ import { isReporting, lastMoved, needsCount, registryOf, rungOf } from './live'
 import { openRung, type Nav } from './nav'
 import { TrackMenu, TrackName, type Renamer } from './rename'
 import { useRegisteredRoadmap } from './roadmapReload'
+import { openNeeds } from '../../needs'
+import { formatLocal } from '../../shared/time'
 
 export function TracksPage({ projection, title, nav, showDeltas, reload, backend, renamer }: {
   projection: Projection
@@ -91,7 +93,7 @@ export function TracksPage({ projection, title, nav, showDeltas, reload, backend
       )}
 
       <p className="vt-a-foot vt-small vt-faint">
-        {projection.source.live ? 'Live' : 'Snapshot'} · read <span title={projection.generated_at}>{projection.generated_at.replace('T', ' ').slice(0, 16)}</span>
+        {projection.source.live ? 'Live' : 'Snapshot'} · read <span title={projection.generated_at}>{formatLocal(projection.generated_at)}</span>
         {projection.source.live ? '' : ` · snapshot of ${formatDay(projection.as_of)}`} ·{' '}
         <button type="button" className="vt-btn vt-a-link" onClick={reload} data-testid="vt-a-reload">
           Reload
@@ -261,7 +263,9 @@ export function NeedsCell({ track, nav }: { track: Track; nav: Nav }) {
   const count = needsCount(track)
   const go = (event: { stopPropagation: () => void }) => {
     event.stopPropagation()
-    nav.go({ track: track.id, needs: '1' })
+    // WHY openNeeds and not nav.go: it marks the entry as pushed by the dashboard, so the needs page's Back returns
+    // HERE (the home table) instead of dropping `needs` and landing on the track page.
+    openNeeds(nav.go, nav.route, track.id)
   }
   let body
   if (count.open === null) body = <span className="vt-faint">not reported</span>

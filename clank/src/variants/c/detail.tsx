@@ -32,6 +32,7 @@ import {
 } from '../../shared'
 import type { TrackView } from './columns'
 import { headline, headlineDelta } from './read'
+import { formatLocal } from '../../shared/time'
 
 export type Zone = 'tracks' | 'kpis' | 'chart' | 'evidence'
 
@@ -371,7 +372,7 @@ function RunDetail({
         {item.title}
         {item.status ? <StatusWord word={item.status} tone={evidenceStatusTone(item.status)} className="vt-small" /> : null}
       </h3>
-      <p className="vt-faint vt-small vt-num">{item.when ? item.when.replace('T', ' ').slice(0, 16) : 'no timestamp recorded'}</p>
+      <p className="vt-faint vt-small vt-num" title={item.when ?? undefined}>{item.when ? formatLocal(item.when) : 'no timestamp recorded'}</p>
       {value ? (
         <p className="vt-small vt-muted" style={{ marginTop: 6 }}>
           Behind {kpi.label} at {column.label}: <span className="vt-strong vt-num">{formatKpiValue(kpi, value)}</span>

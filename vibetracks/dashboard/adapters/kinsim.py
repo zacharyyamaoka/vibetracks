@@ -335,7 +335,9 @@ class _Kinsim:
             "marker": " · ".join(p for p in (
                 f"freeze {first.get('commit')}" if first and first.get("commit") else None,
                 f"{len(done)} rungs done at baseline" if history else "rung history not refoldable") if p),
-            "provenance": self.prov(self.events_path, None, "the first wave_started event's commit and date; done = baseline status 'done' in curriculum.json"),
+            # WHY a pointer and not None: the iteration page prints "from <source> · <pointer>", and a null pointer left
+            # an empty separator ("loop_events.jsonl · · events").
+            "provenance": self.prov(self.events_path, "the first wave_started row", "the first wave_started event's commit and date; done = baseline status 'done' in curriculum.json"),
         }]
         previous = history["start"] if history else None
         for n, info in self.waves.items():
@@ -366,7 +368,7 @@ class _Kinsim:
             out.append({
                 "id": f"W{n}", "label": f"W{n}", "date": local_day(date),
                 "marker": " · ".join(parts),
-                "provenance": self.prov(self.events_path, None, f"events with wave {n}: wave_finished detail, pin_move, loop_paused/resumed; rungs from the refold"),
+                "provenance": self.prov(self.events_path, f"rows with wave {n}", f"events with wave {n}: wave_finished detail, pin_move, loop_paused/resumed; rungs from the refold"),
             })
         return out
 

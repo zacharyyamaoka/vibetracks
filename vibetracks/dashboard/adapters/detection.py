@@ -190,36 +190,67 @@ def _rung(ladder: dict[str, Any], frontier_row: dict[str, Any] | None, progress:
     return make_rung(current, ", ".join(after) or None, "ladder_data.py (RUNGS, KPIS S2) + queue.log")
 
 
-def read_needs(plan_note: Path) -> list[dict[str, Any]]:
-    """The plan note's ``## Needs you`` numbered list -> NeedsYou items (q, default, blocks = rungs it names)."""
+DEFAULT_MARK = "*Default if silent:*"
 
-    text = plan_note.read_text(encoding="utf-8")
+
+def parse_needs_section(text: str) -> list[dict[str, Any]]:
+    """The plan note's ``## Needs you`` numbered list, every part verbatim (the one parser of that section).
+
+    Each entry: ``n`` (its number), ``body_md`` (everything after ``N. `` up to a bold aside after a blank line),
+    ``before_md`` (the body before ``*Default if silent:*``), ``title_md`` (the bold lead's inner text, or None),
+    ``rest_md`` (``before_md`` after the bold lead), ``question_md`` (``rest_md`` up to a nested bullet list, which is
+    the reasoning, not the question), ``default_md`` (the text after the marker, or None when the item states none)
+    and ``blocks`` (the rung ids named after "block(s)"). ``read_needs`` (this adapter) and /needs
+    (vibetracks/dashboard/needs.py) both build on it, so the home count and the needs page read the same items.
+    """
+
     section = re.search(r"^## Needs you\s*$(?P<body>.*?)(?=^## |\Z)", text, re.M | re.S)
     if not section:
         return []
-    items = re.split(r"^(?=\d+\.\s)", section.group("body"), flags=re.M)
-    needs = []
-    for item in items:
+    parsed = []
+    for item in re.split(r"^(?=\d+\.\s)", section.group("body"), flags=re.M):
         head = re.match(r"^(?P<n>\d+)\.\s+(?P<rest>.*)", item, re.S)
         if not head:
             continue
-        body = head.group("rest")
-        before, _, after = body.partition("*Default if silent:*")
+        # A section-level aside ("**For your information ...**") trails the last item after a blank line; it is not
+        # part of that item's question or default.
+        body = re.split(r"\n\s*\n(?=\*\*)", head.group("rest").rstrip(), maxsplit=1)[0].rstrip()
+        before, marker, after = body.partition(DEFAULT_MARK)
         title = re.match(r"\*\*(?P<t>[^*]+)\*\*\s*(?P<rest>.*)", before.strip(), re.S)
-        lead = _clean_markdown(title.group("t")).rstrip(".") if title else ""
+        rest = title.group("rest") if title else before
+        # WHY only rungs after "block(s)": the items also name rungs in passing ("H0–H7 never touch the camera"),
+        # and counting those would mark a question as blocking work it does not hold.
+        held = " ".join(match.group(0) for match in BLOCKS.finditer(before))
+        default_md = after.strip() if marker else None
+        parsed.append({
+            "n": head.group("n"),
+            "body_md": body,
+            "before_md": before,
+            "title_md": title.group("t") if title else None,
+            "rest_md": rest,
+            "question_md": re.split(r"\n\s*[-*]\s", rest, maxsplit=1)[0],
+            "default_md": default_md or None,
+            "after_md": after if marker else "",
+            "blocks": sorted(set(RUNG_ID.findall(held)), key=lambda rung: int(rung[1:])),
+        })
+    return parsed
+
+
+def read_needs(plan_note: Path) -> list[dict[str, Any]]:
+    """The plan note's ``## Needs you`` numbered list -> NeedsYou items (q, default, blocks = rungs it names)."""
+
+    needs = []
+    for entry in parse_needs_section(plan_note.read_text(encoding="utf-8")):
+        before, after = entry["before_md"], entry["after_md"]
+        lead = _clean_markdown(entry["title_md"]).rstrip(".") if entry["title_md"] is not None else ""
         # A nested bullet list is the reasoning behind the question, not the question: stop before it.
-        rest = re.split(r"\n\s*[-*]\s", title.group("rest") if title else before, maxsplit=1)[0]
-        rest = _clean_markdown(rest)
+        rest = _clean_markdown(entry["question_md"])
         # The question is its first two sentences; an explicit ellipsis marks a cut, never a silent trim.
         first = " ".join(re.split(r"(?<=\.)\s", rest, maxsplit=2)[:2])
         first = first if len(first) <= 400 else first[:399].rstrip() + "…"
         question = f"{lead}: {first}" if lead else first
         default = _clean_markdown(after.strip().splitlines()[0]) if after.strip() else None
-        # WHY only rungs after "block(s)": the items also name rungs in passing ("H0–H7 never touch the camera"),
-        # and counting those would mark a question as blocking work it does not hold.
-        held = " ".join(match.group(0) for match in BLOCKS.finditer(before))
-        blocks = sorted(set(RUNG_ID.findall(held)), key=lambda rung: int(rung[1:]))
-        needs.append({"id": f"plan-{head.group('n')}", "q": question, "blocks": blocks, "default": default or None,
+        needs.append({"id": f"plan-{entry['n']}", "q": question, "blocks": entry["blocks"], "default": default or None,
                       "applies": None})
     # WHY blocking first: PROJECTION.md orders needs_you blocking ones first.
     return sorted(needs, key=lambda need: not need["blocks"])

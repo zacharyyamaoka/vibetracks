@@ -190,6 +190,10 @@ export function Dashboard({ session, panel, backend }: ViewerProps & { backend: 
         ) : null}
         {error && !settingsOpen ? <BackendProblem error={error} backend={backend} onRetry={() => reload()} /> : null}
       </div>
+      {/* WHY no A · B · C switcher on the needs page: it picks the dashboard layout, which the needs page does not use
+          (every variant renders the same NeedsShell), so there it is a control with no effect sitting over answer
+          controls; the needs page has its own one-pill chooser in this corner instead. */}
+      {route.needs === '1' && !settingsOpen ? null : (
       <div className="vt-switcher" role="group" aria-label="Proposal" data-testid="vt-switcher" title="Switch proposal (keys 1, 2, 3)">
         <span className="vt-switch-label">Proposal</span>
         {VARIANTS.map((item, index) => (
@@ -206,6 +210,7 @@ export function Dashboard({ session, panel, backend }: ViewerProps & { backend: 
           </button>
         ))}
       </div>
+      )}
     </div>
   )
 }

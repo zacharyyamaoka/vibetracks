@@ -20,8 +20,9 @@ Inputs, declared in workspace/tracks/rig.md ``vibe-sources`` (the build watches 
   run, for the run evidence, the held conditions and the twin sessions the frozen fixture predates.
 - ``rig_audits_dir``: bam_ws ``reports/media/audits``, listed only to link each package's audit write-ups.
 
-Nothing else is opened (``READS``; tests/test_dashboard_adapter_reads.py). A key the note does not declare is read as
-missing, never looked up elsewhere: the build would not notice that file change.
+Nothing else is opened (``READS``; tests/test_dashboard_adapters_live.py records every open under an audit hook). A
+key the note does not declare is read as missing, never looked up elsewhere: the build would not notice that file
+change.
 
 Truth rules (PROJECTION.md): every number names its file; missing is null with a note, never zero; a change resting on
 n = 1 reads "unconfirmed · repeat needed"; a day floor is a descriptive band; elapsed hours are wall clock.

@@ -16,6 +16,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode, type RefObject } from 'react'
 import { CopyOut, EvidenceLink, GROUP_LABEL, choiceLabel, effectiveChoice, isComplete, type Choice, type NeedsDoc, type NeedsGroup, type NeedsItem, type NeedsProposalProps } from '../kit'
+import { formatLocal } from '../../shared/time'
 import './zen.css'
 
 export const NAME = 'Zen mode'
@@ -52,11 +53,11 @@ function Verbatim({ text }: { text: string }) {
   )
 }
 
+// WHY formatLocal (time-format wave): every stamp on every page reads one way, local time with its zone; a proposal
+// formatting its own stamps drifted (no zone, or the source's zone).
 function shortDate(ts: string | null): string | null {
   if (!ts) return null
-  const date = new Date(ts)
-  if (Number.isNaN(date.getTime())) return ts.slice(0, 10)
-  return date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })
+  return formatLocal(ts, { dateOnly: true })
 }
 
 function blocksText(item: NeedsItem): string {
@@ -414,8 +415,8 @@ function Card({
     <article className="zen-card" key={item.id} data-testid="vt-zen-card" data-item={item.id}>
       <p className="vt-label zen-eyebrow">
         <span className="vt-num">{item.local_id}</span> · {doc.track_title}
-        {opened ? ` · ${opened}` : ''}
-        {updated ? ` · updated ${updated}` : ''}
+        {opened ? <span title={item.created.iteration === null ? item.created.ts ?? undefined : undefined}>{` · ${opened}`}</span> : ''}
+        {updated ? <span title={item.updated.ts ?? undefined}>{` · updated ${updated}`}</span> : ''}
         {item.asked_by.agent ? ` · asked by ${item.asked_by.agent}` : ''}
       </p>
       <h1 className="zen-question">

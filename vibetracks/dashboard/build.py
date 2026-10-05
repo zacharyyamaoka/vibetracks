@@ -6,6 +6,10 @@ declares, and assembles ``vibetracks-dashboard/1`` with ``source.live: true``. T
 ``GET /projection``; an adapter reruns only when its note, its module or one of its declared source files changed
 (mtime and size), and each track's freshness (newest source mtime against its stall rule) is recomputed every time.
 
+**Needs you (live):** every top-level track's ``needs_you`` and ``needs_you_count`` come from
+``vibetracks/dashboard/needs.py`` (the /needs route's own doc for that track), never from the adapter's list: one
+source, so the home cell, the track page and the needs page show the same "B blocking · M open".
+
 **Snapshot (``--snapshot``, and the fallback for the rig's can12/can16 children until the rig adapter draws them):**
 the data home (default ``~/.local/share/vibetracks/dashboard``, or ``dashboard_data_home`` in vibetracks/sources.py) holds:
 
@@ -37,6 +41,7 @@ from pathlib import Path
 from types import ModuleType
 from typing import Any, Callable
 
+from . import needs as needs_source
 from .adapters import base
 from .adapters.bam_loops import build_projection, load_json
 from .registry import Registry, WorkTrack, read_registry
@@ -373,6 +378,32 @@ class LiveBuilder:
                           generated_at if isinstance(generated_at, str) else None)
         return tracks, self._snapshot[2], str(snapshot_path), self._snapshot[4], None
 
+    # -------------------------------------------------------------------------------- needs you
+
+    @staticmethod
+    def _apply_needs(out: dict[str, Any], work_track: WorkTrack, paths: dict[str, str],
+                     problems: list[dict[str, str]]) -> None:
+        """Set ``needs_you``, ``needs_you_count`` and ``needs_you_source`` from needs.py's doc for this track.
+
+        WHY not the adapter's own ``needs_you``: the adapters counted "blocking" as "names a rung" while /needs
+        computes ``blocking_now`` (open, unanswered, default not in effect), and grasping and detection had items here
+        but none on the needs page, so the home cell said "7 blocking / 7 open" and opened an empty page. A track
+        needs.py has no structured source for reads null/null ("not reported"), never 0, and an empty list.
+        """
+
+        try:
+            doc = needs_source.build_track(work_track.id, paths, title=work_track.title)
+        except Exception as error:
+            traceback.print_exc(file=sys.stderr)
+            problems.append({"path": Path(work_track.note_path).name,
+                             "error": _truncate(f"needs.py error · {type(error).__name__}: {error}")})
+            doc = None
+        out["needs_you_count"] = needs_source.needs_you_count(doc)
+        out["needs_you"] = needs_source.needs_you_rows(doc)
+        source = (doc or {}).get("source") or {}
+        out["needs_you_source"] = {"adapter": source.get("adapter"), "live": bool(source.get("live")),
+                                   "note": source.get("note") if doc is not None else "needs.py could not build this track"}
+
     # -------------------------------------------------------------------------------- assembling
 
     @staticmethod
@@ -461,6 +492,7 @@ class LiveBuilder:
             fresh = freshness(work_track.heartbeat, paths, work_track.stall_hours, now, heartbeat_stamps)
             source = {"adapter": work_track.adapter, "kind": "live", "live": True}
             finished = self._finish(track, work_track, parent=None, source=source, fresh=fresh)
+            self._apply_needs(finished, work_track, paths, problems)
             if not finished["reporting"]:
                 pending.append(f"{work_track.id} ({finished['state'].get('detail') or 'not reporting'})")
             top.append(finished)

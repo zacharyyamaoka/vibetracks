@@ -24,6 +24,7 @@ import {
   type NeedsProposalProps,
 } from '../kit'
 import { Inline, Md } from './md'
+import { formatLocal } from '../../shared/time'
 import './n3.css'
 
 export const NAME = 'Review document'
@@ -71,20 +72,15 @@ function useSkips() {
   return { skips, set }
 }
 
+// WHY formatLocal (time-format wave): every stamp on every page reads one way, local time with its zone; a proposal
+// formatting its own stamps drifted (no zone, or the source's zone).
+// A bare clock ("17:55") had no zone, so it was dropped for the one full local stamp.
 function clock(iso: string | null | undefined): string {
-  if (!iso) return ''
-  const date = new Date(iso)
-  if (Number.isNaN(date.getTime())) return iso
-  const pad = (n: number) => String(n).padStart(2, '0')
-  return `${pad(date.getHours())}:${pad(date.getMinutes())}`
+  return formatLocal(iso)
 }
 
 function day(iso: string | null | undefined): string {
-  if (!iso) return ''
-  const date = new Date(iso)
-  if (Number.isNaN(date.getTime())) return iso
-  const pad = (n: number) => String(n).padStart(2, '0')
-  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())} ${pad(date.getHours())}:${pad(date.getMinutes())}`
+  return formatLocal(iso)
 }
 
 /** The default's tag on its option row: when it fires, or that it never does. `in_effect` is labelled computed. */
@@ -489,9 +485,9 @@ function Card({ entry, ...ctx }: CardContext & { entry: Entry }) {
             ) : (
               <span>Holds no rung</span>
             )}
-            <span>{opened(doc, item)}</span>
+            <span title={item.created.ts ?? undefined}>{opened(doc, item)}</span>
             {item.updated.ts ? (
-              <span>
+              <span title={item.updated.ts}>
                 updated {day(item.updated.ts)}
                 {item.updated.note ? (
                   <>
@@ -577,7 +573,7 @@ function Card({ entry, ...ctx }: CardContext & { entry: Entry }) {
             />
             <div className="vt-n3-card-foot vt-small">
               {complete ? (
-                <span className="vt-muted">In your pending review · draft saved {clock(draft?.updated)}</span>
+                <span className="vt-muted" title={draft?.updated}>In your pending review · draft saved {clock(draft?.updated)}</span>
               ) : choice === 'other' ? (
                 <span className="vt-tone-warn">“Something else” needs a note before it can be copied</span>
               ) : skipped ? (

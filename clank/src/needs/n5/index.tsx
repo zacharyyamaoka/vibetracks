@@ -27,6 +27,7 @@ import {
   type NeedsItem,
   type NeedsProposalProps,
 } from '../kit'
+import { formatLocal } from '../../shared/time'
 import './n5.css'
 
 export const NAME = 'Agent conversation'
@@ -78,11 +79,11 @@ function Inline({ text }: { text: string }) {
   return <>{parts}</>
 }
 
+// WHY formatLocal (time-format wave): every stamp on every page reads one way, local time with its zone; a proposal
+// formatting its own stamps drifted (no zone, or the source's zone).
 function when(ts: string | null): string | null {
   if (!ts) return null
-  const date = new Date(ts)
-  if (Number.isNaN(date.getTime())) return ts
-  return date.toLocaleString('en-US', { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit', hour12: false })
+  return formatLocal(ts)
 }
 
 function initials(agent: string | null): string {

@@ -18,6 +18,16 @@ WHY compute ``default.state`` and ``blocking_now`` here instead of trusting ``st
 is open, unanswered and its default has not applied; a finished iteration >= ``default_applies_after_wave`` applies
 it) is evaluated against the loop's finished iteration.
 
+WHY this module is the ONE source of every Needs-you count: the home cell, the track page and the needs page used to
+count from two places (each adapter's own ``needs_you`` list, with "blocking" meaning "names a rung", against this
+module's ``blocking_now``), so grasping read "7 blocking / 7 open" and opened an empty page. Now ``build.py`` fills the
+projection's ``needs_you_count`` and ``needs_you`` from the doc built here (``needs_you_count()``,
+``needs_you_rows()``): ``open`` is ``counts.wants_you`` (the groups blocking + no_default + waiting) and ``blocking``
+is ``counts.blocking_now``. A track with no structured source has every count null ("not reported"), never 0.
+
+Track ids, order and titles come from the work-track registry (``vibetracks.dashboard.registry``; the workspace is
+``VIBETRACKS_WORKSPACE``, which the backend exports, else this repo's ``workspace/``), so a rename shows here too.
+
 Machine paths come from ``vibetracks.sources.load_sources()``. This module reads extra keys when the sources file has
 them (``kinsim_triage_dir``, ``kinsim_loop_branch``, ``rig_loop_branch``, ``bam_ws_root``) and otherwise uses the
 defaults below, so the shared sources module is untouched. Kinsim's folder: ``kinsim_triage_dir`` if set, else the
@@ -35,6 +45,10 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Iterable, Mapping
 
+from vibetracks.dashboard.adapters import detection as detection_adapter
+from vibetracks.dashboard.adapters import grasping as grasping_adapter
+from vibetracks.dashboard.registry import read_registry
+from vibetracks.errors import VibeTracksError
 from vibetracks.sources import load_sources
 
 SCHEMA = "vibetracks-needs/1"
@@ -50,34 +64,23 @@ NEEDS_DEFAULTS: dict[str, str] = {
     "rig_loop_branch": "claude/rig-loop-work-continue-cb3c52",
 }
 
-#: Track order on the page and in /needs. Titles match the home table.
-TRACKS: list[tuple[str, str]] = [
-    ("kinsim", "Kinematic Sim"),
-    ("rig", "Sim to Real · 1-DOF rig"),
-    ("grasping", "Grasping"),
-    ("detection", "Object Detection & Hyperspectral"),
-    ("pyblocks", "pyblocks"),
-]
+#: This repo's checked-in workspace: the registry /needs reads when the backend exported no VIBETRACKS_WORKSPACE.
+DEFAULT_WORKSPACE = Path(__file__).resolve().parents[2] / "workspace"
+#: Track ids and order used only when the registry cannot be read (titles then show the id, and the doc says why).
+FALLBACK_TRACK_IDS = ["kinsim", "rig", "grasping", "detection", "pyblocks"]
 
-#: Tracks with no machine-readable needs-you file yet: where the questions live and how an answer gets back.
-UNSTRUCTURED: dict[str, dict[str, Any]] = {
-    "grasping": {
-        "note": "No needs-you file. The live record is curriculum.py CELLS with status 'needs' (download approvals per "
-                "model id) and the morning packet in docs/grasping/ladder_data.py; neither has ids, defaults or status.",
-        "paths": [
-            "/home/bam/bam_ws/.claude/worktrees/grasping-agent-roadmap-ab12d8/src/core/mdp/agent/actor/policy/grasp_bench/src/grasp_bench/curriculum.py",
-            "/home/bam/bam_ws/.claude/worktrees/grasping-agent-roadmap-ab12d8/docs/grasping/ladder_data.py",
-        ],
-        "channel": {"kind": "chat_paste", "target": "the grasping track session (ebbbbd1c, ~/.claude-proprotectives)",
-                    "row_schema": None,
-                    "read_back": "by hand: the session edits curriculum.py CELLS by model id, so name model ids verbatim"},
-    },
-    "detection": {
-        "note": "Plan only, no loop running. The 3 decisions are prose in the vault note's '## Needs you' section.",
-        "paths": ["/home/bam/zach_brain/Projects/BAM Robotics/Notes/Hyperspectral — KPIs and Curriculum Roadmap (2026-10-04).md"],
-        "channel": {"kind": "note_paste", "target": "Daily Note '# Hyper feedback', or the loop's start prompt",
-                    "row_schema": None, "read_back": "no loop reads answers yet"},
-    },
+#: Where each prose-sourced track's answer goes back. WHY kept beside the parsers: the item text names model ids and
+#: rung ids verbatim, and these channels are how the session that owns the file reads them.
+CHANNELS: dict[str, dict[str, Any]] = {
+    "grasping": {"kind": "chat_paste", "target": "the grasping track session (ebbbbd1c, ~/.claude-proprotectives)",
+                 "row_schema": None,
+                 "read_back": "by hand: the session edits curriculum.py CELLS by model id, so name model ids verbatim"},
+    "detection": {"kind": "note_paste", "target": "Daily Note '# Hyper feedback', or the loop's start prompt",
+                  "row_schema": None, "read_back": "no loop reads answers yet"},
+}
+
+#: Registry tracks whose loop writes no questions anywhere: every count is null ("not reported"), never 0.
+NOT_REPORTED: dict[str, dict[str, Any]] = {
     "pyblocks": {
         "note": "No loop running (integrator stopped Oct 1). The 6 calls live in the Oct 2 summary page, all with their "
                 "default already in effect.",
@@ -100,6 +103,11 @@ SERVABLE: dict[str, str] = {
 MAX_EVIDENCE_BYTES = 64 * 1024 * 1024
 
 GROUP_ORDER = ["blocking", "no_default", "waiting", "defaulting", "answered", "done"]
+#: The groups that still want Zach: open, and their default is NOT already in effect. ``counts.wants_you`` counts
+#: them, and it is the one "M open" every surface shows ("B blocking · M open").
+WANTS_YOU_GROUPS = ("blocking", "no_default", "waiting")
+COUNT_KEYS = ("open", "blocking_now", "wants_you", "no_default", "waiting", "defaulting", "answered", "defaulted",
+              "closed", "total")
 TRIAGE_ID = re.compile(r"^T(\d+)$")
 
 
@@ -366,10 +374,14 @@ def _finished_iteration(n: int | None, phase: str | None, events: list[dict[str,
 
 
 def _synth_options(recommendation: str, default_text: str, never: bool) -> list[dict[str, Any]]:
-    """The loop's three implicit options (bam-triage-answer/1 choices), each carrying the loop's own words."""
-    return [
-        {"key": "accept_recommendation", "label": "Go with the recommendation", "detail_md": recommendation,
-         "recommended": True, "is_default": False},
+    """The loop's three implicit options (bam-triage-answer/1 choices), each carrying the loop's own words.
+
+    WHY no "Go with the recommendation" when the source records none (grasping's download approvals, the detection
+    plan's items): it would be a control whose words are empty, a fake choice (calm rule: no fake controls).
+    """
+    accept = [{"key": "accept_recommendation", "label": "Go with the recommendation", "detail_md": recommendation,
+               "recommended": True, "is_default": False}] if recommendation.strip() else []
+    return accept + [
         {"key": "use_default", "label": "Keep waiting (no default)" if never else "Let the default apply",
          "detail_md": default_text, "recommended": False, "is_default": True},
         {"key": "other", "label": "Something else (write it)", "detail_md": None, "recommended": False,
@@ -480,13 +492,15 @@ def _sort_key(item: Mapping[str, Any]) -> tuple:
 
 
 def _counts(items: list[dict[str, Any]]) -> dict[str, int]:
-    counts = {"open": 0, "blocking_now": 0, "no_default": 0, "waiting": 0, "defaulting": 0, "answered": 0,
-              "defaulted": 0, "closed": 0, "total": len(items)}
+    counts = {key: 0 for key in COUNT_KEYS}
+    counts["total"] = len(items)
     for item in items:
         if item["status"] == "open":
             counts["open"] += 1
         if item["blocking_now"]:
             counts["blocking_now"] += 1
+        if item["group"] in WANTS_YOU_GROUPS:
+            counts["wants_you"] += 1
         if item["group"] == "no_default" or (item["blocking_now"] and item["default"]["applies"]["unit"] == "never"):
             counts["no_default"] += 1
         if item["group"] == "waiting":
@@ -508,16 +522,17 @@ def _now() -> str:
 
 def _empty_doc(track: str, title: str, note: str, *, paths: list[str] | None = None,
                channel: dict[str, Any] | None = None, adapter: str = "none") -> dict[str, Any]:
+    """A doc with no items. WHY every count null and not 0: no items here means the questions could not be read (or
+    the loop writes none), not that there are none; the page says "not reported" (truth rule: missing is never 0)."""
     return {
         "schema": SCHEMA, "track": track, "track_title": title, "generated_at": _now(), "iteration": None,
         "source": {"adapter": adapter, "paths": paths or [], "commit": None, "live": False, "note": note},
         "answer_channel": channel or {"kind": "none", "target": None, "row_schema": None, "read_back": None},
-        "counts": _counts([]), "items": [],
+        "counts": {key: None for key in COUNT_KEYS}, "items": [],
     }
 
 
-def build_kinsim(sources: Mapping[str, str]) -> dict[str, Any]:
-    title = dict(TRACKS)["kinsim"]
+def build_kinsim(sources: Mapping[str, str], title: str = "kinsim") -> dict[str, Any]:
     loop_dir = resolve_loop_dir(sources, explicit_key="kinsim_triage_dir", branch_key="kinsim_loop_branch",
                                 subdir="src/dev/bam_curriculum",
                                 fallback_keys=("kinsim_loop_dir", "kinsim_curriculum_dir"))
@@ -560,8 +575,7 @@ def build_kinsim(sources: Mapping[str, str]) -> dict[str, Any]:
     }
 
 
-def build_rig(sources: Mapping[str, str]) -> dict[str, Any]:
-    title = dict(TRACKS)["rig"]
+def build_rig(sources: Mapping[str, str], title: str = "rig") -> dict[str, Any]:
     loop_dir = resolve_loop_dir(sources, explicit_key="rig_loop_dir", branch_key="rig_loop_branch",
                                 subdir="src/dev/bam_rig_loop")
     if loop_dir is None:
@@ -600,23 +614,266 @@ def build_rig(sources: Mapping[str, str]) -> dict[str, Any]:
     }
 
 
-def build_track(track: str, sources: Mapping[str, str] | None = None) -> dict[str, Any] | None:
+# ------------------------------------------------------------------------------- the prose tracks (one parser each)
+
+def _line_of(text: str, needle: str) -> int | None:
+    """1-based line of the first occurrence of ``needle`` in ``text``; None when absent."""
+    index = text.find(needle)
+    return text.count("\n", 0, index) + 1 if index >= 0 else None
+
+
+def _file_line(path: str, line: int | None, label: str) -> dict[str, Any]:
+    return {"label": label, "kind": "file_line" if line else "path", "value": f"{path}#L{line}" if line else path,
+            "path": path, "line": line, "is_dir": False}
+
+
+def _mtime_iso(path: str) -> str | None:
+    try:
+        return datetime.fromtimestamp(os.stat(path).st_mtime, timezone.utc).astimezone().isoformat(timespec="seconds")
+    except OSError:
+        return None
+
+
+def _prose_item(track: str, local_id: str, *, kind: str, title: str, ask: str, context_md: str, base_md: str,
+                question_md: str, default_md: str | None, applies_unit: str, blocks: list[dict[str, Any]],
+                blocking_now: bool, evidence: list[dict[str, Any]], asked_by: str, updated_ts: str | None,
+                raw_status: str) -> dict[str, Any]:
+    """One NeedsItem from a file that keeps its questions as prose: every text field a verbatim slice of that file."""
+    never = default_md is None
+    lead, provenance = lead_and_provenance(question_md.strip())
+    if blocking_now:
+        group = "blocking"
+    elif never:
+        group = "no_default"
+    else:
+        group = "waiting"
+    return {
+        "id": f"{track}:{local_id}", "local_id": local_id, "kind": kind, "title": title, "ask": ask,
+        "context_md": context_md, "context_summary": None, "context_base_md": base_md, "context_lead_md": lead,
+        "provenance_md": provenance, "updates": [],
+        "options": _synth_options("", default_md or "", never),
+        "recommendation_md": "",
+        "default": {"text_md": default_md or "",
+                    "applies": {"unit": "never", "after": None} if never else {"unit": applies_unit, "after": None},
+                    "state": "none" if never else "pending"},
+        "blocks": blocks, "blocking_now": blocking_now, "group": group, "evidence": evidence,
+        "asked_by": {"agent": asked_by, "session": None, "account": None},
+        "created": {"iteration": None, "ts": None}, "updated": {"ts": updated_ts, "note": None},
+        "status": "open", "raw_status": raw_status, "answer": None, "effort": None,
+    }
+
+
+def build_grasping(sources: Mapping[str, str], title: str = "grasping") -> dict[str, Any]:
+    """curriculum.py CELLS with status 'needs' whose ``why`` names a download approval: one item per model id.
+
+    Parsed by the grasping adapter's own ``load_curriculum`` + ``needs_cells`` (one parser, not two). The question
+    frame "Approve downloading <model id>?" is the only text not in the file: CELLS carry a reason ("download
+    approval (planar classics, BSD-3)"), never a question. Everything else is the file's words, labelled by field.
+
+    WHY no_default and not blocking: a download approval holds cells, never the rung. The adapter's frontier rule
+    (``frontier_tier``: wave-1 cells and gates only) does not count a ``needs`` cell, so the loop climbs past it;
+    the cells it holds are listed in ``blocks`` (kind ``cell``) so the page can still say what waits on it.
+    """
+    channel = CHANNELS["grasping"]
+    path = sources.get("grasping_curriculum")
+    if not path or not Path(path).is_file():
+        return _empty_doc("grasping", title, f"curriculum.py not found ({path or 'grasping_curriculum is not a sources key'})",
+                          paths=[path] if path else [], channel=channel, adapter="grasp_curriculum")
+    try:
+        curriculum = grasping_adapter.load_curriculum(path)
+        text = Path(path).read_text(encoding="utf-8")
+    except Exception as error:  # curriculum.py is executed; any error in it is a reason, not a crash
+        return _empty_doc("grasping", title, f"curriculum.py could not be read · {type(error).__name__}: {error}",
+                          paths=[path], channel=channel, adapter="grasp_curriculum")
+    approvals, other = grasping_adapter.needs_cells(curriculum)
+    updated = _mtime_iso(path)
+    items = []
+    for model_id, cells in approvals.items():
+        model = curriculum.models.get(model_id)
+        model_title = str(model.title) if model else model_id
+        notes = str(getattr(model, "notes", "") or "") if model else ""
+        by_reason: dict[str, list[str]] = {}
+        for cell in cells:
+            by_reason.setdefault(str(cell.why or ""), []).append(cell.id)
+        fields = ([f"- Licence: {model.licence}"] if model is not None else []) + ([f"- Notes: {notes}"] if notes else [])
+        held = [f"- {reason}: " + ", ".join(f"`{cell_id}`" for cell_id in ids) for reason, ids in by_reason.items()]
+        context = "\n\n".join(part for part in (
+            f"**{model_title}** (`{model_id}`)", "\n".join(fields),
+            "Cells it holds, by curriculum.py's own reason:", "\n".join(held)) if part)
+        blocks = []
+        for cell in cells:
+            env = curriculum.envs.get(cell.env)
+            blocks.append({"id": cell.id, "kind": "cell",
+                           "label": f"{env.title} · tier {env.tier}" if env is not None else None})
+        line = _line_of(text, f'"{model_id}"')
+        items.append(_prose_item(
+            "grasping", model_id, kind="approval", title=model_title, ask=f"Approve downloading {model_id}?",
+            context_md=context, base_md=context, question_md=notes, default_md=None, applies_unit="never",
+            blocks=blocks, blocking_now=False,
+            evidence=[_file_line(path, line, f"curriculum.py MODELS {model_id}")],
+            asked_by="grasping loop (curriculum.py CELLS)", updated_ts=updated, raw_status="needs"))
+    held_elsewhere = sum(len(ids) for ids in other.values())
+    return {
+        "schema": SCHEMA, "track": "grasping", "track_title": title, "generated_at": _now(), "iteration": None,
+        "source": {"adapter": "grasp_curriculum", "paths": [path],
+                   "commit": _git_last_commit(Path(path).parent, Path(path).name), "live": True,
+                   "note": "curriculum.py CELLS with status 'needs' whose why names a download approval, one item per "
+                           "model id, read live with the grasping adapter's own parser. No default is recorded for "
+                           f"any. {held_elsewhere} other 'needs' cells wait on something other than you "
+                           f"({'; '.join(other) or 'none'}) and are not asked here."},
+        "answer_channel": channel,
+        "counts": _counts(items), "items": items,
+    }
+
+
+def build_detection(sources: Mapping[str, str], title: str = "detection") -> dict[str, Any]:
+    """The vault plan note's ``## Needs you`` list, parsed by the detection adapter's own ``parse_needs_section``.
+
+    Every text field is the note's own words; ``blocks`` are the rungs the item says it blocks. WHY ``applies.unit``
+    is ``unstated`` and the state ``pending``: the note says each default "fires if you say nothing" but not when, and
+    no loop is running to have applied one. A blocking item with a pending default still blocks (the triage rule).
+    """
+    channel = CHANNELS["detection"]
+    path = sources.get("detection_plan_note")
+    if not path or not Path(path).is_file():
+        return _empty_doc("detection", title, f"plan note not found ({path or 'detection_plan_note is not a sources key'})",
+                          paths=[path] if path else [], channel=channel, adapter="plan_note")
+    try:
+        text = Path(path).read_text(encoding="utf-8")
+    except (OSError, UnicodeDecodeError) as error:
+        return _empty_doc("detection", title, f"plan note could not be read · {error}", paths=[path], channel=channel,
+                          adapter="plan_note")
+    entries = detection_adapter.parse_needs_section(text)
+    if not entries:
+        return _empty_doc("detection", title, "the plan note has no numbered '## Needs you' list", paths=[path],
+                          channel=channel, adapter="plan_note")
+    rung_titles: dict[str, str] = {}
+    ladder = sources.get("detection_ladder")
+    if ladder and Path(ladder).is_file():
+        try:
+            rung_titles = {row["id"]: str(row.get("short") or "") or None
+                           for row in detection_adapter.read_ladder(Path(ladder)).get("rungs") or []}
+        except Exception:  # labels are a nicety; a broken ladder file must not hide the questions
+            rung_titles = {}
+    roots = [Path(value) for key in ("detection_repo",) if (value := sources.get(key))]
+    roots.append(Path(sources.get("bam_ws_root") or NEEDS_DEFAULTS["bam_ws_root"]))
+    section = text.find("## Needs you")
+    updated = _mtime_iso(path)
+    items = []
+    for entry in entries:
+        blocks = [{"id": rung, "kind": "rung", "label": rung_titles.get(rung)} for rung in entry["blocks"]]
+        start = text.find(f"\n{entry['n']}. ", section) if section >= 0 else -1
+        line = text.count("\n", 0, start) + 2 if start >= 0 else None
+        question = entry["question_md"].strip()
+        item_title = entry["title_md"] if entry["title_md"] is not None else (lead_and_provenance(question)[0] or question)
+        items.append(_prose_item(
+            "detection", f"plan-{entry['n']}", kind="decision", title=item_title, ask=item_title,
+            context_md=entry["body_md"], base_md=entry["before_md"].strip(), question_md=question,
+            default_md=entry["default_md"], applies_unit="unstated", blocks=blocks,
+            blocking_now=bool(blocks),
+            # WHY drop device paths: item 1 names `/dev/sdb` in a command, which exists but is nothing to open.
+            evidence=[_file_line(path, line, f"Plan note · Needs you · {entry['n']}")]
+                     + [found for found in extract_evidence(entry["body_md"], roots)
+                        if found["kind"] == "url" or Path(found["path"]).is_file() or Path(found["path"]).is_dir()],
+            asked_by="plan note (vault)", updated_ts=updated, raw_status="open"))
+    items.sort(key=_sort_key)
+    return {
+        "schema": SCHEMA, "track": "detection", "track_title": title, "generated_at": _now(), "iteration": None,
+        "source": {"adapter": "plan_note", "paths": [path], "commit": _git_last_commit(Path(path).parent, Path(path).name),
+                   "live": True,
+                   "note": "The plan note's '## Needs you' list, read live with the detection adapter's own parser. "
+                           "Plan only, no loop running: the note does not say when a default fires, and none has."},
+        "answer_channel": channel,
+        "counts": _counts(items), "items": items,
+    }
+
+
+# --------------------------------------------------------------------------------------------- tracks and the doc
+
+BUILDERS = {"kinsim": build_kinsim, "rig": build_rig, "grasping": build_grasping, "detection": build_detection}
+
+
+def registry_tracks(workspace: str | os.PathLike[str] | None = None) -> tuple[list[tuple[str, str]], str | None]:
+    """``([(id, vibe-title), ...], problem)``: the registry's live (not archived) tracks in its row order.
+
+    The workspace is ``workspace``, else ``$VIBETRACKS_WORKSPACE`` (the backend exports it), else this repo's
+    ``workspace/``. WHY the registry and not a list here: a rename (POST /tracks/<id>/title) must show on the needs
+    page too, and a hard-coded title went stale ("Sim to Real · 1-DOF rig"). When the registry cannot be read, the
+    fallback ids come back with the id as their title, and ``problem`` says why.
+    """
+    root = workspace or os.environ.get("VIBETRACKS_WORKSPACE") or DEFAULT_WORKSPACE
+    try:
+        registry = read_registry(root)
+    except (VibeTracksError, OSError, ValueError) as error:
+        return [(track, track) for track in FALLBACK_TRACK_IDS], f"registry unreadable · {error}"
+    return [(track.id, track.title) for track in registry.tracks if not track.archived], None
+
+
+def build_track(track: str, sources: Mapping[str, str] | None = None, *, title: str | None = None,
+                workspace: str | os.PathLike[str] | None = None) -> dict[str, Any] | None:
+    """One track's doc; None for an id that is neither a registry track nor one this module has a source for.
+
+    ``title`` (the registry's ``vibe-title``) skips the registry read; build.py passes it. A registry track with no
+    question source gets a doc whose counts are all null ("not reported").
+    """
     sources = sources if sources is not None else load_sources()
-    if track == "kinsim":
-        return build_kinsim(sources)
-    if track == "rig":
-        return build_rig(sources)
-    if track in UNSTRUCTURED:
-        spec = UNSTRUCTURED[track]
-        return _empty_doc(track, dict(TRACKS)[track], spec["note"], paths=spec["paths"], channel=spec["channel"],
+    if title is None:
+        listed, _ = registry_tracks(workspace)
+        titles = dict(listed)
+        if track not in titles and track not in BUILDERS and track not in NOT_REPORTED:
+            return None
+        title = titles.get(track, track)
+    builder = BUILDERS.get(track)
+    if builder is not None:
+        return builder(sources, title)
+    spec = NOT_REPORTED.get(track)
+    if spec is not None:
+        return _empty_doc(track, title, spec["note"], paths=spec["paths"], channel=spec["channel"],
                           adapter="none (prose only)")
-    return None
+    return _empty_doc(track, title, "needs.py has no question source for this track yet", adapter="none")
 
 
-def build_all(sources: Mapping[str, str] | None = None) -> dict[str, Any]:
+def build_all(sources: Mapping[str, str] | None = None,
+              workspace: str | os.PathLike[str] | None = None) -> dict[str, Any]:
     sources = sources if sources is not None else load_sources()
-    docs = [doc for track, _ in TRACKS if (doc := build_track(track, sources)) is not None]
-    return {"schema": SCHEMA_ALL, "generated_at": _now(), "tracks": docs}
+    listed, problem = registry_tracks(workspace)
+    docs = [doc for track, title in listed if (doc := build_track(track, sources, title=title)) is not None]
+    return {"schema": SCHEMA_ALL, "generated_at": _now(), "tracks": docs, "registry_problem": problem}
+
+
+# ------------------------------------------------------------------------------ what the dashboard projection shows
+
+def needs_you_count(doc: Mapping[str, Any] | None) -> dict[str, int | None]:
+    """The projection's ``needs_you_count``: ``{"open": counts.wants_you, "blocking": counts.blocking_now}``.
+
+    Both null when there is no doc or its counts are null (no structured source): "not reported", never 0.
+    """
+    counts = (doc or {}).get("counts") or {}
+    return {"open": counts.get("wants_you"), "blocking": counts.get("blocking_now")}
+
+
+def _applies_text(item: Mapping[str, Any]) -> str | None:
+    applies = item["default"]["applies"]
+    unit, after = applies.get("unit"), applies.get("after")
+    if unit == "never":
+        return None
+    if unit == "unstated":
+        return "not stated"
+    when = f"after W{after}" if unit == "wave" and isinstance(after, int) else f"after {unit} {after}"
+    return f"{when} · in force" if item["default"]["state"] == "in_effect" else when
+
+
+def needs_you_rows(doc: Mapping[str, Any] | None) -> list[dict[str, Any]]:
+    """The projection's ``needs_you`` list: the doc's items in the wants-you groups, in the doc's order, as
+    ``{id, q, blocks, default, applies}`` (PROJECTION.md ``NeedsYou``). ``id`` is the loop's own id (T47, M5.ggcnn)."""
+    rows = []
+    for item in (doc or {}).get("items") or []:
+        if item.get("group") not in WANTS_YOU_GROUPS:
+            continue
+        rows.append({"id": item["local_id"], "q": item.get("ask") or item.get("title") or "",
+                     "blocks": [block["id"] for block in item.get("blocks") or []],
+                     "default": item["default"].get("text_md") or None, "applies": _applies_text(item)})
+    return rows
 
 
 # ------------------------------------------------------------------------------------------------------------ route
@@ -641,22 +898,22 @@ def _stream(path: Path, chunk: int = 256 * 1024) -> Iterable[bytes]:
 
 
 def handle(method: str, subpath: str, query: Mapping[str, list[str]], headers: Mapping[str, str],
-           sources: Mapping[str, str] | None = None):
+           sources: Mapping[str, str] | None = None, workspace: str | os.PathLike[str] | None = None):
     if method != "GET":
         return _json(405, {"error": "GET only"})
     subpath = subpath.rstrip("/")
     track = _first(query, "track")
     if subpath == "":
         if not track:
-            return _json(200, build_all(sources))
-        doc = build_track(track, sources)
+            return _json(200, build_all(sources, workspace))
+        doc = build_track(track, sources, workspace=workspace)
         return _json(200, doc) if doc is not None else _json(404, {"error": f"unknown track {track!r}",
-                                                                   "tracks": [t for t, _ in TRACKS]})
+                                                                   "tracks": [t for t, _ in registry_tracks(workspace)[0]]})
     if subpath == "/evidence":
         item_id, index = _first(query, "item"), _first(query, "n")
         if not track or not item_id or index is None or not index.isdigit():
             return _json(400, {"error": "need track, item and n"})
-        doc = build_track(track, sources)
+        doc = build_track(track, sources, workspace=workspace)
         if doc is None:
             return _json(404, {"error": f"unknown track {track!r}"})
         local = item_id.split(":", 1)[-1]

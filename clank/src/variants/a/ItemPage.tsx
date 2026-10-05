@@ -18,6 +18,7 @@ import {
   valueDomain,
 } from '../../shared'
 import type { Nav } from './nav'
+import { formatLocal } from '../../shared/time'
 
 function metricText(value: unknown): string | null {
   if (value === null || value === undefined || value === '') return null
@@ -76,8 +77,8 @@ export function ItemPage({ projection, track, item, title, nav, mediaUrl }: {
             <StatusWord word={item.status} tone={evidenceStatusTone(item.status)} bare />
           </>
         ) : null}
-        {/* WHY the raw stamp as a title: the line shows it to the minute; the stored value (seconds, zone) stays one hover away. */}
-        {item.when ? <span title={item.when}>{` · ${item.when.replace('T', ' ').slice(0, 16)}`}</span> : ''}
+        {/* WHY the raw stamp as a title: the line shows local time to the minute; the stored value (seconds, source zone) stays one hover away. */}
+        {item.when ? <span title={item.when}>{` · ${formatLocal(item.when)}`}</span> : ''}
         {iteration ? ` · ${iteration.label}` : ''}
       </p>
 

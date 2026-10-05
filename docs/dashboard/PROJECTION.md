@@ -46,16 +46,17 @@ One JSON document is everything the dashboard shows. The backend builds it **liv
 | `iterations` | `Iteration[]` | the shared x-axis, oldest first. Every KPI's `values` aligns with it one to one. |
 | `north_star` | KPI id \| null | the S1 KPI the glance shows; null when the track reports no KPIs |
 | `kpis` | `Kpi[]` | in slot order S1 to S7 |
-| `needs_you` | `NeedsYou[]` | open questions, blocking ones first |
+| `needs_you` | `NeedsYou[]` | live: the questions that still want Zach (needs.py groups blocking, no_default, waiting), in needs.py's order (blocking first). Filled by build.py from `vibetracks/dashboard/needs.py`, never from the adapter's own list; `[]` when needs.py has no structured source |
 | `evidence` | `{by_iteration, by_kpi}` | level 3 (below) |
 | `links` | `Link[]` | reports, commands, paths |
 | `provenance` | `Provenance` | plus, on deployments, `counts`, `latest_real_rms`, `videos_resolved`, `videos_flagged` |
 | `reporting` | bool | live: false when the adapter could not report (`state.word` "Not reporting", `state.detail` and `summary` say why) |
-| `needs_you_count` | `{open, blocking}` | live: counted from `needs_you`; both null when the track is not reporting (unknown, never 0) |
+| `needs_you_count` | `{open, blocking}` | live, top-level: `open` = needs.py's `counts.wants_you`, `blocking` = `counts.blocking_now`, the same two numbers `GET /needs?track=<id>` serves, so the home cell, the track page and the needs page agree ("B blocking · M open"). Both null when needs.py has no structured source for the track (pyblocks today) or could not read it: "not reported", never 0. Deployments (children) keep the adapter's or snapshot's own count |
+| `needs_you_source` | object | live, top-level: `{adapter, live, note}` of the needs.py doc behind the two fields above; `note` says where the questions live, or why there are none |
 | `freshness` | object | live: `{newest, newest_source, age_h, stall_hours, stale, note, sources: [{key, path, exists, modified, note}]}`. `stale` is null when no source file exists. A stale track's calm state turns `stale`. `age_h` is wall-clock. |
 | `source` | object | live: `{adapter, kind: "live"\|"snapshot"\|"none", live}` for this track |
 | `registry` | object | live, top-level only: the note's `{status, priority, owner, adapter, sources, heartbeat, stall_hours, roadmap, children, note_path, revision}`; `revision` fences a rename. `heartbeat` is the effective list: the note's `vibe-heartbeat`, else the sources the adapter's `READS` marks `heartbeat` (ADAPTERS.md) |
-| `purpose` | string | live, top-level only: the whole first paragraph of the track's registry note, never cut (`first_paragraph(body, limit=None)`); the page clamps it with an explicit ellipsis and a "more" toggle |
+| `purpose` | string | live, top-level only: the whole first paragraph of the track's registry note, never cut and with every `*`, `_` and backtick kept (`first_paragraph(body, limit=None, raw=True)`: `pll_filter_hz` stays `pll_filter_hz`); it is inline markdown, which the page renders, and the page clamps it with an explicit ellipsis and a "more" toggle |
 | `children` | string[] | live, top-level only: the `vibe-children` ids drawn inside this track |
 
 ### `Rung`
@@ -129,7 +130,7 @@ One JSON document is everything the dashboard shows. The backend builds it **liv
 
 ## `NeedsYou`
 
-`{id, q, blocks: string[], default: string | null, applies: string | null}`. `blocks` lists the rungs the question holds (empty = blocks nothing). `applies` says when the default takes effect ("after W4"). A null `default` reads "no default recorded".
+`{id, q, blocks: string[], default: string | null, applies: string | null}`, mapped by `needs.needs_you_rows()` from a needs.py item: `id` is the loop's own id (`T47`, `M5.ggcnn`, `plan-1`), `q` the item's one-line ask. `blocks` lists what the question holds: rungs or packages for the triage loops and detection, curriculum **cells** for grasping's download approvals (empty = holds nothing). Whether an item blocks *now* is needs.py's `blocking_now`, counted in `needs_you_count.blocking`; never infer it from `blocks` being non-empty (rig T4 names BN1 but its default is in effect). `applies` says when the default takes effect ("after W4"), "not stated" when the source gives a default but no time (the detection plan), null when there is no default. A null `default` reads "no default recorded".
 
 ## Evidence (level 3)
 

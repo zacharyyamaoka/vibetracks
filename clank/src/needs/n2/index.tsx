@@ -30,6 +30,7 @@ import {
   type NeedsProposalProps,
 } from '../kit'
 import { Md } from './Md'
+import { formatLocal } from '../../shared/time'
 import './n2.css'
 
 export const NAME = 'Inbox + reading pane'
@@ -67,13 +68,12 @@ function writeLater(later: Set<string>): void {
   }
 }
 
+// WHY formatLocal (time-format wave): every stamp on every page reads one way, local time with its zone; a proposal
+// formatting its own stamps drifted (no zone, or the source's zone).
+// formatLocal keeps a bare "2026-10-02" a day (never parsed as UTC midnight, which read as Oct 1 in Vancouver).
 function shortDate(ts: string | null | undefined): string | null {
   if (!ts) return null
-  // WHY: a bare "2026-10-02" parses as UTC midnight, which reads as Oct 1 in Vancouver; a date-only value is a day.
-  const day = /^(\d{4})-(\d{2})-(\d{2})$/.exec(ts)
-  const date = day ? new Date(Number(day[1]), Number(day[2]) - 1, Number(day[3])) : new Date(ts)
-  if (Number.isNaN(date.getTime())) return ts.slice(0, 10)
-  return date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })
+  return formatLocal(ts, { dateOnly: true })
 }
 
 function blocksText(item: NeedsItem): string {
@@ -572,8 +572,8 @@ function ItemPane({ entry, answers, backend, projection, noteRef, later, onChoos
         </dd>
         <dt>Opened</dt>
         <dd className="vt-muted">
-          {opened || '–'}
-          {updated && updated !== shortDate(item.created.ts) ? ` · updated ${updated}` : ''}
+          <span title={item.created.ts ?? undefined}>{opened || '–'}</span>
+          {updated && updated !== shortDate(item.created.ts) ? <span title={item.updated.ts ?? undefined}>{` · updated ${updated}`}</span> : ''}
           {item.asked_by.agent ? ` · asked by ${item.asked_by.agent}` : ''}
         </dd>
       </dl>
@@ -755,7 +755,7 @@ function LoopAnswer({ item }: { item: NeedsItem }) {
   if (!answer) return null
   return (
     <section className="n2-section n2-loop-answer" data-testid="n2-loop-answer">
-      <h3 className="n2-label">Already recorded by the loop{answer.ts ? ` · ${shortDate(answer.ts)}` : ''}</h3>
+      <h3 className="n2-label">Already recorded by the loop{answer.ts ? <span title={answer.ts}>{` · ${shortDate(answer.ts)}`}</span> : ''}</h3>
       {answer.by === 'zach' && answer.note ? (
         <p className="n2-prose">
           {answer.quoted ? '“' : ''}

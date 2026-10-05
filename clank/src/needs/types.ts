@@ -126,6 +126,10 @@ export interface NeedsItem {
 export interface NeedsCounts {
   open: number
   blocking_now: number
+  /** Items that still want Zach: groups blocking + no_default + waiting (open items whose default is NOT already in
+   * effect). The ONE number every "M open" in the dashboard shows (home cell, track page, needs page header). Optional
+   * only until every backend sends it; read it through wantsYouCount(). */
+  wants_you?: number
   no_default: number
   waiting: number
   defaulting: number
@@ -156,6 +160,11 @@ export interface NeedsAll {
 /** Items that still want something from Zach (blocking, no default, default pending), in page order. */
 export function openAsks(doc: NeedsDoc): NeedsItem[] {
   return doc.items.filter((item) => item.group === 'blocking' || item.group === 'no_default' || item.group === 'waiting')
+}
+
+/** The "M open" of "B blocking · M open": counts.wants_you, else the same groups counted from the items. */
+export function wantsYouCount(doc: NeedsDoc): number {
+  return typeof doc.counts.wants_you === 'number' ? doc.counts.wants_you : openAsks(doc).length
 }
 
 export function itemsInGroup(doc: NeedsDoc, group: NeedsGroup): NeedsItem[] {

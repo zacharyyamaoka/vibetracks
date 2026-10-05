@@ -8,6 +8,7 @@ import type { EvidenceItem, MediaRef, Tone } from './model'
 import { formatNumber } from './model'
 import { MediaView } from './MediaView'
 import { StatusWord } from './StatusWord'
+import { formatLocal } from './time'
 
 export interface EvidenceListProps {
   items: EvidenceItem[]
@@ -92,7 +93,7 @@ export function EvidenceList({ items, mediaUrl, openMedia, onOpenMedia, selected
                 <span className="vt-ev-title">{item.title}</span>
               )}
               {item.status ? <StatusWord word={item.status} tone={evidenceStatusTone(item.status)} bare className="vt-small" /> : null}
-              {item.when ? <span className="vt-faint vt-small vt-num">{item.when.replace('T', ' ').slice(0, 16)}</span> : null}
+              {item.when ? <span className="vt-faint vt-small vt-num" title={item.when}>{formatLocal(item.when)}</span> : null}
             </div>
             {metrics.length ? (
               <div className="vt-ev-metrics">

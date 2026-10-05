@@ -153,7 +153,11 @@ class LiveBuildTest(unittest.TestCase):
         self.assertTrue(track["reporting"])
         self.assertEqual(track["registry"]["revision"], note_revision(path.read_text(encoding="utf-8")))
         self.assertEqual(track["purpose"], "What this loop is for.")
-        self.assertEqual(track["needs_you_count"], {"open": 2, "blocking": 1})
+        # The adapter's own needs_you list is ignored: needs.py is the one source, and it has none for "kin", so the
+        # count is unknown (null), never the adapter's 2/1 and never 0 (tests/test_dashboard_needs_counts.py).
+        self.assertEqual(track["needs_you_count"], {"open": None, "blocking": None})
+        self.assertEqual(track["needs_you"], [])
+        self.assertEqual(track["needs_you_source"]["live"], False)
         self.assertNotIn("media", track)
         self.assertEqual(track["source"], {"adapter": "good", "kind": "live", "live": True})
         module = importlib.import_module(f"{self.package}.good")

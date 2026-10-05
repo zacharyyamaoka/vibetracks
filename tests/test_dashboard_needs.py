@@ -14,6 +14,9 @@ from pathlib import Path
 
 from vibetracks.dashboard import needs
 
+REPO = Path(__file__).resolve().parents[1]
+WORKSPACE = REPO / "workspace"
+
 
 def item(triage_id, *, after, blocks=(), status="open", question="Q.", recommendation="R.", default="D.", wave=1):
     return {"triage_id": triage_id, "title": f"Title of {triage_id}", "opened_wave": wave, "question": question,
@@ -179,12 +182,28 @@ class NeedsTest(unittest.TestCase):
         self.assertEqual(items["T1"]["answer"]["action_md"], "Removed 5.")
         self.assertIsNone(items["T12"]["answer"]["by"], "resolved by circumstance is not Zach's answer")
 
-    def test_unstructured_tracks_are_empty_with_a_note(self) -> None:
+    def test_tracks_without_items_are_empty_with_a_note_and_null_counts(self) -> None:
+        # pyblocks writes no questions; grasping and detection here have no source keys in the fixture.
         for track in ("grasping", "detection", "pyblocks"):
-            doc = needs.build_track(track, self.sources)
+            doc = needs.build_track(track, self.sources, title=track)
             self.assertEqual(doc["items"], [])
             self.assertTrue(doc["source"]["note"])
             self.assertFalse(doc["source"]["live"])
+            # Truth rule: no items read means "not reported", never 0.
+            self.assertTrue(all(value is None for value in doc["counts"].values()), doc["counts"])
+            self.assertEqual(needs.needs_you_count(doc), {"open": None, "blocking": None})
+
+    def test_wants_you_counts_blocking_no_default_and_waiting_only(self) -> None:
+        doc = self.kinsim()
+        # T47 blocking, T12 no default, T53 waiting; T11/T52 defaulting, T60 answered, T1 done are not wanted.
+        self.assertEqual(doc["counts"]["wants_you"], 3)
+        self.assertEqual([it["local_id"] for it in doc["items"] if it["group"] in needs.WANTS_YOU_GROUPS],
+                         ["T47", "T12", "T53"])
+
+    def test_no_recommendation_means_no_accept_option(self) -> None:
+        self.fx.write_kinsim([item("T5", after=None, recommendation="")])
+        options = self.by_id(self.kinsim())["T5"]["options"]
+        self.assertEqual([o["key"] for o in options], ["use_default", "other"])
 
     def test_missing_loop_is_an_empty_doc_not_a_crash(self) -> None:
         sources = dict(self.sources, kinsim_triage_dir=str(self.fx.root / "gone"))
@@ -207,7 +226,8 @@ class RouteTest(unittest.TestCase):
         self.tmp.cleanup()
 
     def get(self, subpath, **query):
-        status, headers, body = needs.handle("GET", subpath, {k: [v] for k, v in query.items()}, {}, sources=self.sources)
+        status, headers, body = needs.handle("GET", subpath, {k: [v] for k, v in query.items()}, {}, sources=self.sources,
+                                             workspace=WORKSPACE)
         return status, headers, b"".join(body)
 
     def test_one_track_and_all(self) -> None:
@@ -218,7 +238,10 @@ class RouteTest(unittest.TestCase):
         status, _, body = self.get("")
         data = json.loads(body)
         self.assertEqual(data["schema"], "vibetracks-needs-all/1")
-        self.assertEqual([d["track"] for d in data["tracks"]], [t for t, _ in needs.TRACKS])
+        listed, problem = needs.registry_tracks(WORKSPACE)
+        self.assertIsNone(problem)
+        self.assertEqual([d["track"] for d in data["tracks"]], [t for t, _ in listed])
+        self.assertEqual([d["track_title"] for d in data["tracks"]], [title for _, title in listed])
 
     def test_unknown_track_404(self) -> None:
         self.assertEqual(self.get("", track="nope")[0], 404)

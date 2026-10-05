@@ -397,6 +397,27 @@ def _rung(cur: Curriculum, tier: int | None, runs: list[Run]) -> dict[str, Any] 
                 "curriculum.py (TIERS, wave-1 CELLS, GATES) + runs.jsonl")
 
 
+def needs_cells(cur: Curriculum) -> tuple[dict[str, list[Any]], dict[str, list[str]]]:
+    """curriculum.py CELLS with status ``needs``, split the way the loop words them.
+
+    Returns ``(approvals, other)``: ``approvals`` maps a model id to its cells whose ``why`` names a download approval
+    (Zach's call), in CELLS order; ``other`` maps each remaining ``why`` to the cell ids it holds (blocked on something
+    other than Zach). WHY one exported parser: the adapter's needs-you row and /needs (vibetracks/dashboard/needs.py)
+    must read the same cells the same way, or the home count and the needs page disagree.
+    """
+
+    approvals: dict[str, list[Any]] = {}
+    other: dict[str, list[str]] = {}
+    for cell in cur.cells:
+        if cell.status != "needs":
+            continue
+        if "approval" in (cell.why or ""):
+            approvals.setdefault(cell.model, []).append(cell)
+        else:
+            other.setdefault(cell.why or "unnamed blocker", []).append(cell.id)
+    return approvals, other
+
+
 def hardest_gated_env(cur: Curriculum) -> str | None:
     """The last gated env in curriculum order (MuJoCo stage 5 today): the milestone the loop is climbing toward."""
 
@@ -835,21 +856,15 @@ def build_track(work_track: Any, sources: dict[str, str]) -> dict[str, Any]:
     track["north_star"] = "envs_beaten"
 
     # ---- needs you: download approvals named in curriculum.py "needs" cells
-    approvals: dict[str, list[str]] = {}
-    other_needs: dict[str, list[str]] = {}
-    for cell in cur.cells:
-        if cell.status != "needs":
-            continue
-        (approvals if "approval" in (cell.why or "") else other_needs).setdefault(
-            cell.model if "approval" in (cell.why or "") else (cell.why or "unnamed blocker"), []).append(cell.id)
+    approval_cells, other_needs = needs_cells(cur)
     needs = []
-    for model_id, cell_ids in approvals.items():
+    for model_id, cells in approval_cells.items():
         spec = cur.models.get(model_id)
         title = spec.title if spec else model_id
         detail = f" {spec.notes}" if spec and spec.notes else ""
         licence = f" Licence: {spec.licence}." if spec else ""
         needs.append({"id": f"grasping:download:{model_id}", "q": f"Approve the {title} download?{detail}{licence}",
-                      "blocks": cell_ids, "default": None, "applies": None})
+                      "blocks": [cell.id for cell in cells], "default": None, "applies": None})
     track["needs_you"] = needs
 
     # ---- state + summary
