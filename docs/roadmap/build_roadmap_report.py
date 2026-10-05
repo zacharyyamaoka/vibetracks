@@ -42,10 +42,12 @@ def _git(*args: str) -> str:
     return subprocess.run(["git", "-C", str(REPO), *args], capture_output=True, text=True, check=True).stdout.strip()
 
 
-DASHBOARD_BASE = _git("rev-parse", "--short", "claude/vibetracks-dashboard")  # the Dashboard lane tip this branch sits on
+# the Dashboard lane commit this branch is built on (the merge base), not that branch's current tip, which may be newer
+DASHBOARD_BASE = _git("rev-parse", "--short", _git("merge-base", "HEAD", "claude/vibetracks-dashboard"))
 RELOAD_FIX = _git("log", "-1", "--format=%h", "--", "clank/src/variants/a/roadmapReload.tsx")  # wires reload() in
 FOCUS_FIX = _git("log", "-1", "--format=%h", "--", "clank/src/roadmap/focus.ts")  # focus.ts and the worded phase
 WRAP_FIX = _git("log", "-S", "overflow-wrap: anywhere", "-1", "--format=%h", "--", "clank/src/variants/a/a.css")  # the Dashboard lane's
+CSS_FIX = _git("log", "--diff-filter=A", "-1", "--format=%h", "--", "clank/src/roadmap/artBadge.ts")  # the cascade + badge + facts fix
 SWITCHER_GONE = _git("log", "-1", "--format=%h", "--grep=retire", "-i", "claude/vibetracks-dashboard")  # B and C retired, pill gone
 RECORD_CMD = ("cd ~/vibetracks-roadmap && uv run --no-project --with playwright==1.55.0 python3 docs/roadmap/record_roadmap_widget.py "
               f"--url http://127.0.0.1:4400/ --out {MEDIA}")
@@ -95,6 +97,24 @@ def fig(name: str, label: str, cap: str, cls: str = "") -> str:
         f'<img alt="{esc(label)}" src="{data_uri(path, "image/webp")}"></button>'
         f'<figcaption><b>{inline_md(label)}</b><span class="cap">{inline_md(cap)}</span></figcaption></figure>'
     )
+
+
+STORYBOOK_MEDIA = Path("/home/bam/vibetracks/reports/media/vibetracks-storybook-2026-10-05")
+
+
+def fig_capture(path: Path, label: str, cap: str, cls: str = "") -> str:
+    """A capture outside the recorder's stills (a Storybook screenshot), re-encoded as webp in memory and inlined once."""
+    import io
+    from PIL import Image
+    key = str(path)
+    assert key not in _inlined, f"would inline twice: {path}"
+    _inlined.add(key)
+    buffer = io.BytesIO()
+    Image.open(path).convert("RGB").save(buffer, "WEBP", quality=82)
+    uri = "data:image/webp;base64," + base64.b64encode(buffer.getvalue()).decode()
+    return (f'<figure class="cell {cls}"><button class="zoom" type="button" aria-label="Open {esc(label)} full size">'
+            f'<img alt="{esc(label)}" src="{uri}"></button>'
+            f'<figcaption><b>{inline_md(label)}</b><span class="cap">{inline_md(cap)}</span></figcaption></figure>')
 
 
 # ---- what each step measured, in words ---------------------------------------------------------------------------
@@ -521,6 +541,17 @@ the recorder shows the panel again afterwards because Clank saves its layout int
       errors (recorder: {len(HERO['page_errors'])}).</li>
 </ol>"""
 
+    cascade = STORYBOOK_MEDIA / "cascade"
+    storybook_figs = (
+        fig_capture(cascade / "before" / "roadmap-focus-card--details-bt-1.png", "Before: Details tab under the reset",
+                    "source links are bare text, the close **×** hugs the title") +
+        fig_capture(cascade / "after" / "roadmap-focus-card--details-bt-1.png", "After: the authored styles render",
+                    "bordered source chips, **×** at the right, the KPI names in a column that fits them") +
+        fig_capture(STORYBOOK_MEDIA / "roadmap-focus-card--lineage-bt-1.png", "Lineage tab, after",
+                    "each neighbour is a bordered row, art left of the text; the speed badge is in the hover text at this size") +
+        fig_capture(STORYBOOK_MEDIA / "dashboard-variant-a--tracks-page.png", "Dashboard / Variant A / Tracks page",
+                    "the real tracks page as a story, from the captured projection")
+    )
     commits = fixed_in()
     rounds = [n for n in range(1, 20) if audit_file(n) is not None]
     audit = "".join(audit_round(n, commits) for n in rounds)
@@ -555,7 +586,7 @@ the recorder shows the panel again afterwards because Clank saves its layout int
 
 <nav class="toc" aria-label="Sections">
   <a href="#watch">Watch</a><a href="#heads">Per track</a><a href="#board">Board &amp; proof</a><a href="#lines">Lines setting</a>
-  <a href="#phone">Phone</a><a href="#changed">What changed</a><a href="#found">Found</a><a href="#audit">Audit trail</a><a href="#decisions">Decide</a>
+  <a href="#phone">Phone</a><a href="#storybook">Storybook</a><a href="#changed">What changed</a><a href="#found">Found</a><a href="#audit">Audit trail</a><a href="#decisions">Decide</a>
 </nav>
 
 <section id="watch"><h2>Watch first</h2><p class="lead">One walk through the real app, with what was measured at each step.</p>{hero}</section>
@@ -566,6 +597,21 @@ and its focus card grows out of it, proof first.</p>{board}</section>
 <section id="lines"><h2>Line style lives on the settings page</h2><p class="lead">Your Oct 3 rule: view options go on a settings page,
 never on the toolbar.</p>{lines}</section>
 <section id="phone"><h2>At phone width</h2>{phone_html}</section>
+<section id="storybook"><h2>Storybook: the components one at a time</h2><p class="lead">33 stories of the roadmap widget and
+the dashboard's variant A, each a real component on real data captured from the running lane (the captures stay out of git:
+the repo is public). <code>npm --prefix {esc(REPO)}/clank run storybook</code> serves it on <code>http://127.0.0.1:6006</code>;
+<code>clank/stories/smoke.py</code> opens every story headless and fails on any error or missing fixture.
+Looking at the widget this way found three bugs the dashboard view hid; all fixed in {sha(CSS_FIX)}:</p>
+<ul class="small">
+  <li><b>148 button styles were silently discarded.</b> The dashboard's shared reset <code>.vt-dash button.vt-btn {{ all: unset }}</code>
+      outranked the roadmap's own button rules: source links lost their chip borders, the focus card's close button sat beside
+      the title instead of at the right, lineage rows stacked their text under the art. <code>clank/src/roadmap/cascade_check.py</code>
+      now fails on any discarded declaration (148 before, 0 after).</li>
+  <li><b>Thumbnail badges spilled over rung ids</b> (“0.1 m/s” over BT1): a badge now scales with its box, or is dropped when it
+      cannot be legible, keeping the speed in the thumbnail's hover text.</li>
+  <li><b>Long KPI names ran under their values</b> (<code>compute_s_p95</code>): the label column now fits the longest name.</li>
+</ul>
+<div class="g2">{storybook_figs}</div></section>
 <section id="changed"><h2>What changed since the kinsim dashboard</h2>{changed}</section>
 <section id="found"><h2>Found in the real app</h2><p class="lead">What the recordings turned up, and where each one stands now.
 Nothing in the product was changed to make this report.</p>{found}</section>
