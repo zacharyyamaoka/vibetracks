@@ -27,8 +27,8 @@ import re
 import subprocess
 import threading
 import time
-from collections import OrderedDict
 from collections.abc import Callable, Iterator, Mapping
+from contextlib import contextmanager
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
@@ -72,10 +72,21 @@ class UnknownSourceKey(Exception):
 
 # ---------------------------------------------------------------- live projectors
 @dataclass(frozen=True)
+class RootClaim:
+    """A source location a projector consumes and the document root it produces: ``roots[root]`` is ``location``
+    (``exact``), or the checkout holding ``location`` while one of the document's declared sources lies inside it."""
+
+    root: str
+    location: Path
+    exact: bool
+
+
+@dataclass(frozen=True)
 class LiveProjector:
     """One loop's live projection: what marks its loop present, which files stamp it, which checkout's HEAD, the call.
 
-    ``loop`` is the ``loop`` its documents carry, and ``keys`` the ``sources.py`` keys it reads.
+    ``loop`` is the ``loop`` its documents carry, and ``keys`` the ``sources.py`` keys it reads. ``claims`` is every
+    source location it consumes, as the document ``roots`` entry that location produces (``_owned``).
     """
 
     name: str
@@ -86,6 +97,7 @@ class LiveProjector:
     inputs: Callable[[Mapping[str, str]], list[Path]]
     checkout: Callable[[Mapping[str, str]], Path]
     project: Callable[[Mapping[str, str], str], dict]
+    claims: Callable[[Mapping[str, str]], list[RootClaim]]
 
 
 def _kinsim_inputs(sources: Mapping[str, str]) -> list[Path]:
@@ -106,12 +118,15 @@ KINSIM = LiveProjector(
     present=lambda sources: (Path(sources["kinsim_curriculum_dir"]) / "curriculum.json").is_file(),
     keys=frozenset({"kinsim_curriculum_dir", "kinsim_home"}), inputs=_kinsim_inputs, checkout=lambda sources: Path(sources["kinsim_curriculum_dir"]),
     project=lambda sources, now: project_kinsim(Path(sources["kinsim_curriculum_dir"]), Path(sources["kinsim_home"]), now=now),
+    claims=lambda sources: [RootClaim("repo", Path(sources["kinsim_curriculum_dir"]), exact=False),
+                            RootClaim("data_home", Path(sources["kinsim_home"]), exact=True)],
 )
 RIG = LiveProjector(
     name="rig", loop="rig", title="Rig loop",
     present=lambda sources: (Path(sources["rig_loop_dir"]) / "ladder.json").is_file(),
     keys=frozenset({"rig_loop_dir"}), inputs=_rig_inputs, checkout=lambda sources: Path(sources["rig_loop_dir"]),
     project=lambda sources, now: project_rig(Path(sources["rig_loop_dir"]), now=now),
+    claims=lambda sources: [RootClaim("repo", Path(sources["rig_loop_dir"]), exact=False)],
 )
 def _grasping_inputs(sources: Mapping[str, str]) -> list[Path]:
     package = Path(sources["grasp_bench_dir"]) / "src" / "grasp_bench"
@@ -126,6 +141,8 @@ GRASPING = LiveProjector(
     present=lambda sources: (Path(sources["grasp_bench_dir"]) / "src" / "grasp_bench" / "curriculum.py").is_file(),
     keys=frozenset({"grasp_bench_dir"}), inputs=_grasping_inputs, checkout=lambda sources: Path(sources["grasp_bench_dir"]),
     project=lambda sources, now: project_grasping(Path(sources["grasp_bench_dir"]), now=now),
+    claims=lambda sources: [RootClaim("repo", Path(sources["grasp_bench_dir"]), exact=False),
+                            RootClaim("data_home", Path(sources["grasp_bench_dir"]) / "out", exact=True)],
 )
 DETECTION = LiveProjector(
     name="detection", loop="detection", title="Hyperspectral ladder (planned)",
@@ -133,6 +150,7 @@ DETECTION = LiveProjector(
     keys=frozenset({"detection_dir"}), inputs=lambda sources: [Path(sources["detection_dir"]) / "ladder_data.py"],
     checkout=lambda sources: Path(sources["detection_dir"]),
     project=lambda sources, now: project_detection(Path(sources["detection_dir"]), now=now),
+    claims=lambda sources: [RootClaim("repo", Path(sources["detection_dir"]), exact=False)],
 )
 PROJECTORS: dict[str, LiveProjector] = {"kinsim": KINSIM, "rig": RIG, "grasping": GRASPING, "detection": DETECTION}
 
@@ -219,13 +237,17 @@ class _Cache:
     failure: str | None = None
     #: ``_clock()`` when that projection failed.
     failed_at: float | None = None
+    #: Requests holding this entry now (``_acquired``); read and written under ``_CACHES_LOCK``.
+    refs: int = 0
+    #: ``_clock()`` when a request last acquired or released it; read and written under ``_CACHES_LOCK``.
+    touched: float = 0.0
 
 
-#: Keyed by ``_cache_key``: (track, projector name, the resolved sources), least recently used first.
-_CACHES: OrderedDict[tuple, _Cache] = OrderedDict()
+#: Keyed by ``_cache_key``: (track, projector name, the resolved sources).
+_CACHES: dict[tuple, _Cache] = {}
 _CACHES_LOCK = threading.Lock()
-#: How many configurations of one track keep an entry: the most recently used ones.
-_CONFIGURATIONS_PER_TRACK = 4
+#: An entry no request holds is dropped once it has gone this many seconds without a request.
+_IDLE_EVICT_S = 600.0
 #: A failed projection is tried again on the first request this many seconds after it failed, stamp moved or not.
 _RETRY_FAILED_S = 60.0
 #: How far before a projection started a newly linked file's mtime may sit and still count as written during it.
@@ -240,19 +262,31 @@ def _cache_key(track: str, projector: LiveProjector, sources: Mapping[str, str])
     return track, projector.name, tuple(sorted(sources.items()))
 
 
-def _cache(track: str, projector: LiveProjector, sources: Mapping[str, str]) -> _Cache:
+@contextmanager
+def _acquired(track: str, projector: LiveProjector, sources: Mapping[str, str]) -> Iterator[_Cache]:
+    """This configuration's entry, held for the request: never evicted while held, so it has one lock throughout."""
+
     key = _cache_key(track, projector, sources)
     with _CACHES_LOCK:
+        now = _clock()
         cache = _CACHES.get(key)
         if cache is None:
             cache = _CACHES[key] = _Cache()
-        _CACHES.move_to_end(key)
-        # WHY a bounded most-recently-used set, not "drop every other configuration" (Codex W05): a request that resolved
-        # the old sources just before they changed reaches here after the current configuration's request, and dropping
-        # the others then threw away the current configuration's last good document, so its next failure was a 503.
-        for evicted in [other for other in _CACHES if other[0] == track][:-_CONFIGURATIONS_PER_TRACK]:
-            del _CACHES[evicted]
-        return cache
+        cache.refs, cache.touched = cache.refs + 1, now
+        # WHY evict only entries no request holds that have sat idle for _IDLE_EVICT_S, not by count (Codex W05, X03):
+        # any count bound let a burst of requests on obsolete configurations push out the current configuration's last
+        # good document, and even an entry mid-projection, whose next request then built a second lock and projected
+        # beside the first. The current configuration is polled every 30 s, so it is never idle. The bound stays
+        # honest without a count: an entry is a handful of documents, and configurations change only when someone edits
+        # the registry or sources.json, so the idle ones are few and leave within ten minutes.
+        for other_key, other in list(_CACHES.items()):
+            if other.refs == 0 and now - other.touched >= _IDLE_EVICT_S:
+                del _CACHES[other_key]
+    try:
+        yield cache
+    finally:
+        with _CACHES_LOCK:
+            cache.refs, cache.touched = cache.refs - 1, _clock()
 
 
 def _cached_document(track: str, projector: LiveProjector, sources: Mapping[str, str]) -> dict | None:
@@ -299,11 +333,41 @@ def _same_checkout(repo: object, checkout: Path) -> bool:
     return checkout_path == repo_path or checkout_path.startswith(repo_path.rstrip("/") + "/")
 
 
-def _owned(document: dict, projector: LiveProjector, sources: Mapping[str, str]) -> bool:
-    """Whether a stored document is an earlier projection of this configuration: the projector's loop, its checkout."""
+def _within(path: str, location: Path) -> bool:
+    path, location_path = os.path.realpath(path), os.path.realpath(location)
+    return path == location_path or path.startswith(location_path.rstrip("/") + "/")
+
+
+def _declared_sources(document: dict) -> list[str]:
+    """Every file the document's ``sources`` (the files its projection read) resolves to, existing or not."""
 
     roots = document.get("roots") if isinstance(document.get("roots"), Mapping) else {}
-    return document.get("loop") == projector.loop and _same_checkout(roots.get("repo"), projector.checkout(sources))
+    sources = document.get("sources") if isinstance(document.get("sources"), list) else []
+    return [path for link in sources if isinstance(link, Mapping) for path in [_link_path(link, roots)] if path]
+
+
+def _owned(document: dict, projector: LiveProjector, sources: Mapping[str, str]) -> bool:
+    """Whether a stored document is an earlier projection of this configuration: the projector's loop, and every source
+    location it consumes (``LiveProjector.claims``) producing the document's ``roots``.
+
+    WHY every consumed location and not only the checkout (Codex X01): kinsim reads a curriculum in the checkout and a
+    data home outside it, so with ``kinsim_home`` pointed elsewhere the checkout still matched and the old data home's
+    verdict was served for the new one. A ``repo`` root must also hold one of the document's declared sources inside the
+    consumed directory, so another curriculum directory in the same checkout is not this one.
+    """
+
+    roots = document.get("roots") if isinstance(document.get("roots"), Mapping) else {}
+    if document.get("loop") != projector.loop:
+        return False
+    declared = _declared_sources(document)
+    for claim in projector.claims(sources):
+        value = roots.get(claim.root)
+        if claim.exact:
+            if not isinstance(value, str) or os.path.realpath(value) != os.path.realpath(claim.location):
+                return False
+        elif not _same_checkout(value, claim.location) or not any(_within(path, claim.location) for path in declared):
+            return False
+    return True
 
 
 def _stored_fallback(track: str, projector: LiveProjector, sources: Mapping[str, str]) -> dict | None:
@@ -342,18 +406,23 @@ def _linked_files(document: dict | None) -> list[Path]:
     if document is None:
         return []
     roots = document.get("roots") if isinstance(document.get("roots"), Mapping) else {}
-    found: set[str] = set()
-    for link in _links(document):
-        absolute, path, base = link.get("abs"), link.get("path"), link.get("base")
-        if isinstance(absolute, str) and absolute.startswith("/"):
-            found.add(absolute)
-        elif isinstance(path, str) and path:
-            root = "/" if base == "abs" else roots.get(base) if isinstance(base, str) else None
-            if isinstance(root, str) and root.startswith("/"):
-                resolved = os.path.join(root, path)
-                if resolved.startswith("/"):
-                    found.add(os.path.normpath(resolved))
+    found = {path for link in _links(document) for path in [_link_path(link, roots)] if path}
     return [Path(path) for path in sorted(found)]
+
+
+def _link_path(link: Mapping, roots: Mapping) -> str | None:
+    """A Link's absolute file: its ``abs``, else its ``path`` resolved against its ``base``; None when neither resolves."""
+
+    absolute, path, base = link.get("abs"), link.get("path"), link.get("base")
+    if isinstance(absolute, str) and absolute.startswith("/"):
+        return absolute
+    if isinstance(path, str) and path:
+        root = "/" if base == "abs" else roots.get(base) if isinstance(base, str) else None
+        if isinstance(root, str) and root.startswith("/"):
+            resolved = os.path.join(root, path)
+            if resolved.startswith("/"):
+                return os.path.normpath(resolved)
+    return None
 
 
 def _stamp(projector: LiveProjector, sources: Mapping[str, str], document: dict | None) -> tuple:
@@ -382,17 +451,22 @@ def _settled_stamp(projector: LiveProjector, sources: Mapping[str, str], basis: 
     document links to has no earlier reading, so it must have been written before the projection started (less
     ``_MTIME_SLACK_NS`` for coarse filesystem timestamps). The cost: a file being written right now re-projects on each
     request until it settles, which is right, since the data it carries is still moving.
+
+    WHY each path is read once here and that reading is what is kept (Codex X02): a known link read again for the
+    stored stamp could change between the comparison and that read, and its unchecked new version was then stamped onto
+    the old verdict. A known link keeps the reading ``after`` compared; only the new document's other links are read.
     """
 
     after = _stamp(projector, sources, basis)
     if after != before:
         return None
-    known = {stamp[0] for stamp in before[-1]}
-    linked = _file_stamps(_linked_files(document))
-    for path, *stat in linked:
-        if path not in known and stat[0] is not None and stat[0] >= started_ns - _MTIME_SLACK_NS:
+    known = {stamp[0]: stamp for stamp in after[-1]}
+    paths = [str(path) for path in _linked_files(document)]
+    fresh = {stamp[0]: stamp for stamp in _file_stamps([Path(path) for path in paths if path not in known])}
+    for path, *stat in fresh.values():
+        if stat[0] is not None and stat[0] >= started_ns - _MTIME_SLACK_NS:
             return None
-    return after[:-1] + (linked,)
+    return after[:-1] + (tuple(known[path] if path in known else fresh[path] for path in paths),)
 
 
 def _now() -> str:
@@ -426,9 +500,15 @@ def _stale(document: dict, warning: str) -> tuple[bytes, dict]:
 def _live(track: str, projector: LiveProjector, sources: Mapping[str, str], refresh: bool) -> tuple[bytes, dict]:
     """The track's live document: cached while its stamp holds, projected again when it moves (or on ``refresh``)."""
 
-    cache = _cache(track, projector, sources)
-    # WHY one lock per track, held across the projection: the backend is threaded and a projection takes seconds of git
-    # calls; concurrent requests for one track wait for that one projection and then read its result from the cache.
+    with _acquired(track, projector, sources) as cache:
+        return _live_held(track, projector, sources, refresh, cache)
+
+
+def _live_held(track: str, projector: LiveProjector, sources: Mapping[str, str], refresh: bool,
+               cache: _Cache) -> tuple[bytes, dict]:
+    # WHY one lock per configuration, held across the projection: the backend is threaded and a projection takes
+    # seconds of git calls; concurrent requests for one configuration wait for that one projection and then read its
+    # result from the cache. ``_acquired`` keeps the entry, and so this lock, for as long as any request holds it.
     with cache.lock:
         # WHY the stored fallback's links join the stamp while there is no good document in memory (Codex W06): a cold
         # start whose projection failed for want of a linked file otherwise never noticed that file coming back.

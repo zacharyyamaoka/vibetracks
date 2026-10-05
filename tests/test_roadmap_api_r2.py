@@ -65,8 +65,15 @@ class W01StoredFallbackOwnershipTest(_WithRegistry):
         (self.detection / "ladder_data.py").write_text("LADDER = []\n", encoding="utf-8")
 
     def snapshot(self, loop: str, repo: Path | str, generated_at: str = "2026-09-01T00:00:00+00:00") -> dict:
-        return {"schema": SCHEMA, "title": f"old {loop}", "generated_at": generated_at, "loop": loop,
-                "roots": {"repo": str(repo)}, "rungs": GREEN, "warnings": ["its own"]}
+        """``loop``'s snapshot at ``repo``, its other roots and declared source those of this fixture's sources (X01)."""
+
+        consumed = {"grasping": self.tmp / "no-grasping", "detection": self.detection, "rig": self.tmp / "no-rig-loop",
+                    "kinsim": self.loop.curriculum_dir}[loop]
+        roots = {"repo": str(repo)}
+        if loop in ("grasping", "kinsim"):
+            roots["data_home"] = str(self.tmp / "no-grasping" / "out" if loop == "grasping" else self.loop.data_home)
+        return {"schema": SCHEMA, "title": f"old {loop}", "generated_at": generated_at, "loop": loop, "roots": roots,
+                "sources": [link(consumed / "input.json")], "rungs": GREEN, "warnings": ["its own"]}
 
     def test_codex_reproduction_another_loops_snapshot_never_answers_a_failed_projection(self) -> None:
         self.note("custom-track", "{projector: detection, sources: [detection_dir]}")
@@ -329,20 +336,6 @@ class W05EvictionTest(_NoRegistry):
         self.assertTrue(document["warnings"][0].startswith("stale: "), document["warnings"])
         self.assertIn("current configuration failed", document["warnings"][0])
 
-    def test_the_most_recent_configurations_of_a_track_are_kept(self) -> None:
-        configurations = [{"kinsim_home": f"/home-{number}"} for number in range(6)]
-        caches = [api._cache("kinsim", api.KINSIM, configuration) for configuration in configurations[:4]]
-        api._cache("other", api.KINSIM, configurations[0])  # another track's entry counts against nothing here
-        self.assertIs(api._cache("kinsim", api.KINSIM, configurations[0]), caches[0])  # touched: now the most recent
-        api._cache("kinsim", api.KINSIM, configurations[4])
-        kept = {key[2] for key in api._CACHES if key[0] == "kinsim"}
-        expected = {tuple(sorted(configurations[number].items())) for number in (0, 2, 3, 4)}
-        self.assertEqual(kept, expected)  # configuration 1 was the least recently used
-        self.assertIn(("other", "kinsim", tuple(sorted(configurations[0].items()))), api._CACHES)
-        api._cache("kinsim", api.KINSIM, configurations[5])
-        self.assertEqual(len([key for key in api._CACHES if key[0] == "kinsim"]), 4)
-        self.assertIs(api._cache("kinsim", api.KINSIM, configurations[0]), caches[0])  # 2 went, 0 stayed
-
 
 class W06ColdCacheRetryTest(_NoRegistry):
     def setUp(self) -> None:
@@ -352,7 +345,9 @@ class W06ColdCacheRetryTest(_NoRegistry):
     def test_codex_reproduction_restoring_the_fallbacks_linked_file_projects_again(self) -> None:
         acceptance = self.acceptance()
         self.store("kinsim", {"schema": SCHEMA, "title": "Stored", "generated_at": "2026-09-01T00:00:00+00:00",
-                              "loop": "kinsim", "roots": {"repo": str(self.loop.repo)}, "sources": [link(acceptance)]})
+                              "loop": "kinsim", "roots": {"repo": str(self.loop.repo), "data_home": str(self.loop.data_home)},
+                              "sources": [link(self.loop.curriculum_dir / "curriculum.json")],
+                              "rungs": [{"evidence": [link(acceptance)]}]})
         hidden = self.tmp / "hidden.py"
         acceptance.rename(hidden)
 

@@ -149,7 +149,8 @@ class V07AllowlistTest(_NoRegistry):
 
         evidence = {**link(declared), "id": "e1", "facts": {"protocol": {"extra_metadata": smuggled}, "deep": [smuggled]}}
         # the rig loop is absent here, so its stored snapshot answers (W01: it must be that loop's, at that checkout)
-        self.store("rig", {"schema": SCHEMA, "title": "Rig", "generated_at": "t", "sources": [], "loop": "rig",
+        self.store("rig", {"schema": SCHEMA, "title": "Rig", "generated_at": "t", "loop": "rig",
+                           "sources": [link(self.tmp / "no-rig-loop" / "ladder.json")],
                            "roots": {"repo": str(self.tmp / "no-rig-loop")},
                            "rungs": [{"evidence": [evidence], "x": smuggled}], "work": [{"x": {"nested": smuggled}}],
                            "facts": smuggled, "anything": [smuggled]})
@@ -262,7 +263,9 @@ class V10AuthoritativeRegistryTest(_WithRegistry):
     def setUp(self) -> None:
         super().setUp()
         self.store("kinsim", {"schema": SCHEMA, "title": "Stored", "generated_at": "2026-01-01T00:00:00+00:00",
-                              "loop": "kinsim", "roots": {"repo": str(self.loop.repo)}})
+                              "loop": "kinsim", "roots": {"repo": str(self.loop.repo), "data_home": str(self.loop.data_home)},
+                              "sources": [{"kind": "file", "path": str(self.loop.curriculum_dir / "curriculum.json"),
+                                           "base": "abs", "abs": None}]})
 
     def test_codex_reproduction_a_null_roadmap_never_serves_the_stored_file(self) -> None:
         self.note("kinsim", "null")

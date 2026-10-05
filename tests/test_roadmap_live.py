@@ -209,7 +209,10 @@ class FailedProjectionTest(LiveDocTestCase):
     def test_a_failure_falls_back_to_the_stored_document(self) -> None:
         self.counting(side_effect=RuntimeError("boom"), wraps=None)
         self.store("kinsim", {"schema": SCHEMA, "title": "Stored", "generated_at": "2026-01-01T00:00:00+00:00",
-                              "loop": "kinsim", "roots": {"repo": str(self.loop.repo)}, "warnings": ["its own"]})
+                              "loop": "kinsim", "roots": {"repo": str(self.loop.repo), "data_home": str(self.loop.data_home)},
+                              "sources": [{"kind": "file", "path": str(self.loop.curriculum_dir / "curriculum.json"),
+                                           "base": "abs", "abs": None}],
+                              "warnings": ["its own"]})
         status, document = get_json("/doc", "track=kinsim")
         self.assertEqual((status, document["title"]), (200, "Stored"))
         self.assertTrue(document["warnings"][0].startswith("stale:"), document["warnings"])
@@ -230,7 +233,9 @@ class UnknownTrackTest(LiveDocTestCase):
     def test_a_builtin_track_whose_loop_is_absent_is_404_or_its_stored_document(self) -> None:
         self.assertEqual(get_json("/doc", "track=rig"), (404, {"error": "no roadmap reported yet"}))
         stored = {"schema": SCHEMA, "title": "Rig loop", "generated_at": "2026-10-03T19:00:00+00:00", "loop": "rig",
-                  "roots": {"repo": str(self.tmp / "no-rig-loop")}}
+                  "roots": {"repo": str(self.tmp / "no-rig-loop")},
+                  "sources": [{"kind": "file", "path": str(self.tmp / "no-rig-loop" / "ladder.json"), "base": "abs",
+                               "abs": None}]}
         self.store("rig", stored)
         status, document = get_json("/doc", "track=rig")
         self.assertEqual((status, {**document, "warnings": []}), (200, {**stored, "warnings": []}))
