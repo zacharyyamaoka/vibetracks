@@ -38,12 +38,11 @@
   }
 
   /* ---- the stack */
-  /* WHY sticky: the stack is the progress meter (answered vs skipped vs remaining); it must stay in view while a long
-     card or its context scrolls, so the reader always knows how far through the queue they are. */
+  /* WHY pinned: the stack is the progress meter (answered vs skipped vs remaining); it must stay in view while a long
+     card or its context scrolls, so the reader always knows how far through the queue they are.
+     WHY pinned by the frame and not `position: sticky`: a sticky stack covers the card that scrolls under it (option 1
+     at max scroll). The page is framed (useFitToScroller): the stack sits above .n4-scroll, which scrolls on its own. */
   .vt-dash .vt-needs-n4 .n4-stack {
-    position: sticky;
-    top: 0;
-    z-index: 2;
     background: var(--vt-bg);
     display: flex;
     flex-wrap: wrap;
@@ -411,5 +410,40 @@
     flex-direction: column;
     gap: 4px;
     line-height: 1.5;
+  }
+
+  /* ---- framed: the page fits the dashboard's scroll area; the stack is the top row, the rest scrolls under it in its
+     own pane (never under it). The 860px reading width moves to the rows so the pane's scrollbar sits at the edge. */
+  .vt-dash .vt-needs-n4.n4-framed {
+    max-width: none;
+    padding: 0;
+    display: flex;
+    flex-direction: column;
+    min-height: 0;
+  }
+  .vt-dash .vt-needs-n4.n4-framed .n4-top {
+    flex: none;
+    padding: 8px 48px 0;
+    border-bottom: 1px solid var(--vt-line);
+  }
+  .vt-dash .vt-needs-n4.n4-framed .n4-top .n4-stack {
+    max-width: 860px;
+    margin: 0;
+  }
+  .vt-dash .vt-needs-n4.n4-framed .n4-scroll {
+    flex: 1;
+    min-height: 0;
+    overflow: auto;
+    padding: 0 48px 48px;
+  }
+  .vt-dash .vt-needs-n4.n4-framed .n4-body {
+    max-width: 860px;
+    padding-top: 16px;
+  }
+  .vt-dash .vt-needs-n4.n4-framed .n4-head {
+    margin-bottom: 16px;
+  }
+  .vt-dash .vt-needs-n4.n4-framed .n4-card {
+    scroll-margin-top: 12px;
   }
 }

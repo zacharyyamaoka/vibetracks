@@ -11,17 +11,18 @@ import { Fragment, useLayoutEffect, useRef, useState, type ReactNode } from 'rea
 import type { PluginBackend } from '@clank/api'
 import type { Projection, Route, Track } from '../../shared'
 import { Breadcrumb, StatusWord, childrenOf, formatKpiValue, formatValue, latestValue, northStar, trackById, valueAt } from '../../shared'
-import { RoadmapWidget, type RoadmapSettings, type RoadmapWidgetState } from '../../roadmap'
+import { RoadmapWidget, type RoadmapDocState, type RoadmapSettings, type RoadmapWidgetState } from '../../roadmap'
 import { evidenceOwningMedia, formatSince, unitWord } from './columns'
-import { isReporting, lastMoved, needsCount, purposeOf, registryOf, sourceKind } from './live'
+import { isReporting, lastMoved, needsCount, needsSourceNote, purposeOf, registryOf, sourceKind } from './live'
 import { openRung, type Nav } from './nav'
 import { openNeeds } from '../../needs'
 import { TrackMenu, TrackName, type Renamer } from './rename'
 import { useRegisteredRoadmap } from './roadmapReload'
 import { Scorecard } from './Scorecard'
-import { ProgressCell } from './TracksPage'
+import { ProgressCell, ProvenNote } from './TracksPage'
+import { provenOf } from './proven'
 
-export function TrackPage({ projection, track, title, nav, xAxis, showDeltas, backend, roadmapSettings, renamer }: {
+interface TrackPageProps {
   projection: Projection
   track: Track
   title: string
@@ -31,7 +32,21 @@ export function TrackPage({ projection, track, title, nav, xAxis, showDeltas, ba
   backend: PluginBackend
   roadmapSettings: RoadmapSettings
   renamer: Renamer
-}) {
+}
+
+/** A loop loads its roadmap once here, shared by the north-star line ("· N proven") and the Roadmap section.
+ * WHY a deployment does not load one: its evidence lives in its loop's roadmap; asking /roadmap for CAN 16 would be a
+ * request that can only miss. WHY one load for both: the real useRoadmap polls, so two calls would double it. */
+export function TrackPage(props: TrackPageProps) {
+  return props.track.parent === null ? <LoopTrackPage {...props} /> : <TrackPageBody {...props} roadmap={null} />
+}
+
+function LoopTrackPage(props: TrackPageProps) {
+  const roadmap = useRegisteredRoadmap(props.backend, props.track.id)
+  return <TrackPageBody {...props} roadmap={roadmap} />
+}
+
+function TrackPageBody({ projection, track, title, nav, xAxis, showDeltas, roadmapSettings, renamer, roadmap }: TrackPageProps & { roadmap: RoadmapDocState | null }) {
   const route = nav.route
   const parent = track.parent ? trackById(projection, track.parent) : null
   const children = childrenOf(projection, track.id)
@@ -89,6 +104,11 @@ export function TrackPage({ projection, track, title, nav, xAxis, showDeltas, ba
             <p className="vt-a-northstar vt-small">
               <span className="vt-faint">North star </span>
               <NorthStarLine track={track} />
+              {provenOf(roadmap?.doc ?? null) ? (
+                <span className="vt-faint">
+                  {' '}· <ProvenNote doc={roadmap?.doc ?? null} />
+                </span>
+              ) : null}
             </p>
             <Scorecard
               track={track}
@@ -107,7 +127,7 @@ export function TrackPage({ projection, track, title, nav, xAxis, showDeltas, ba
       </section>
 
       {/* (c) the roadmap: a loop's, never a deployment's (a deployment is evidence inside its loop's roadmap) */}
-      {track.parent === null ? <RoadmapSection track={track} nav={nav} backend={backend} settings={roadmapSettings} /> : null}
+      {roadmap ? <RoadmapSection track={track} nav={nav} roadmap={roadmap} settings={roadmapSettings} /> : null}
 
       {/* (d) deployments */}
       {children.length ? (
@@ -337,7 +357,13 @@ function NeedsLine({ track, nav }: { track: Track; nav: Nav }) {
         : `${count.blocking ?? 0} blocking · ${count.open} open`
   return (
     <p className="vt-a-needsline">
-      <button type="button" className="vt-btn vt-a-needs-go" data-testid="vt-a-needs-line" onClick={() => openNeeds(nav.go, nav.route, track.id)}>
+      <button
+        type="button"
+        className="vt-btn vt-a-needs-go"
+        data-testid="vt-a-needs-line"
+        title={needsSourceNote(track) ?? undefined}
+        onClick={() => openNeeds(nav.go, nav.route, track.id)}
+      >
         <span>Needs you</span>
         <span className="vt-faint"> · </span>
         <span className={count.blocking ? 'vt-tone-warn' : 'vt-faint'}>{words}</span>
@@ -398,10 +424,9 @@ function parseRoadmapState(raw: string | undefined): RoadmapWidgetState {
 /** The Roadmap section: first-class on the track page, under the KPI rows. Calm by default (density 'calm': the current
  * rung and what's next); "Expand" switches it to 'full' in place. The widget's own state is the `rm` route key (JSON),
  * the expansion is `rmopen`, so Back and a reload keep both. */
-function RoadmapSection({ track, nav, backend, settings }: { track: Track; nav: Nav; backend: PluginBackend; settings: RoadmapSettings }) {
+function RoadmapSection({ track, nav, roadmap, settings }: { track: Track; nav: Nav; roadmap: RoadmapDocState; settings: RoadmapSettings }) {
   const route = nav.route
   const open = route.rmopen === '1'
-  const roadmap = useRegisteredRoadmap(backend, track.id)
   const setRoute = (patch: Route) => nav.go({ ...route, ...patch }, 'replace')
   // WHY a spread object: `loading` is the real widget's prop (roadmap branch); the stub here does not declare it yet,
   // and a spread passes it to both without a type error.

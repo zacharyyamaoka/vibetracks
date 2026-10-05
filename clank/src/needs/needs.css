@@ -36,6 +36,11 @@
   .vt-dash .vt-needs {
     padding-bottom: 80px;
   }
+  /* A framed proposal (useFitToScroller in kit.ts) already ends CHOOSER_RESERVE above the frame's bottom and scrolls
+     inside itself; the shell's own clearance would make the dashboard scroll too and clip the Back row. */
+  .vt-dash .vt-needs:has(> .vt-needs-framed) {
+    padding-bottom: 0;
+  }
   .vt-dash .vt-needs-back-row {
     padding: 10px 48px 0;
   }

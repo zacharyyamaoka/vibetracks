@@ -4,7 +4,7 @@
 // storage often fails on Clank/file origins, and the page must still work for this session.
 
 import { useCallback, useMemo, useState } from 'react'
-import type { Choice } from './types'
+import { CHOICES, type Choice } from './types'
 
 export interface AnswerDraft {
   /** null = no choice clicked yet; a note alone exports as `other`. */
@@ -25,7 +25,8 @@ function read(track: string, localId: string): AnswerDraft | null {
     const raw = window.localStorage.getItem(answerKey(track, localId))
     if (!raw) return null
     const value = JSON.parse(raw) as Partial<AnswerDraft>
-    const choice = value.choice === 'accept_recommendation' || value.choice === 'use_default' || value.choice === 'other' ? value.choice : null
+    // WHY CHOICES and not a hand list: grasping's `approve` was dropped on every reload by a list that predated it.
+    const choice = (CHOICES as unknown[]).includes(value.choice) ? (value.choice as Choice) : null
     return { choice, note: typeof value.note === 'string' ? value.note : '', updated: typeof value.updated === 'string' ? value.updated : '' }
   } catch {
     return null

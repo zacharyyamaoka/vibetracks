@@ -19,9 +19,15 @@ import {
   CopyOut,
   EvidenceLink,
   GROUP_LABEL,
+  NO_DEFAULT_RECORDED,
+  WHEN_NOT_STATED,
+  appliesAfter,
   choiceLabel,
   effectiveChoice,
+  hasDefault,
+  headerSummary,
   isComplete,
+  notReportedText,
   type AnswerDraft,
   type Choice,
   type NeedsDoc,
@@ -38,6 +44,8 @@ export const NAME = 'Inbox + reading pane'
 /** Groups listed in the inbox, in page order. `done` is folded behind its own row (46 closed items on kinsim). */
 const OPEN_GROUPS: NeedsGroup[] = ['blocking', 'no_default', 'waiting', 'defaulting']
 const LIST_GROUPS: NeedsGroup[] = [...OPEN_GROUPS, 'answered']
+/** The groups the contract's "M open" (counts.wants_you) counts. */
+const WANTS_GROUPS: NeedsGroup[] = ['blocking', 'no_default', 'waiting']
 
 const COPY_KEY = 'copy'
 const ROUTE_KEY = 'ask'
@@ -84,21 +92,23 @@ function blocksText(item: NeedsItem): string {
 function rowMeta(item: NeedsItem): string {
   const parts: string[] = []
   if (item.blocks.length) parts.push(`blocks ${blocksText(item)}`)
-  const { applies, state } = item.default
+  const after = appliesAfter(item)
   if (item.group === 'answered') parts.push(`answered${item.answer?.ts ? ` ${shortDate(item.answer.ts)}` : ''}`)
   else if (item.group === 'done') parts.push(item.status)
-  else if (applies.unit === 'never') parts.push('no default · waits for you')
-  else if (state === 'in_effect') parts.push(`default in effect since ${applies.unit} ${applies.after}`)
-  else parts.push(`default after ${applies.unit} ${applies.after}`)
+  else if (!hasDefault(item)) parts.push(NO_DEFAULT_RECORDED)
+  else if (item.default.state === 'in_effect') parts.push(`default in effect${after ? `, ${after}` : ''}`)
+  else parts.push(after ? `default ${after}` : `default, ${WHEN_NOT_STATED}`)
   return parts.join(' · ')
 }
 
 function whenText(doc: NeedsDoc, item: NeedsItem): string {
-  const { applies, state } = item.default
+  if (!hasDefault(item)) return 'No default recorded.'
+  const after = appliesAfter(item)
+  // WHY: the detection plan note never says when its defaults fire; the raw unit read "After unstated null."
+  if (!after) return 'Not stated by the source.'
   const at = doc.iteration ? `the loop has finished ${doc.iteration.unit} ${doc.iteration.finished ?? '–'}` : null
-  if (applies.unit === 'never') return 'Never. This waits for you.'
-  if (state === 'in_effect') return `In effect now: due after ${applies.unit} ${applies.after}, and ${at ?? 'that has passed'} (computed by the dashboard).`
-  return `After ${applies.unit} ${applies.after}${at ? `; ${at}` : ''}.`
+  if (item.default.state === 'in_effect') return `In effect now: due ${after}, and ${at ?? 'that has passed'} (computed by the dashboard).`
+  return `${after.replace(/^a/, 'A')}${at ? `; ${at}` : ''}.`
 }
 
 function draftWord(item: NeedsItem, draft: AnswerDraft | null): { text: string; tone: 'done' | 'warn' } | null {
@@ -278,8 +288,12 @@ export default function NeedsN2(props: NeedsProposalProps) {
   // The meter counts open asks only: items whose default already applied still count, because answering them is
   // still Zach's to do; the loop-answered and closed ones do not.
   const openEntries = entries.filter(isOpenAsk) as Extract<Entry, { kind: 'item' }>[]
-  const answeredCount = openEntries.filter((entry) => isComplete(answers.get(entry.doc.track, entry.item.local_id))).length
-  const laterCount = openEntries.filter((entry) => later.has(entry.key) && !isComplete(answers.get(entry.doc.track, entry.item.local_id))).length
+  // WHY the meter's denominator is the contract's M (wants_you: blocking + no default + pending) and not every open
+  // row: the header, the home cell and the track page say "M open"; "0 of 11 answered" beside "3 open" read as two
+  // different queues. Defaulting rows stay answerable in the list; they just are not what "open" counts.
+  const wantsEntries = openEntries.filter((entry) => WANTS_GROUPS.includes(entry.item.group))
+  const answeredCount = wantsEntries.filter((entry) => isComplete(answers.get(entry.doc.track, entry.item.local_id))).length
+  const laterCount = wantsEntries.filter((entry) => later.has(entry.key) && !isComplete(answers.get(entry.doc.track, entry.item.local_id))).length
   const draftsTotal = docs.reduce((sum, doc) => sum + doc.items.filter((item) => isComplete(answers.get(doc.track, item.local_id))).length, 0)
   const single = docs.length === 1 ? docs[0] : null
   const hasItems = entries.some((entry) => entry.kind === 'item')
@@ -299,14 +313,14 @@ export default function NeedsN2(props: NeedsProposalProps) {
             {docs.length ? <Counts docs={docs} /> : loading ? 'Reading the loops…' : null}
           </p>
         </div>
-        {openEntries.length ? (
+        {wantsEntries.length ? (
           <div className="n2-meter" data-testid="n2-meter" title="Answered drafts out of the open questions">
             <span className="vt-small vt-num">
-              <span className="vt-strong">{answeredCount}</span> of {openEntries.length} answered
+              <span className="vt-strong">{answeredCount}</span> of {wantsEntries.length} open answered
               {laterCount ? <span className="vt-faint"> · {laterCount} later</span> : null}
             </span>
             <span className="n2-meter-bar" aria-hidden>
-              <span style={{ width: `${(100 * answeredCount) / openEntries.length}%` }} />
+              <span style={{ width: `${(100 * answeredCount) / wantsEntries.length}%` }} />
             </span>
           </div>
         ) : null}
@@ -349,8 +363,10 @@ export default function NeedsN2(props: NeedsProposalProps) {
               {draftsTotal ? `${draftsTotal} ready to copy` : 'nothing answered yet'}
             </span>
           </button>
+          {/* WHY positions, not "recommendation" / "default": the keys pick options by order, and grasping leads with
+              Approve and detection with the default (neither records a recommendation). */}
           <p className="n2-keys vt-small vt-faint" data-testid="n2-keys">
-            <kbd>J</kbd>/<kbd>K</kbd> move · <kbd>1</kbd> or <kbd>↵</kbd> recommendation · <kbd>2</kbd> default · <kbd>3</kbd> write · <kbd>L</kbd> later · <kbd>C</kbd> copy
+            <kbd>J</kbd>/<kbd>K</kbd> move · <kbd>1</kbd> or <kbd>↵</kbd> first option · <kbd>2</kbd> second · <kbd>3</kbd> write · <kbd>L</kbd> later · <kbd>C</kbd> copy
           </p>
           </>
           ) : null}
@@ -383,26 +399,23 @@ export default function NeedsN2(props: NeedsProposalProps) {
   )
 }
 
+/** "M open: B blocking now · N waiting with no default · P default pending", from needs.py's numbers (headerCounts):
+ * the same B and M as the home cell and the track page. The three parts are disjoint and sum to M. A track with no
+ * structured source says "Not reported" and its own note, never 0. */
 function Counts({ docs }: { docs: NeedsDoc[] }) {
-  const sum = (key: keyof NeedsDoc['counts']) => docs.reduce((total, doc) => total + doc.counts[key], 0)
-  const blocking = sum('blocking_now')
-  const parts = [
-    <span key="b" className={blocking ? 'vt-tone-warn' : undefined}>
-      {blocking} blocking now
-    </span>,
-    <span key="n">{sum('no_default')} no default</span>,
-    <span key="w">{sum('waiting')} default pending</span>,
-    <span key="d">{sum('defaulting')} defaulting without you</span>,
-  ]
+  const summary = headerSummary(docs)
   const single = docs.length === 1 ? docs[0] : null
+  const counts = summary.counts
+  if (!counts) {
+    return <span data-testid="n2-not-reported">{single ? notReportedText(single) : `Not reported: ${summary.notReported.map((doc) => doc.track_title).join(', ')}`}</span>
+  }
   return (
-    <>
-      {parts.map((part, index) => (
-        <span key={index}>
-          {index ? ' · ' : ''}
-          {part}
-        </span>
-      ))}
+    <span data-blocking={counts.blocking} data-open={counts.open}>
+      <span className="vt-strong">{counts.open} open</span>
+      {': '}
+      <span className={counts.blocking ? 'vt-tone-warn' : undefined}>{counts.blocking} blocking now</span>
+      {` · ${counts.parts.noDefault} waiting with no default · ${counts.parts.waiting} default pending`}
+      {counts.defaulting ? <span className="vt-faint"> · {counts.defaulting} more defaulting without you</span> : null}
       {single?.iteration ? (
         <span className="vt-faint">
           {' '}
@@ -411,7 +424,8 @@ function Counts({ docs }: { docs: NeedsDoc[] }) {
         </span>
       ) : null}
       {docs.length > 1 ? <span className="vt-faint"> · {docs.length} tracks</span> : null}
-    </>
+      {summary.notReported.length ? <span className="vt-faint"> · not reported: {summary.notReported.map((doc) => doc.track_title).join(', ')}</span> : null}
+    </span>
   )
 }
 
@@ -436,7 +450,7 @@ function TrackList({ doc, multi, selectedKey, onSelect, answers, later, doneShow
         // WHY the loop's own note and not "all clear": these tracks have questions, just not in a structured file;
         // saying "nothing needs you" would be untrue.
         <div className="n2-empty vt-small" data-testid="n2-empty">
-          <p className="vt-muted">No structured questions from this loop yet.</p>
+          <p className="vt-muted">No structured questions from this track yet.</p>
           {multi && doc.source.note ? <p className="vt-faint n2-empty-note">{doc.source.note}</p> : null}
           {multi && doc.answer_channel.target ? (
             <p className="vt-faint n2-empty-note">
@@ -564,7 +578,7 @@ function ItemPane({ entry, answers, backend, projection, noteRef, later, onChoos
         </dd>
         <dt>If you stay silent</dt>
         <dd data-testid="n2-default">
-          {item.default.applies.unit === 'never' ? <span>{item.default.text_md ? <Md text={item.default.text_md} /> : 'No default.'}</span> : <Md text={item.default.text_md} />}
+          {item.default.text_md ? <Md text={item.default.text_md} /> : <span className="vt-muted">No default recorded.</span>}
         </dd>
         <dt>When</dt>
         <dd className={item.default.state === 'in_effect' ? 'vt-muted' : undefined} data-testid="n2-when">
@@ -597,7 +611,7 @@ function ItemPane({ entry, answers, backend, projection, noteRef, later, onChoos
         <div className="n2-options" role="radiogroup" aria-label="Answer">
           {item.options.map((option, index) => {
             const pressed = choice === option.key
-            const tags = [option.recommended ? 'recommended' : null, option.is_default && item.default.applies.unit !== 'never' ? `default · ${item.default.state === 'in_effect' ? 'in effect' : `after ${item.default.applies.unit} ${item.default.applies.after}`}` : null].filter(Boolean)
+            const tags = [option.recommended ? 'recommended' : null, option.is_default && hasDefault(item) ? `default · ${item.default.state === 'in_effect' ? 'in effect' : (appliesAfter(item) ?? WHEN_NOT_STATED)}` : null].filter(Boolean)
             return (
               <button
                 key={option.key}
@@ -856,18 +870,23 @@ function ItemLinks({ entries, onSelect }: { entries: Extract<Entry, { kind: 'ite
   )
 }
 
-/** No structured questions on any shown track: say where each loop's questions actually live, never "all clear". */
+/** No question rows on any shown track: say where each loop's questions actually live, never "all clear". A track
+ * whose counts are null is "Not reported"; one that reports zeros says so with its own numbers. */
 function EmptyPane({ docs }: { docs: NeedsDoc[] }) {
+  const summary = headerSummary(docs)
+  const none = !summary.reported.length
   return (
     <div className="n2-card" data-testid="n2-empty-pane">
-      <h2 className="vt-h2 n2-title">No structured questions yet</h2>
-      <p className="vt-sub vt-small">
-        {docs.length === 1 ? 'This loop does' : 'These loops do'} not publish a needs-you file, so there is nothing to answer here. Where {docs.length === 1 ? 'its' : 'their'} questions live today:
-      </p>
+      <h2 className="vt-h2 n2-title">{none ? 'Not reported' : 'Nothing to answer'}</h2>
+      {summary.notReported.length ? (
+        <p className="vt-sub vt-small">
+          {summary.notReported.length === 1 ? 'This track does' : 'These tracks do'} not publish a needs-you file, so there is nothing to answer here.
+        </p>
+      ) : null}
       {docs.map((doc) => (
         <section key={doc.track} className="n2-section">
           <h3 className="n2-label">{doc.track_title}</h3>
-          <p className="n2-prose">{doc.source.note ?? 'This loop publishes no needs-you file.'}</p>
+          <p className="n2-prose">{summary.reported.includes(doc) ? `0 blocking now · 0 open. ${doc.source.note ?? ''}` : (doc.source.note ?? notReportedText(doc))}</p>
           {doc.answer_channel.target ? (
             <p className="vt-small vt-muted">
               To answer it anyway: {doc.answer_channel.kind.replace(/_/g, ' ')} to {doc.answer_channel.target}

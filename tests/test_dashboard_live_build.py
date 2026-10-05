@@ -70,6 +70,9 @@ def build_children(work_track, sources):
     child = skeleton(work_track)
     child.update(id="kid", summary="a deployment", reporting=True)
     child["state"] = {"word": "Live", "tone": "ok", "detail": None, "since": None}
+    # A child that reports its own 0/0 count and a row: the build must drop both (children have no needs source).
+    child["needs_you_count"] = {"open": 0, "blocking": 0}
+    child["needs_you"] = [{"id": "K1", "q": "?", "blocks": ["R1"], "default": None, "applies": None}]
     return [child, dict(child, id="not-declared")]
 '''
 # An adapter that reads a loop file and a shared folder: READS marks the folder evidence, so it never counts as liveness.
@@ -292,6 +295,20 @@ class LiveBuildTest(unittest.TestCase):
         self.assertEqual(self.track(projection, "rigx")["children"], ["kid", "other"])
         self.assertEqual([t["id"] for t in projection["tracks"] if t["parent"] is None], ["rigx"])
 
+    def test_a_child_has_no_needs_you_source_so_its_counts_are_null(self) -> None:
+        # CAN 12 / CAN 16 read "Needs you · nothing open" from a child's own 0/0 while their needs page said "not
+        # reported". needs.py is the one source and reads nothing per deployment: null/null and [], never 0.
+        self.write("a.md", note("rigx", "Rig", "good", children="[kid, other]"))
+        projection = self.builder.build()
+        for child_id in ("kid", "other"):  # one drawn by the adapter (with 0/0 and a row), one not reporting
+            with self.subTest(child=child_id):
+                child = self.track(projection, child_id)
+                self.assertEqual(child["needs_you_count"], {"open": None, "blocking": None})
+                self.assertEqual(child["needs_you"], [])
+                self.assertIsNone(child["needs_you_source"]["adapter"])
+                self.assertFalse(child["needs_you_source"]["live"])
+                self.assertIn("Rig", child["needs_you_source"]["note"])
+
 
 @unittest.skipUnless(build_module.SNAPSHOT_ORIGIN.is_file(), f"snapshot not on this machine: {build_module.SNAPSHOT_ORIGIN}")
 class RealWorkspaceTest(unittest.TestCase):
@@ -331,6 +348,12 @@ class RealWorkspaceTest(unittest.TestCase):
             self.assertEqual(child["freshness"], rig["freshness"])  # a deployment reads its parent loop's liveness
             self.assertEqual(base.problems(child), [])
 
+    def test_children_needs_you_is_not_reported(self) -> None:
+        for child in (t for t in self.projection["tracks"] if t["parent"] is not None):
+            with self.subTest(child=child["id"]):
+                self.assertEqual(child["needs_you_count"], {"open": None, "blocking": None})
+                self.assertEqual(child["needs_you"], [])
+
     def test_a_child_no_adapter_draws_falls_back_to_the_snapshot_and_says_so(self) -> None:
         # The fallback the rig used before its adapter drew can12/can16: still the path for any declared child an
         # adapter does not return, and a dated snapshot must never read fresh.
@@ -351,6 +374,8 @@ class RealWorkspaceTest(unittest.TestCase):
             self.assertTrue(child["freshness"]["stale"])  # a 10-03 snapshot is never fresh
             self.assertTrue(child["kpis"])
             self.assertEqual(base.problems(child), [])
+            self.assertEqual(child["needs_you_count"], {"open": None, "blocking": None}, "the snapshot's 0/0 is not a source")
+            self.assertEqual(child["needs_you"], [])
 
     def test_every_media_reference_is_in_the_allowlist(self) -> None:
         media = self.projection["media"]

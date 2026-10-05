@@ -252,7 +252,7 @@ class GraspingItemsTest(unittest.TestCase):
     def test_words_are_the_files_own_and_no_default_is_recorded(self) -> None:
         ggcnn = self.doc["items"][0]
         self.assertEqual(ggcnn["id"], "grasping:M5.ggcnn")
-        self.assertEqual(ggcnn["ask"], "Approve downloading M5.ggcnn?")
+        self.assertEqual(ggcnn["ask"], "M5.ggcnn · download approval", "the model id plus the cells' own words")
         self.assertEqual(ggcnn["title"], "GG-CNN (planar, Cornell)")
         self.assertEqual(ggcnn["context_lead_md"], "Needs a download (weights in the release zip).")
         for verbatim in ("download approval (planar classics, BSD-3)", "`M5.ggcnn@mujoco/stage0`", "Licence: BSD-3"):
@@ -261,7 +261,9 @@ class GraspingItemsTest(unittest.TestCase):
         self.assertEqual(ggcnn["group"], "no_default")
         self.assertFalse(ggcnn["blocking_now"])
         self.assertEqual(ggcnn["blocks"][0]["label"], "1-DoF: pick a disc along a strip · tier 1")
-        self.assertEqual([o["key"] for o in ggcnn["options"]], ["use_default", "other"], "no recommendation recorded")
+        self.assertEqual([o["key"] for o in ggcnn["options"]], ["approve", "use_default", "other"])
+        self.assertTrue(all(o["source"] == "dashboard" and not o["recommended"] for o in ggcnn["options"]),
+                        "the answer affordances are the dashboard's, and the file records no recommendation")
         self.assertEqual(ggcnn["evidence"][0]["kind"], "file_line")
         self.assertEqual(self.doc["answer_channel"]["kind"], "chat_paste")
         self.assertIn("name model ids verbatim", self.doc["answer_channel"]["read_back"])
@@ -304,7 +306,11 @@ class DetectionItemsTest(unittest.TestCase):
         self.assertEqual(data["group"], "blocking")
         self.assertEqual([(b["id"], b["label"]) for b in data["blocks"]],
                          [("H1", "Published ruler"), ("H2", "Real class spectra"), ("H4", "Sim → real")])
-        self.assertTrue(data["context_lead_md"].startswith("The drive is not mounted"))
+        self.assertEqual(data["ask"], "**Data.** The drive is not mounted, and it blocks H1, H2 and H4: run "
+                                      "`udisksctl mount -b /dev/sdb` yourself.")
+        self.assertIsNone(data["context_lead_md"], "the ask took the only sentence; nothing is left to lead with")
+        self.assertEqual(host["ask"], "**Host.** Linux or Windows; H0–H7 never touch the camera.")
+        self.assertEqual(host["context_lead_md"], "Keep `pll_filter_hz` as is.")
         self.assertNotIn("/dev/sdb", [e.get("path") for e in data["evidence"]], "a device file is not evidence")
         self.assertEqual(data["evidence"][0]["line"], 7)
 

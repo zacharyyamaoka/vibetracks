@@ -103,14 +103,14 @@
   .vt-dash .vt-needs-n3 .vt-n3-source {
     margin-top: 4px;
   }
+  /* WHY not sticky: a sticky bar covers the card head that scrolls under it. The page is framed instead
+     (useFitToScroller): the bar sits above .vt-n3-doc, which scrolls on its own, so nothing is ever under the bar. */
   .vt-dash .vt-needs-n3 .vt-n3-reviewbar {
-    position: sticky;
-    top: 0;
-    z-index: 5;
+    flex: none;
     display: flex;
     align-items: center;
     gap: 12px;
-    margin: 16px 0 12px;
+    margin: 12px 0 0;
     padding: 9px 12px;
     background: var(--vt-bg);
     border: 1px solid var(--vt-line);
@@ -178,7 +178,7 @@
     margin-bottom: 14px;
   }
   .vt-dash .vt-needs-n3 .vt-n3-card {
-    scroll-margin-top: 64px;
+    scroll-margin-top: 12px;
     margin-bottom: 14px;
     border: 1px solid var(--vt-line);
     border-radius: 6px;
@@ -431,7 +431,7 @@
 
   /* ---- finish your review */
   .vt-dash .vt-needs-n3 .vt-n3-finish {
-    scroll-margin-top: 64px;
+    scroll-margin-top: 12px;
     margin-top: 40px;
     padding: 20px 22px;
     border: 1px solid var(--vt-line);
@@ -491,5 +491,35 @@
   }
   .vt-dash .vt-needs-n3 .vt-n3-keys {
     margin-top: 14px;
+  }
+
+  /* ---- framed: the page fits the dashboard's scroll area (height set by useFitToScroller); the contents column and the
+     document scroll on their own, and the review bar sits above the document instead of floating over it. */
+  .vt-dash .vt-needs-n3.vt-n3-framed {
+    padding-bottom: 0;
+    display: flex;
+    flex-direction: column;
+    min-height: 0;
+  }
+  .vt-dash .vt-needs-n3.vt-n3-framed .vt-n3-layout {
+    flex: 1;
+    min-height: 0;
+    align-items: stretch;
+  }
+  .vt-dash .vt-needs-n3.vt-n3-framed .vt-n3-toc {
+    position: static;
+    max-height: none;
+    min-height: 0;
+  }
+  .vt-dash .vt-needs-n3.vt-n3-framed .vt-n3-main {
+    display: flex;
+    flex-direction: column;
+    min-height: 0;
+  }
+  .vt-dash .vt-needs-n3 .vt-n3-doc {
+    flex: 1;
+    min-height: 0;
+    overflow: auto;
+    padding: 0 4px 48px 0;
   }
 }

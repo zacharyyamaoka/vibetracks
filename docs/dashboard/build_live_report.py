@@ -27,6 +27,7 @@ from __future__ import annotations
 
 import base64
 import html
+import io
 import json
 import re
 import sys
@@ -54,6 +55,10 @@ NEEDS_MEDIA = Path("/home/bam/vibetracks/reports/media/vibetracks-needs-you-2026
 NEEDS_REPORT = "/home/bam/vibetracks/reports/media/vibetracks-needs-you-2026-10-04.html"
 NEEDS_COUNTS = json.loads((NEEDS_MEDIA / "verify-2" / "counts.json").read_text())
 EV = json.loads((MEDIA / "evidence-facts.json").read_text())
+# Fix wave 3, re-checked by verify-3 (an independent pass that changed no product code).
+V3_COUNTS = json.loads((NEEDS_MEDIA / "verify-3" / "v3-counts.json").read_text())
+V3_OVERLAP = json.loads((NEEDS_MEDIA / "verify-3" / "v3-overlap.json").read_text())
+V3_PAGE_RUNS = {r["name"]: r for r in V3_OVERLAP["runs"] if r["name"] == "home" or r["name"].startswith("track-")}
 CHECKS = json.loads((MEDIA / "source-checks.json").read_text())
 PROJ_PATH = sorted(MEDIA.glob("projection-*.json"))[-1]
 PROJ = json.loads(PROJ_PATH.read_text())
@@ -71,6 +76,13 @@ def data_uri(path: Path, mime: str) -> str:
     key = str(path)
     assert key not in _inlined, f"would inline twice: {path}"
     _inlined.add(key)
+    if mime == "image/png":
+        # WHY: the headless captures are PNG at ~150 KB each; WebP in memory is about a third of that and nothing is
+        # written next to the capture.
+        buf = io.BytesIO()
+        with Image.open(path) as image:
+            image.convert("RGB").save(buf, "WEBP", quality=80, method=6)
+        return "data:image/webp;base64," + base64.b64encode(buf.getvalue()).decode()
     return f"data:{mime};base64," + base64.b64encode(path.read_bytes()).decode()
 
 
@@ -325,9 +337,32 @@ def _fix_rows() -> list[tuple[str, str, bool, str]]:
         ("j", "Needs-you counts: the cell agrees with the page it opens", _needs_one_source(),
          "needs.py is now the only source: the projection's needs_you_count is {open: wants_you, blocking: blocking_now} of the doc /needs "
          "serves. Measured by the verifier: " + "; ".join(f"{t} '{c}'" for t, c in _home_cells().items())
-         + ", and N6's header carries the same numbers. N1-N5's own headers still disagree; detail in the Needs-you report, "
-         + NEEDS_REPORT + "."),
+         + ". In fix wave 3 every proposal's header reads the same two numbers: the verifier matched 48 of 48 needs pages "
+         "(N1-N6 × 7 tracks + every-track) against /needs. Detail in the Needs-you report, " + NEEDS_REPORT + "."),
+        ("k", "Deployments' Needs-you line: CAN 12 / CAN 16 'not reported', never 'nothing open'", _children_not_reported(),
+         "build.py no longer derives a count for a deployment (`_child_needs`: null/null, a note pointing to the parent loop). "
+         "Measured by the verifier: " + "; ".join(f"{c} '{V3_COUNTS['trackLine'][c]['text'].rstrip(' →')}'" for c in ("can12", "can16"))
+         + f", hover '{V3_COUNTS['trackLine']['can16']['title']}'. Their needs page is titled 'Bench rotor · CAN 16 · 10:1', never the raw id."),
+        ("l", "Proven subline: 'N proven' under each north star", "partly",
+         "New pure module proven.ts reads the projector's own counts (green + done) and never recounts rung statuses; a "
+         "'stale' warning adds '(not current)'; a missing or malformed count shows nothing, never 0. proven.test 6/6. Proven in "
+         "flight only: the roadmap stub was patched with page.route to return {green 1, done 3}, and all 5 home rows and the kinsim "
+         "north-star line read '4 proven' (with a stale warning, '4 proven (not current)'). Unpatched, nothing shows. Needs a re-check "
+         "against the real widget once claude/vibetracks-roadmap-r3 lands."),
+        ("m", "Compact switcher: one pill instead of three buttons", "partly",
+         "'Proposal A · Drill-down pages ▾', 210.9 × 30.75 px; it opens upward to 115 px and closes after a pick, on Escape or an outside "
+         "click; the pick survives a reload and keys 1/2/3 still switch. The verifier's centre probe: 0 misses on "
+         + ", ".join(sorted(V3_PAGE_RUNS)) + " at rest and max scroll. Still covered: on the grasping and detection track pages "
+         "at rest the pill sits over clickable KPI cells ('87.4 %', '2 / 12') that have no role, so the probe could not see them."),
+        ("n", "Code spans wrap between tokens, not mid-token", True,
+         "`.vt-a-code` moved from `word-break: break-all` to `overflow-wrap: break-word` (one class covers purposes, link values "
+         "and file paths). At 664-848 px on rig (ladder.json, loop-status.json) and grasping (out/ledger/runs.jsonl), collapsed and "
+         "expanded: no mid-token breaks. With break-all forced back on, kinsim breaks 'stat|us.json', so the check can fail."),
     ]
+
+
+def _children_not_reported() -> bool:
+    return all(V3_COUNTS["trackLine"][c]["text"] == "Needs you · not reported →" for c in ("can12", "can16"))
 
 
 def _home_cells() -> dict:
@@ -353,75 +388,86 @@ def _needs_one_source() -> bool:
 FIXES = _fix_rows()
 
 
+VERDICT_CELL = {True: ("okt", "fixed"), False: ("badt", "NOT FIXED"), "partly": ("warnt", "partly")}
+
+
 def fix_table() -> str:
     rows = "".join(
         f'<tr><td class="num">{esc(i)}</td><td>{esc(issue)}</td>'
-        f'<td class="{"okt" if ok else "badt"}">{"fixed" if ok else "NOT FIXED"}</td><td class="small">{esc(ev)}</td></tr>'
+        f'<td class="{VERDICT_CELL[ok][0]}">{VERDICT_CELL[ok][1]}</td><td class="small">{inline_md(ev)}</td></tr>'
         for i, issue, ok, ev in FIXES)
     return ('<div class="tablewrap"><table class="grid"><thead><tr><th></th><th>Issue</th><th>Verdict</th>'
             '<th>Measured on the live lane after a backend restart</th></tr></thead><tbody>' + rows + "</tbody></table></div>")
 
 
+NFIXED = sum(1 for f in FIXES if f[2] is True)
+NPARTLY = sum(1 for f in FIXES if f[2] == "partly")
+
+
 ISSUES = [
-    ("One red test, one type error (owner: whoever lands the wave)", "`tests/test_dashboard_adapters_live.py:209` still expects the "
-     "stripped purpose: change `first_paragraph(body, limit=None)` to `first_paragraph(body, limit=None, raw=True)`. 223 of 224 pass. "
-     "`tsc` reports TS2532 at `clank/src/needs/n2/index.tsx:387`: N2 sums a count that can now be null (missing, not 0)."),
-    ("CAN 12 and CAN 16 say 'nothing open' but open 'Not reported'", "Their track pages print 'Needs you · nothing open' from the old "
-     "child counts, while the page that link opens says 'Not reported' (/needs answers 404 for them) with the raw id 'can16' as its title. "
-     "Make the line null / 'not reported', or hide it for deployments."),
-    ("N1-N5 still break the counts contract", "Only N6 reads the frozen counts. N1 shows no blocking number, N2 '0 of 11 answered', N3 "
-     "'8 questions want you' on rig, and N1/N2/N5 show pyblocks' null as 0. Detail and stills in the Needs-you report."),
+    ("The A · B · C pill covers clickable KPI cells (grasping, detection)", "At rest on the grasping and detection track pages the "
+     "collapsed pill sits over scorecard cells ('87.4 %', '2 / 12') that have cursor:pointer but no role or tabindex, so every "
+     "selector-based probe missed them. Reserve bottom space under the pill on the scorecard, and give the cells `role=\"button\"` "
+     "so they are findable. Max scroll clears both."),
+    ("Home cell wording for grasping", "`TracksPage.tsx:305` prints 'none blocking' where the track line and the Needs-you page say "
+     "'0 blocking'; the same ternary would print a null blocking count as 'none'."),
+    ("Proven subline not yet seen on live data", "Checked only against a patched stub. Re-check once the real widget from "
+     "`claude/vibetracks-roadmap-r3` lands; proven.ts already accepts its `{document}` wrapper. With '(not current)' the home "
+     "Progress cell runs to 4-5 lines, so rows get taller."),
+    ("`scripts/shoot.mjs` will break", "It clicks `[data-testid=vt-switch-<variant>]` directly; those buttons now exist only "
+     "while the pill is open, so it needs a click on `vt-switch-pill` first."),
+    ("Scorecard at narrow widths", "At a 900 px viewport the kinsim and rig scorecards showed no iteration columns (KPI | Trend | "
+     "Target | Status with a blank band). At 1440 the grasping page appears to cut off the Target/Status text at the right edge "
+     "(seen, not measured)."),
+    ("Needs-you page faults (detail in that report)", "Stale recommendation drafts in N2-N5, raw ISO stamps with a UTC offset in "
+     "N1-N4 hover titles, and the N pill over option 3 in N1/N2. N6, the default, passes all three."),
     ("Roadmap widget is a stub (expected)", "Every Roadmap section says 'Roadmap widget pending (roadmap session)' and "
-     "`GET /api/plugins/vibetracks/roadmap/<id>` answers 404, until branch `claude/vibetracks-roadmap` merges. The home rung cell uses "
-     "each loop's own `rung` meanwhile."),
-    ("The fix waves are uncommitted", "Commit 29cbe13 holds fix wave 1; fix wave 2 (needs source, shell, N6, times) is about 30 modified "
-     "files plus new ones (n6/, shared/time.ts, tests/test_dashboard_needs_counts.py) in /home/bam/vibetracks-dashboard. A peer's "
-     "`git stash -u` there would take them."),
+     "`GET /api/plugins/vibetracks/roadmap/<id>` answers 404 until its branch merges. The home rung cell uses each loop's own "
+     "`rung` meanwhile."),
+    ("The fix waves are uncommitted", "Commit 29cbe13 holds fix wave 1; waves 2 and 3 are 29 modified and 3 untracked files in "
+     "/home/bam/vibetracks-dashboard (the verifier matched `git diff --stat` to the lanes' claims exactly). A peer's `git stash -u` "
+     "there would take them."),
     ("Sources in agent worktrees", "Kinsim, rig and grasping still read from agent worktrees a sweep could delete. The row would "
      "then say 'not reporting', truthfully."),
-    ("Small things", "The purpose's code span wraps mid-token on rig ('loo|p-status.json'). In n5 and the n4 provenance line, a few "
-     "stamps inside concatenated strings have no raw ISO on hover. Variants B and C still use the right-aligned line-clamp with no "
-     "visible ellipsis."),
     ("Clank shell errors (not the dashboard)", "The shell's usual .clank/*.json 404s and fs mkdir 409s. No error came from the "
      "dashboard code, and no window error fired."),
 ]
 
 
-NFIXED = sum(1 for f in FIXES if f[2])
-
 DECISION = f"""
 <ul>
   <li><strong>Done and proved:</strong>
     <ul>
-      <li>{NFIXED} of {len(FIXES)} tracked findings are fixed and measured (table above). New this wave, times: every time
-          the UI formats reads local time with its zone ({TS_AFTER['totals']['clocks']} clocks on {TS_AFTER['totals']['pages']} pages, 0 UTC,
-          0 offset, 0 zoneless from a formatter), with the raw ISO on hover.</li>
-      <li>Needs-you counts have one source: home cell = track line = page header = /needs on all five tracks; pyblocks reads 'not reported',
-          never 0. The Needs-you page itself (N6, Back, the chooser) is reported in <code>{esc(NEEDS_REPORT)}</code>.</li>
+      <li>{NFIXED} of {len(FIXES)} tracked findings are fixed and measured, {NPARTLY} partly (table above). New in fix wave 3:
+          deployments read 'not reported', code spans no longer break mid-token, the switcher is one pill, and the proven
+          subline exists (proven against a patched stub).</li>
+      <li>Build: 236 pytest pass, tsc 0 errors, proven.test 6/6; the red test and the N2 type error from wave 2 are gone.</li>
+      <li>Needs-you counts have one source: home cell = track line = every proposal's header = /needs (48 of 48 pages);
+          pyblocks, CAN 12 and CAN 16 read 'not reported', never 0. The Needs-you page itself is reported in <code>{esc(NEEDS_REPORT)}</code>.</li>
       <li>Home still shows exactly the five work tracks: {esc(FACTS['home']['header'])}.</li>
-      <li>{len(CHECKS)} KPI values on five tracks plus CAN 16 recomputed from the loops' own files: all match.</li>
-      <li>Rename round trip left the note byte-identical, in the first drive and again in this wave's verify pass.</li>
-      <li>The purpose now keeps its markdown: inline code renders, no character is lost.</li>
+      <li>{len(CHECKS)} KPI values on five tracks plus CAN 16 recomputed from the loops' own files: all match (first drive).</li>
+      <li>Times: every time the UI formats reads local time with its zone, raw ISO on hover (N1-N4's hover titles excepted; see the Needs-you report).</li>
     </ul></li>
   <li><strong>Left</strong> (next; only the roadmap merge waits on you):
     <ul>
-      <li>The red test and the N2 type error (two one-line fixes).</li>
-      <li>CAN 12 / CAN 16 'nothing open' vs 'Not reported'.</li>
-      <li>Roadmap widget: merge <code>claude/vibetracks-roadmap</code>, then re-drive the Roadmap section. Blocked on you.</li>
-      <li>A Codex audit of both fix waves (not run).</li>
-      <li>The stills in Home, Track pages and Drill-down are from the first drive, before this wave: their Needs-you numbers are the old ones.</li>
+      <li>The A · B · C pill over grasping's and detection's KPI cells, and 'none blocking' on grasping's home cell.</li>
+      <li>Re-check the proven subline on the real roadmap widget once it lands; fix <code>scripts/shoot.mjs</code> for the pill.</li>
+      <li>Roadmap widget: merge <code>claude/vibetracks-roadmap</code> (r3), then re-drive the Roadmap section. Blocked on you.</li>
+      <li>A Codex audit of the fix waves (not run; the verifiers and the judge are Claude).</li>
+      <li>The stills in Home, Track pages and Drill-down are from the first drive: their Needs-you numbers are the old ones. Fix wave 3's own stills are in the fix-wave section.</li>
     </ul></li>
   <li><strong>Needs you</strong> (each has a default that keeps work moving if you say nothing):
     <ol>
-      <li><b>Merge the roadmap widget</b> (<code>claude/vibetracks-roadmap</code>) into <code>claude/vibetracks-dashboard</code>?
-          Recommendation: yes; it replaces the stub. Default: nothing is merged; the section keeps saying pending.</li>
-      <li><b>Commit both fix waves</b> on <code>claude/vibetracks-dashboard</code> so a peer's stash cannot take them?
-          Recommendation: yes, once the red test is fixed. Default: left uncommitted, as this task's rules require.</li>
+      <li><b>Merge the roadmap widget</b> (<code>claude/vibetracks-roadmap-r3</code>) into <code>claude/vibetracks-dashboard</code>?
+          Recommendation: yes; it replaces the stub and gives the proven subline real data. Default: nothing is merged; the section keeps saying pending.</li>
+      <li><b>Commit the three fix waves</b> on <code>claude/vibetracks-dashboard</code> so a peer's stash cannot take them?
+          Recommendation: yes, now that the tests and tsc are green. Default: left uncommitted, as this task's rules require.</li>
       <li><b>Durable homes for loop files</b> now in agent worktrees (rig loop, grasp ledger, kinsim loop dir)?
           Recommendation: a stable path per loop. Default: unchanged; a sweep would turn a row 'not reporting', honestly.</li>
     </ol></li>
-  <li><strong>Deliberately not done:</strong> no commits, no vault edits. Loop prose that carries its own clock ('at 14:54 UTC',
-      'UPDATE 21:30') is shown as written, under the truth rule, not converted.</li>
+  <li><strong>Deliberately not done:</strong> no commits, no vault edits. The A · B · C pill is not shown on needs pages, where it
+      would switch nothing (no fake controls). Loop prose that carries its own clock ('at 14:54 UTC', 'UPDATE 21:30') is shown as
+      written, under the truth rule, not converted.</li>
 </ul>
 """
 
@@ -690,6 +736,27 @@ def build() -> str:
         "After, checked by the verifier: one grasping run's own page",
         "'run · pass · 10-04 20:28 PDT · T1 · seed 2'. The episodes file name below still carries the ledger's UTC stamp (20261005T032840Z); it is a path shown verbatim, not a displayed time.") + "</div>"
 
+    fw += "<h3>Fix wave 3</h3>" + '<div class="g2">' + "".join([
+        fig("r2-ui-home.png", "Home after fix wave 3: the switcher is one pill",
+            "'Proposal A · Drill-down pages ▾' at the bottom right, 211 × 31 px, where three labelled buttons used to sit. "
+            "Needs-you cells: " + "; ".join(f"{t} '{c}'" for t, c in _home_cells().items()) + "."),
+        fig("r2-ui-switcher-open.png", "The pill, opened",
+            "A click opens A · B · C upward; a pick, Escape or an outside click closes it, and the pick survives a reload."),
+        fig("r2-ui-stale-home.png", "Proven subline, proven in flight (not live data)",
+            "The roadmap stub was patched with page.route to return green 1 + done 3 and a 'stale' warning: every row reads "
+            "'4 proven (not current)'. The rung column shows the patched stub's own placeholder. Unpatched, no proven text appears."),
+        fig("r2-ui-fake-kinsim.png", "The same patch on kinsim's north-star line",
+            "'North star 19 / 62 Rungs green or done · +15 over 4 waves since start (freeze) · 4 proven'."),
+        fig("verify-3/v3-track-can16.png", "CAN 16: 'Needs you · not reported'",
+            "Was 'nothing open' from old child counts. The hover says needs.py reads no questions per deployment and points to the rig "
+            "loop's page."),
+        fig("r2-ui-rig-purpose-900.png", "Rig purpose at 900 px: code spans whole",
+            "`ladder.json` and `loop-status.json` stay in one piece. Also visible, and still open: the scorecard at this width shows "
+            "no iteration columns, only KPI | Trend | Target | Status."),
+    ]) + "</div>" + '<div class="g1">' + fig("verify-3/v3-pill-over-cell-grasping.png", "Still open: the pill over grasping's KPI cells",
+            "At rest the collapsed pill sits on the '87.4 %' cell, which is clickable but has no role, so the selector probes missed it. "
+            "Max scroll clears it.") + "</div>"
+
     page = f"""<!doctype html>
 <html lang="en"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
@@ -698,15 +765,16 @@ def build() -> str:
 <body><div class="wrap">
 
 <header class="top">
-  <div class="date">2026-10-04 · integration check, re-verified after fix wave 2</div>
+  <div class="date">2026-10-04 · integration check, re-verified after fix wave 3</div>
   <h1>Vibe Tracks: your five work tracks, live</h1>
-  <p class="verdict">{NFIXED} of {len(FIXES)} tracked findings are fixed and measured, times and the Needs-you counts included: every time the UI
-  formats is local with its zone, and every Needs-you cell now shows the numbers of the page it opens. Still open: one red test, one type
-  error, and CAN 12 / CAN 16 saying 'nothing open' over a 'Not reported' page. The roadmap widget is still a stub until its branch merges.</p>
+  <p class="verdict">{NFIXED} of {len(FIXES)} tracked findings are fixed and measured and {NPARTLY} partly, and the build is green: deployments
+  now read 'not reported', code spans wrap between tokens, and every Needs-you count matches the page it opens. Partly: the proven
+  subline is proven only against a patched roadmap stub, and the new one-pill switcher still covers clickable KPI cells on the grasping
+  and detection pages. The roadmap widget is still a stub until its branch merges.</p>
   <p class="built">Restarted the vibetracks backend and drove the running lane headless at {esc(gen)}.
   {sum(c["match"] for c in CHECKS)} of {len(CHECKS)} KPI values matched when recomputed from the loops' own files. The rename
-  round trip left the note byte-identical. Re-checked after fix wave 2 by an independent verifier: 223 of 224 tests pass, tsc has one
-  error (N2). Nothing committed. This page is over the desktop preview's size cap, so open it in the browser. The Needs-you page has its
+  round trip left the note byte-identical. Re-checked after fix wave 3 by an independent verifier (no product edits): 236 tests pass,
+  tsc has 0 errors, proven.test 6/6, and <code>git diff --stat</code> equals the lanes' claimed files. Nothing committed. This page is over the desktop preview's size cap, so open it in the browser. The Needs-you page has its
   own report: <code>{esc(NEEDS_REPORT)}</code>.</p>
   <div class="launch"><pre id="launch-cmd">{esc(LAUNCHER)}</pre><button id="copy-launch" type="button">Copy</button></div>
 </header>
@@ -718,7 +786,7 @@ def build() -> str:
 </nav>
 
 {section("watch", "Watch first", "One recorded walk through the real app: pick a track, read its KPIs, open the roadmap section, go back, open the rig and CAN 16, rename a track.", hero, 1)}
-{section("fixwave", "What changed in the fix waves", "Each finding, re-measured independently after the lanes reported done (b and j in fix wave 2, the rest in fix wave 1). The verifiers did not write the fixes.", fw, 2)}
+{section("fixwave", "What changed in the fix waves", "Each finding, re-measured independently after the lanes reported done (a-i in fix wave 1, b and j in fix wave 2, k-n in fix wave 3). The verifiers did not write the fixes.", fw, 2)}
 {section("home", "Home: the work tracks", "One calm row per top-level track, in registry priority order. It adapts to however many track notes exist, so a sixth track is one new note.", home, 3)}
 {section("pages", "Each track page", "Title (renamable) → one state line → Needs you → purpose → Key KPIs → Roadmap. The rig adds its deployments under the roadmap. These captures are from the first drive; their Needs-you numbers predate the one-source fix.", pages, 4)}
 {section("drill", "Drilling in: KPIs, roadmap, needs, evidence", "Kinsim end to end, then the rig's deployments.", drill, 5)}
@@ -726,7 +794,7 @@ def build() -> str:
 {section("checks", "Numbers checked against the source files", "Each value recomputed by a separate script (<code>crosscheck.py</code> in the media folder) straight from the loop's own files, not from the adapter, then compared with what the dashboard served.", checks_table(), 7)}
 {section("rename", "Renaming a track", "", rename, 8)}
 {section("live", "What is live, what is stale, and why", "", live_status(), 9)}
-{section("issues", "Issues still open", "The verifiers changed no product code; these are for their owners. Fixed issues moved to the fix-wave table above.", '<ol class="issues">' + ''.join(f'<li><b>{esc(t)}</b>{inline_md(d)}</li>' for t, d in ISSUES) + '</ol>', 10)}
+{section("issues", "Issues still open", "The verifiers changed no product code; these are for their owners. Fixed issues moved to the fix-wave table above.", '<ol class="issues">' + ''.join(f'<li><b>{inline_md(t)}</b>{inline_md(d)}</li>' for t, d in ISSUES) + '</ol>', 10)}
 
 <section id="decide">
   <h2>Decision surface</h2>

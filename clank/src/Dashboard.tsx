@@ -192,25 +192,89 @@ export function Dashboard({ session, panel, backend }: ViewerProps & { backend: 
       </div>
       {/* WHY no A · B · C switcher on the needs page: it picks the dashboard layout, which the needs page does not use
           (every variant renders the same NeedsShell), so there it is a control with no effect sitting over answer
-          controls; the needs page has its own one-pill chooser in this corner instead. */}
-      {route.needs === '1' && !settingsOpen ? null : (
-      <div className="vt-switcher" role="group" aria-label="Proposal" data-testid="vt-switcher" title="Switch proposal (keys 1, 2, 3)">
-        <span className="vt-switch-label">Proposal</span>
-        {VARIANTS.map((item, index) => (
-          <button
-            key={item.key}
-            type="button"
-            className="vt-btn"
-            aria-pressed={item.key === variant.key}
-            data-testid={`vt-switch-${item.key}`}
-            title={`${item.letter} · ${item.name} (key ${index + 1})`}
-            onClick={() => choose(item.key)}
-          >
-            {item.letter} · {item.name}
-          </button>
-        ))}
-      </div>
-      )}
+          controls; the needs page has its own one-pill chooser in this corner instead, so the two never overlap. */}
+      {route.needs === '1' && !settingsOpen ? null : <ProposalSwitcher current={variant} onChoose={choose} />}
+    </div>
+  )
+}
+
+type VariantDefinition = (typeof VARIANTS)[number]
+
+/** One compact pill ("A · Drill-down pages ▾") that opens the three proposals upward and closes after a pick.
+ * WHY collapsed: the full "Proposal A · B · C" row sat over the bottom of tall side panels (the roadmap focus card's
+ * last lines hid under it); one pill keeps the corner small while staying in-app, bottom-right, live and remembered
+ * (Zach's prototype-switch rule). Keys 1/2/3 still switch without opening it. Same shape as the needs page's chooser
+ * (needs/NeedsShell.tsx), so the corner reads as one kind of control on every page. */
+function ProposalSwitcher({ current, onChoose }: { current: VariantDefinition; onChoose: (key: string) => void }) {
+  const [open, setOpen] = useState(false)
+  const box = useRef<HTMLDivElement>(null)
+  useEffect(() => {
+    if (!open) return
+    const onDown = (event: PointerEvent) => {
+      if (box.current && event.target instanceof Node && !box.current.contains(event.target)) setOpen(false)
+    }
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key !== 'Escape') return
+      event.preventDefault()
+      setOpen(false)
+    }
+    window.addEventListener('pointerdown', onDown, true)
+    window.addEventListener('keydown', onKey)
+    return () => {
+      window.removeEventListener('pointerdown', onDown, true)
+      window.removeEventListener('keydown', onKey)
+    }
+  }, [open])
+  return (
+    <div
+      ref={box}
+      className="vt-switcher"
+      role="group"
+      aria-label="Proposal"
+      data-testid="vt-switcher"
+      data-open={open}
+      style={open ? { flexDirection: 'column', alignItems: 'stretch' } : undefined}
+    >
+      {open ? (
+        <div role="menu" aria-label="Proposals" style={{ display: 'flex', flexDirection: 'column', gap: 2, paddingBottom: 3, borderBottom: '1px solid var(--vt-line)' }}>
+          {VARIANTS.map((item, index) => (
+            <button
+              key={item.key}
+              type="button"
+              role="menuitemradio"
+              className="vt-btn"
+              style={{ textAlign: 'left' }}
+              aria-checked={item.key === current.key}
+              aria-pressed={item.key === current.key}
+              data-testid={`vt-switch-${item.key}`}
+              title={`${item.letter} · ${item.name} (key ${index + 1})`}
+              onClick={() => {
+                onChoose(item.key)
+                setOpen(false)
+              }}
+            >
+              {item.letter} · {item.name}
+            </button>
+          ))}
+        </div>
+      ) : null}
+      <button
+        type="button"
+        className="vt-btn"
+        aria-haspopup="menu"
+        aria-expanded={open}
+        data-testid="vt-switch-pill"
+        title="Switch the dashboard proposal (keys 1, 2, 3)"
+        onClick={() => setOpen(!open)}
+      >
+        <span className="vt-switch-label" style={{ padding: '0 6px 0 0' }}>
+          Proposal
+        </span>
+        {current.letter} · {current.name}
+        <span aria-hidden="true" style={{ marginLeft: 6, color: 'var(--vt-faint)' }}>
+          {open ? '▴' : '▾'}
+        </span>
+      </button>
     </div>
   )
 }

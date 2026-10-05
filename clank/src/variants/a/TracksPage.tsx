@@ -22,12 +22,13 @@ import {
   topLevelTracks,
 } from '../../shared'
 import { useLayoutEffect, useRef } from 'react'
-import { RoadmapWidget } from '../../roadmap'
+import { RoadmapWidget, type RoadmapDocState } from '../../roadmap'
 import { trendDomain } from './columns'
 import { isReporting, lastMoved, needsCount, registryOf, rungOf } from './live'
 import { openRung, type Nav } from './nav'
 import { TrackMenu, TrackName, type Renamer } from './rename'
 import { useRegisteredRoadmap } from './roadmapReload'
+import { provenOf } from './proven'
 import { openNeeds } from '../../needs'
 import { formatLocal } from '../../shared/time'
 
@@ -113,6 +114,8 @@ function TrackRow({ projection, track, nav, showDeltas, backend, renamer }: {
 }) {
   const open = () => nav.track(track.id)
   const reporting = isReporting(track)
+  // WHY one roadmap per row, shared by the rung and progress cells: the real useRoadmap polls; two calls would double it.
+  const roadmap = useRegisteredRoadmap(backend, track.id)
   return (
     <tr className={`vt-row-link vt-a-trackrow${reporting ? '' : ' vt-a-quiet'}`} data-testid="vt-a-track-row" data-track={track.id} onClick={open}>
       <td>
@@ -126,10 +129,10 @@ function TrackRow({ projection, track, nav, showDeltas, backend, renamer }: {
         </span>
       </td>
       <td>
-        <ProgressCell track={track} showDeltas={showDeltas} />
+        <ProgressCell track={track} showDeltas={showDeltas} roadmapDoc={roadmap.doc} />
       </td>
       <td>
-        <RungCell track={track} nav={nav} backend={backend} />
+        <RungCell track={track} nav={nav} roadmap={roadmap} />
       </td>
       <td>
         <MovedCell projection={projection} track={track} />
@@ -147,13 +150,18 @@ function TrackRow({ projection, track, nav, showDeltas, backend, renamer }: {
   )
 }
 
-/** The north star as one object: value (or value / scope), how it moved, and its trend. */
-export function ProgressCell({ track, showDeltas }: { track: Track; showDeltas: boolean }) {
+/** The north star as one object: value (or value / scope), how it moved, and its trend; plus "· N proven" when the
+ * track's roadmap document is loaded (proven.ts: the projector's own green + done counts). */
+export function ProgressCell({ track, showDeltas, roadmapDoc = null }: { track: Track; showDeltas: boolean; roadmapDoc?: unknown }) {
   const star = northStar(track)
+  const proven = <ProvenNote doc={roadmapDoc} />
   if (!star) {
     return (
-      <span className="vt-faint" title={isReporting(track) ? 'this track declares no north star' : 'not reporting: no numbers claimed'}>
-        —
+      <span className="vt-a-two">
+        <span className="vt-faint" title={isReporting(track) ? 'this track declares no north star' : 'not reporting: no numbers claimed'}>
+          —
+        </span>
+        {provenOf(roadmapDoc) ? <small>{proven}</small> : null}
       </span>
     )
   }
@@ -175,6 +183,9 @@ export function ProgressCell({ track, showDeltas }: { track: Track; showDeltas: 
       <span className="vt-a-two">
         <strong className="vt-num">{headline}</strong>
         <small>{detail || star.label}</small>
+        {/* WHY its own line: appended to the detail it wrapped the 19%-wide cell to four lines ("+15 vs start / (freeze)
+            · 4 proven / (not current)"); one more short line keeps both readable. */}
+        {provenOf(roadmapDoc) ? <small>{proven}</small> : null}
       </span>
       <Sparkline
         values={star.values.map((v) => (v.measured ? v.value : null))}
@@ -186,14 +197,32 @@ export function ProgressCell({ track, showDeltas }: { track: Track; showDeltas: 
   )
 }
 
+/** "4 proven" or "4 proven (not current)", or nothing when the roadmap document is absent or carries no counts. */
+export function ProvenNote({ doc }: { doc: unknown }) {
+  const proven = provenOf(doc)
+  if (!proven) return null
+  return (
+    <span className="vt-num" data-testid="vt-a-proven" data-stale={proven.stale} title="Rungs the roadmap projector counts as proven (green + done)">
+      <span style={{ whiteSpace: 'nowrap' }}>{proven.proven} proven</span>
+      {proven.stale ? (
+        <>
+          {' '}
+          <span className="vt-tone-stale" style={{ whiteSpace: 'nowrap' }}>
+            (not current)
+          </span>
+        </>
+      ) : null}
+    </span>
+  )
+}
+
 /** Where the loop is on its roadmap and what comes next, from the best source there is, in this order:
  *   (a) the roadmap widget's own calm answer when the track's roadmap document has loaded (one source for that
  *       sentence, never a second derivation here);
  *   (b) the track's `rung`, which the adapter read from the loop's own status file, in the loop's own words;
  *   (c) the newest iteration, labelled "latest <unit>" so it can never read as the current rung, and a grey word for
  *       why there is no rung line. */
-function RungCell({ track, nav, backend }: { track: Track; nav: Nav; backend: PluginBackend }) {
-  const roadmap = useRegisteredRoadmap(backend, track.id)
+function RungCell({ track, nav, roadmap }: { track: Track; nav: Nav; roadmap: RoadmapDocState }) {
   const declared = Boolean(registryOf(track)?.roadmap)
   const widgetBox = useRef<HTMLSpanElement>(null)
   // WHY the widget's text as the cell's title: the home row clamps the widget's sentence to two lines, so its whole

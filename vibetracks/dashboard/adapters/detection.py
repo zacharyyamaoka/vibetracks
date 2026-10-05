@@ -192,6 +192,22 @@ def _rung(ladder: dict[str, Any], frontier_row: dict[str, Any] | None, progress:
 
 DEFAULT_MARK = "*Default if silent:*"
 
+#: A sentence ends at . ! or ? (plus closing quotes/brackets and any citation links glued on, ``".[[note|1]]``)
+#: before whitespace and a capital, a quote, a bracket or bold, or at the end of the text.
+SENTENCE_END = re.compile(r"[.!?][\"”’')\]]*(?:\[\[[^\]]*\]\]|\[\d+\]\([^)]*\))*(?=\s+[A-Z(`'\"“*\[]|\s*$)")
+FIRST_BULLET = re.compile(r"\s*[-*]\s+[^\n]*")
+
+
+def first_sentence(text: str) -> int:
+    """Where ``text``'s first sentence ends (an index into ``text``): through its first sentence end, else through
+    its first bullet line when it opens with a bullet, else the whole text. Never rewrites a character."""
+
+    bullet = FIRST_BULLET.match(text)
+    if bullet:
+        return bullet.end()
+    match = SENTENCE_END.search(text)
+    return match.end() if match else len(text)
+
 
 def parse_needs_section(text: str) -> list[dict[str, Any]]:
     """The plan note's ``## Needs you`` numbered list, every part verbatim (the one parser of that section).
@@ -200,7 +216,11 @@ def parse_needs_section(text: str) -> list[dict[str, Any]]:
     ``before_md`` (the body before ``*Default if silent:*``), ``title_md`` (the bold lead's inner text, or None),
     ``rest_md`` (``before_md`` after the bold lead), ``question_md`` (``rest_md`` up to a nested bullet list, which is
     the reasoning, not the question), ``default_md`` (the text after the marker, or None when the item states none)
-    and ``blocks`` (the rung ids named after "block(s)"). ``read_needs`` (this adapter) and /needs
+    and ``blocks`` (the rung ids named after "block(s)"). ``ask_md`` is the decision as the note words it: the bold
+    lead together with the first sentence (or first bullet) after it, a verbatim slice of ``before_md``;
+    ``ask_rest_md`` is the rest of ``question_md`` after that sentence (None when nothing is left). WHY the lead plus
+    a sentence: a lead alone ("**Data.**") is a heading, not a question Zach can answer, and a two-sentence or cleaned
+    summary would be words the note never wrote. ``read_needs`` (this adapter) and /needs
     (vibetracks/dashboard/needs.py) both build on it, so the home count and the needs page read the same items.
     """
 
@@ -222,6 +242,14 @@ def parse_needs_section(text: str) -> list[dict[str, Any]]:
         # and counting those would mark a question as blocking work it does not hold.
         held = " ".join(match.group(0) for match in BLOCKS.finditer(before))
         default_md = after.strip() if marker else None
+        # The ask, sliced from the same stripped text the title was matched on, so it is the note's characters.
+        stripped = before.strip()
+        offset = title.start("rest") if title else 0
+        remainder = stripped[offset:]
+        question = remainder if FIRST_BULLET.match(remainder) else re.split(r"\n\s*[-*]\s", remainder, maxsplit=1)[0]
+        end = first_sentence(question)
+        ask_md = stripped[: offset + end].rstrip()
+        ask_rest = question[end:].strip()
         parsed.append({
             "n": head.group("n"),
             "body_md": body,
@@ -232,6 +260,8 @@ def parse_needs_section(text: str) -> list[dict[str, Any]]:
             "default_md": default_md or None,
             "after_md": after if marker else "",
             "blocks": sorted(set(RUNG_ID.findall(held)), key=lambda rung: int(rung[1:])),
+            "ask_md": ask_md,
+            "ask_rest_md": ask_rest or None,
         })
     return parsed
 

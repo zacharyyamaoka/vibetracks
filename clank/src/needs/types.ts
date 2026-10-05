@@ -4,8 +4,10 @@
 export const NEEDS_SCHEMA = 'vibetracks-needs/1'
 export const NEEDS_ALL_SCHEMA = 'vibetracks-needs-all/1'
 
-export type Choice = 'accept_recommendation' | 'use_default' | 'other'
-export const CHOICES: Choice[] = ['accept_recommendation', 'use_default', 'other']
+/** `approve` is grasping's leading "Approve the download" (needs.py `leading_options`); the rest are the loops'
+ * implicit choices (bam-triage-answer/1). An item offers only some of them: read `item.options`, never assume one. */
+export type Choice = 'accept_recommendation' | 'approve' | 'use_default' | 'other'
+export const CHOICES: Choice[] = ['accept_recommendation', 'approve', 'use_default', 'other']
 
 export type NeedsGroup = 'blocking' | 'no_default' | 'waiting' | 'defaulting' | 'answered' | 'done'
 /** Page order of the groups; the backend already sorts items this way. */
@@ -34,7 +36,10 @@ export interface AnswerChannel {
 
 export interface NeedsOption {
   key: Choice
+  /** The dashboard's words for the affordance (`source: "dashboard"`), never the loop's. */
   label: string
+  /** `detail_md` is the only loop text in an option (the recommendation or the default, verbatim), or null. */
+  source?: 'dashboard'
   detail_md: string | null
   recommended: boolean
   is_default: boolean
@@ -43,8 +48,9 @@ export interface NeedsOption {
 
 export interface NeedsDefault {
   text_md: string
-  /** `never` = the loop waits for Zach (a "No default" item). */
-  applies: { unit: 'wave' | 'tick' | 'date' | 'never'; after: number | null }
+  /** `never` = no default recorded (`text_md` is ""). `unstated` = there is a default, but the source never says when
+   * it fires (`after` is null): show "when: not stated", never "after unstated null". Read it through appliesAfter(). */
+  applies: { unit: 'wave' | 'tick' | 'date' | 'never' | 'unstated'; after: number | null }
   /** Computed by the backend against the loop's finished iteration; never trust `status` alone. */
   state: 'pending' | 'in_effect' | 'none'
 }
@@ -123,20 +129,22 @@ export interface NeedsItem {
   effort: string | null
 }
 
+/** Every value is null on a doc with no structured source ("not reported", never 0). Headers read them through
+ * headerCounts() (kit.ts), never by summing fields: `no_default` also counts blocking items that have no default. */
 export interface NeedsCounts {
-  open: number
-  blocking_now: number
+  open: number | null
+  blocking_now: number | null
   /** Items that still want Zach: groups blocking + no_default + waiting (open items whose default is NOT already in
    * effect). The ONE number every "M open" in the dashboard shows (home cell, track page, needs page header). Optional
-   * only until every backend sends it; read it through wantsYouCount(). */
-  wants_you?: number
-  no_default: number
-  waiting: number
-  defaulting: number
-  answered: number
-  defaulted: number
-  closed: number
-  total: number
+   * only until every backend sends it; read it through headerCounts(). */
+  wants_you?: number | null
+  no_default: number | null
+  waiting: number | null
+  defaulting: number | null
+  answered: number | null
+  defaulted: number | null
+  closed: number | null
+  total: number | null
 }
 
 export interface NeedsDoc {
@@ -171,10 +179,28 @@ export function itemsInGroup(doc: NeedsDoc, group: NeedsGroup): NeedsItem[] {
   return doc.items.filter((item) => item.group === group)
 }
 
-/** "after wave 5", "never (waits for you)", "in effect since wave 4". */
+/** The words for a default the source does not have ("no default recorded") and for one whose timing it never states
+ * ("when: not stated"). WHY shared: every proposal used to print the raw unit ("after unstated null"). */
+export const NO_DEFAULT_RECORDED = 'no default recorded'
+export const WHEN_NOT_STATED = 'when: not stated'
+
+/** True when the item has a default text (unit is not `never`). */
+export function hasDefault(item: NeedsItem): boolean {
+  return item.default.applies.unit !== 'never'
+}
+
+/** "after wave 5" in the loop's own unit, or null when the source does not say when (unit `never` or `unstated`, or
+ * no number recorded). Callers show WHEN_NOT_STATED (or NO_DEFAULT_RECORDED) for null; never the raw unit. */
+export function appliesAfter(item: NeedsItem): string | null {
+  const { unit, after } = item.default.applies
+  if (unit === 'never' || unit === 'unstated' || after === null || after === undefined) return null
+  return `after ${unit} ${after}`
+}
+
+/** "applies after wave 5", "in effect (after wave 4)", "no default recorded", "when: not stated". */
 export function describeDefault(item: NeedsItem): string {
-  const { applies, state } = item.default
-  if (applies.unit === 'never') return 'no default: waits for you'
-  if (state === 'in_effect') return `in effect (after ${applies.unit} ${applies.after})`
-  return `applies after ${applies.unit} ${applies.after}`
+  if (!hasDefault(item)) return NO_DEFAULT_RECORDED
+  const after = appliesAfter(item)
+  if (item.default.state === 'in_effect') return `in effect (${after ?? WHEN_NOT_STATED})`
+  return after ? `applies ${after}` : WHEN_NOT_STATED
 }

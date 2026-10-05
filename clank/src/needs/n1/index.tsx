@@ -15,7 +15,26 @@
 // question is the content, so no toolbar and no view toggles (view settings live on the settings page).
 
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode, type RefObject } from 'react'
-import { CopyOut, EvidenceLink, GROUP_LABEL, choiceLabel, effectiveChoice, isComplete, type Choice, type NeedsDoc, type NeedsGroup, type NeedsItem, type NeedsProposalProps } from '../kit'
+import {
+  CopyOut,
+  EvidenceLink,
+  GROUP_LABEL,
+  NO_DEFAULT_RECORDED,
+  WHEN_NOT_STATED,
+  appliesAfter,
+  choiceLabel,
+  effectiveChoice,
+  hasDefault,
+  headerCounts,
+  headerSummary,
+  isComplete,
+  notReportedText,
+  type Choice,
+  type NeedsDoc,
+  type NeedsGroup,
+  type NeedsItem,
+  type NeedsProposalProps,
+} from '../kit'
 import { formatLocal } from '../../shared/time'
 import './zen.css'
 
@@ -66,12 +85,14 @@ function blocksText(item: NeedsItem): string {
 
 /** When the default fires, in the loop's own unit, with where the loop is now. Computed, so it says so. */
 function defaultTiming(doc: NeedsDoc, item: NeedsItem): string {
-  const { applies, state } = item.default
-  const unit = applies.unit
+  if (!hasDefault(item)) return NO_DEFAULT_RECORDED
+  const after = appliesAfter(item)
+  // WHY no "fires …" sentence without a number: the detection plan note never says when its defaults fire; the raw
+  // unit read "fires after unstated null".
+  if (!after) return WHEN_NOT_STATED
   const at = doc.iteration ? `${doc.iteration.unit} ${doc.iteration.finished ?? doc.iteration.n ?? '–'} finished` : null
-  if (unit === 'never') return 'no default: this waits for you'
-  if (state === 'in_effect') return `already in effect since ${unit} ${applies.after}${at ? ` (loop: ${at})` : ''} · computed`
-  return `fires after ${unit} ${applies.after}${at ? ` (loop: ${at})` : ''}`
+  if (item.default.state === 'in_effect') return `already in effect, ${after}${at ? ` (loop: ${at})` : ''} · computed`
+  return `fires ${after}${at ? ` (loop: ${at})` : ''}`
 }
 
 function isEditable(target: EventTarget | null): boolean {
@@ -179,7 +200,13 @@ export default function NeedsZen(props: NeedsProposalProps) {
     if (!current) return
     const { doc, item } = current
     const draft = answers.get(doc.track, item.local_id)
-    if (!draft) return choose('accept_recommendation')
+    // WHY only when the loop offers one: grasping and detection record no recommendation, and ↵ must never file an
+    // answer to an option the loop did not give ("Go with the recommendation" of nothing).
+    if (!draft) {
+      if (item.options.some((option) => option.key === 'accept_recommendation')) return choose('accept_recommendation')
+      setHint('This loop recorded no recommendation; pick a numbered option or write your own.')
+      return
+    }
     if (!isComplete(draft)) {
       setHint('"Something else" needs a few words; write them, or pick 1 or 2.')
       note.current?.focus()
@@ -293,7 +320,7 @@ export default function NeedsZen(props: NeedsProposalProps) {
     <div ref={root} className="vt-needs-n1" tabIndex={-1} data-testid="vt-needs-zen" data-zen-item={current?.item.id ?? (atEnd ? 'end' : '')}>
       <div className="zen-layout">
         <div className="zen-main">
-          {queue.length ? <Progress queue={queue} index={index} atEnd={atEnd || !current} later={later} answers={answers} onJump={goTo} /> : null}
+          {queue.length ? <Progress docs={docs} queue={queue} index={index} atEnd={atEnd || !current} later={later} answers={answers} onJump={goTo} /> : null}
           <div className="zen-stage">{body}</div>
         </div>
         {queue.length ? (
@@ -321,6 +348,7 @@ export default function NeedsZen(props: NeedsProposalProps) {
 }
 
 function Progress({
+  docs,
   queue,
   index,
   atEnd,
@@ -328,6 +356,7 @@ function Progress({
   answers,
   onJump,
 }: {
+  docs: NeedsDoc[]
   queue: Entry[]
   index: number
   atEnd: boolean
@@ -338,6 +367,9 @@ function Progress({
   const current = atEnd ? null : queue[index]
   const answered = queue.filter((entry) => isComplete(answers.get(entry.doc.track, entry.item.local_id))).length
   const multiTrack = new Set(queue.map((entry) => entry.doc.track)).size > 1
+  // WHY the contract's two numbers here: the home cell and the track page say "B blocking · M open" from needs.py;
+  // the lane must repeat them so the doorway and the room agree (the queue length alone hid the blocking count).
+  const summary = headerSummary(docs)
   return (
     <div className="zen-progress" data-testid="vt-zen-progress">
       <p className="zen-progress-line vt-small">
@@ -353,8 +385,14 @@ function Progress({
         ) : (
           <span className="vt-strong">All {queue.length} seen</span>
         )}
-        <span className="zen-progress-meter vt-faint vt-num">
+        <span className="zen-progress-meter vt-faint vt-num" data-testid="vt-zen-counts">
+          {summary.counts ? (
+            <>
+              <span className={summary.counts.blocking ? 'vt-tone-warn' : undefined}>{summary.counts.blocking} blocking now</span> · {summary.counts.open} open ·{' '}
+            </>
+          ) : null}
           {answered} answered{later.size ? ` · ${later.size} later` : ''}
+          {summary.notReported.length ? ` · not reported: ${summary.notReported.map((doc) => doc.track_title).join(', ')}` : ''}
         </span>
       </p>
       <div className="zen-ticks" role="list">
@@ -501,7 +539,9 @@ function Card({
               </button>
             </>
           ) : (
-            <span className="vt-faint">Nothing picked yet; ↵ takes the recommendation.</span>
+            <span className="vt-faint">
+              {item.options.some((option) => option.key === 'accept_recommendation') ? 'Nothing picked yet; ↵ takes the recommendation.' : 'Nothing picked yet; no recommendation recorded.'}
+            </span>
           )}
         </p>
       </section>
@@ -663,22 +703,45 @@ function EndScreen({
 }
 
 function EmptyLane({ docs, route, navigate, defaultingCount, includeDefaulting }: NeedsProposalProps & { defaultingCount: number; includeDefaulting: boolean }) {
+  const summary = headerSummary(docs)
   return (
     <article className="zen-card zen-empty" data-testid="vt-zen-empty">
-      <p className="vt-label zen-eyebrow">Needs you</p>
-      <h1 className="zen-question">Nothing is waiting on you{docs.length === 1 ? ` in ${docs[0].track_title}` : ''}.</h1>
-      {docs.map((doc) => (
-        <div key={doc.track} className="zen-empty-track">
-          {docs.length > 1 ? <p className="vt-strong">{doc.track_title}</p> : null}
-          <p className="vt-muted">
-            {doc.items.length ? `${doc.counts.total} items on file, none asking for you now.` : 'This loop files no structured questions yet.'} {doc.source.note}
-          </p>
-          <p className="vt-small vt-faint">
-            Answers would reach it by {doc.answer_channel.kind.replace('_', ' ')}
-            {doc.answer_channel.target ? `: ${doc.answer_channel.target}` : ''}.
-          </p>
-        </div>
-      ))}
+      <p className="vt-label zen-eyebrow">Needs you{docs.length === 1 ? ` · ${docs[0].track_title}` : ''}</p>
+      {/* WHY "Not reported" and not "Nothing is waiting": a track with no structured source (pyblocks, a deployment)
+          has null counts; claiming an all-clear there would be a 0 nobody measured. */}
+      <h1 className="zen-question" data-testid="vt-zen-empty-head">
+        {!summary.reported.length
+          ? 'Not reported'
+          : summary.notReported.length
+            ? 'Nothing is waiting on you in the tracks that report.'
+            : `Nothing is waiting on you${docs.length === 1 ? ` in ${docs[0].track_title}` : ''}.`}
+      </h1>
+      {docs.map((doc) => {
+        const counts = headerCounts(doc)
+        return (
+          <div key={doc.track} className="zen-empty-track">
+            {docs.length > 1 ? <p className="vt-strong">{doc.track_title}</p> : null}
+            <p className="vt-muted">
+              {counts ? (
+                <>
+                  {counts.blocking} blocking now · {counts.open} open{doc.counts.total !== null ? ` · ${doc.counts.total} items on file` : ''}. {doc.source.note}
+                </>
+              ) : summary.reported.length ? (
+                notReportedText(doc)
+              ) : (
+                // The headline already says "Not reported"; the note says where the questions live.
+                (doc.source.note ?? notReportedText(doc))
+              )}
+            </p>
+            {doc.answer_channel.kind !== 'none' ? (
+              <p className="vt-small vt-faint">
+                Answers would reach it by {doc.answer_channel.kind.replace(/_/g, ' ')}
+                {doc.answer_channel.target ? `: ${doc.answer_channel.target}` : ''}.
+              </p>
+            ) : null}
+          </div>
+        )
+      })}
       {!includeDefaulting && defaultingCount ? (
         <p className="zen-more vt-small">
           <span className="vt-muted">{defaultingCount} open with the default already in effect. </span>
@@ -732,7 +795,10 @@ function Dock({
           ]
         : [
             { k: `1–${current?.item.options.length ?? 3}`, label: 'answer', run: () => undefined },
-            { k: '↵', label: hasDraft ? 'save and next' : 'take recommendation', run: onEnter },
+            // No "take recommendation" key on a card whose loop recorded none (grasping, detection).
+            ...(hasDraft || current?.item.options.some((option) => option.key === 'accept_recommendation')
+              ? [{ k: '↵', label: hasDraft ? 'save and next' : 'take recommendation', run: onEnter }]
+              : []),
             { k: 'N', label: 'note', run: () => (document.querySelector('[data-testid="vt-zen-note"]') as HTMLElement | null)?.focus() },
             { k: 'A', label: contextOpen ? 'hide context' : 'context', run: onContext },
             { k: 'S', label: 'later', run: onSkip },

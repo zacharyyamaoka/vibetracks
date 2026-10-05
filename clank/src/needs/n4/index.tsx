@@ -13,7 +13,26 @@
 // already in effect (computed by the backend), so they never gate "done"; they are there to override, not to answer.
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { CopyOut, EvidenceLink, GROUP_LABEL, choiceLabel, effectiveChoice, isComplete, type Choice, type NeedsDoc, type NeedsItem, type NeedsOption, type NeedsProposalProps } from '../kit'
+import {
+  CopyOut,
+  EvidenceLink,
+  GROUP_LABEL,
+  WHEN_NOT_STATED,
+  appliesAfter,
+  choiceLabel,
+  effectiveChoice,
+  hasDefault,
+  headerCounts,
+  headerSummary,
+  isComplete,
+  notReportedText,
+  useFitToScroller,
+  type Choice,
+  type NeedsDoc,
+  type NeedsItem,
+  type NeedsOption,
+  type NeedsProposalProps,
+} from '../kit'
 import { Md } from './md'
 import { formatLocal } from '../../shared/time'
 import './style/n4.css'
@@ -67,12 +86,13 @@ function formatTs(ts: string | null): string | null {
 
 /** When the default fires, in words; a computed state says so. */
 function defaultWhen(doc: NeedsDoc, item: NeedsItem): string {
-  const { applies, state } = item.default
-  if (applies.unit === 'never') return 'No default: the loop waits for you'
-  const at = `${applies.unit} ${applies.after}`
-  if (state === 'in_effect') return `Already in effect: it applied after ${at} (computed from the loop's progress)`
+  if (!hasDefault(item)) return 'No default recorded'
+  const after = appliesAfter(item)
+  // WHY: the detection plan note never says when its defaults fire; the raw unit read "past unstated null".
+  if (!after) return 'Applies if you stay silent · when: not stated'
+  if (item.default.state === 'in_effect') return `Already in effect: it applied ${after} (computed from the loop's progress)`
   const now = doc.iteration?.finished != null ? ` · ${doc.iteration.unit} ${doc.iteration.finished} has finished` : ''
-  return `Applies if you stay silent past ${at}${now}`
+  return `Applies if you stay silent, ${after}${now}`
 }
 
 function blocksText(item: NeedsItem): string | null {
@@ -83,6 +103,10 @@ function blocksText(item: NeedsItem): string | null {
 export default function NeedsN4(props: NeedsProposalProps) {
   const { docs, loading, error, answers, route, navigate, reload, track } = props
   const [skipped, setSkipped] = useState<Set<string>>(readSkipped)
+  const rootRef = useRef<HTMLDivElement>(null)
+  // WHY a framed page (the stack above the card's own scroll pane) and not `position: sticky`: the sticky stack
+  // covered option 1 of the card scrolled under it (kinsim and rig at max scroll, 1440x900, by elementFromPoint).
+  const height = useFitToScroller(rootRef)
 
   const entries = useMemo<Entry[]>(() => {
     const all: Entry[] = []
@@ -184,7 +208,7 @@ export default function NeedsN4(props: NeedsProposalProps) {
 
   if (loading && !docs.length) {
     return (
-      <div className="vt-page vt-needs-n4">
+      <div ref={rootRef} className="vt-page vt-needs-n4">
         <p className="vt-muted">Reading the loops…</p>
       </div>
     )
@@ -197,7 +221,23 @@ export default function NeedsN4(props: NeedsProposalProps) {
   const skippedCount = needsEntries.filter((entry) => !answered(entry) && skipped.has(entry.key)).length
 
   return (
-    <div className="vt-page vt-needs-n4" data-testid="vt-needs-n4">
+    <div ref={rootRef} className="vt-page vt-needs-n4 n4-framed vt-needs-framed" data-testid="vt-needs-n4" style={height ? { height } : undefined}>
+      {entries.length ? (
+        <div className="n4-top">
+        <Stack
+          needs={needsEntries}
+          optional={optionalEntries}
+          currentKey={currentKey}
+          answered={answered}
+          skipped={skipped}
+          onPick={go}
+          multiTrack={!track}
+          answeredCount={answeredCount}
+        />
+        </div>
+      ) : null}
+      <div className="n4-scroll" data-testid="n4-scroll">
+      <div className="n4-body">
       <header className="n4-head">
         <p className="vt-label">Needs you{doc?.iteration ? ` · ${doc.iteration.unit} ${doc.iteration.n ?? '–'}${doc.iteration.phase ? `, ${doc.iteration.phase.replace(/_/g, ' ')}` : ''}` : ''}</p>
         <h1 className="vt-h1">{doc ? doc.track_title : 'Every track'}</h1>
@@ -212,18 +252,6 @@ export default function NeedsN4(props: NeedsProposalProps) {
         ) : null}
       </header>
 
-      {entries.length ? (
-        <Stack
-          needs={needsEntries}
-          optional={optionalEntries}
-          currentKey={currentKey}
-          answered={answered}
-          skipped={skipped}
-          onPick={go}
-          multiTrack={!track}
-          answeredCount={answeredCount}
-        />
-      ) : null}
 
       {current ? (
         <Card key={current.key} {...props} entry={current} multiTrack={!track} skipped={skipped.has(current.key)} onChoose={choose} onSkip={skip} onStep={step} onAdvance={() => go(nextKey(current))} onUnskip={() => setSkip(current, false)} />
@@ -249,26 +277,25 @@ export default function NeedsN4(props: NeedsProposalProps) {
 
       {empty.length ? <EmptyTracks docs={empty} lone={entries.length === 0} /> : null}
       {decided.length ? <Decided decided={decided} /> : null}
+      </div>
+      </div>
     </div>
   )
 }
 
+/** The header line, from needs.py's numbers (headerCounts): "M open: B blocking now · N waiting with no default · P
+ * default pending", the same B and M as the home cell and the track page; the parts are disjoint and sum to M. A track
+ * with no structured source reads "Not reported" and its own note, never 0. */
 function summaryLine(docs: NeedsDoc[]): string {
-  if (docs.length && docs.every((doc) => !doc.items.length)) return 'No structured questions in this loop yet'
-  const total = docs.reduce(
-    (sum, doc) => ({
-      blocking: sum.blocking + doc.counts.blocking_now,
-      noDefault: sum.noDefault + doc.items.filter((item) => item.group === 'no_default').length,
-      waiting: sum.waiting + doc.counts.waiting,
-      defaulting: sum.defaulting + doc.counts.defaulting,
-    }),
-    { blocking: 0, noDefault: 0, waiting: 0, defaulting: 0 },
-  )
+  const summary = headerSummary(docs)
+  if (!summary.counts) return docs.length === 1 ? notReportedText(docs[0]) : `Not reported: ${summary.notReported.map((doc) => doc.track_title).join(', ')}`
+  const counts = summary.counts
   const parts = [
-    `${total.blocking} blocking now`,
-    total.noDefault ? `${total.noDefault} waiting for you with no default` : null,
-    total.waiting ? `${total.waiting} with a default pending` : null,
-    total.defaulting ? `${total.defaulting} defaulting without you` : null,
+    `${counts.open} open: ${counts.blocking} blocking now`,
+    `${counts.parts.noDefault} waiting with no default`,
+    `${counts.parts.waiting} with a default pending`,
+    counts.defaulting ? `${counts.defaulting} more defaulting without you` : null,
+    summary.notReported.length ? `not reported: ${summary.notReported.map((doc) => doc.track_title).join(', ')}` : null,
   ].filter(Boolean)
   return parts.join(' · ')
 }
@@ -376,8 +403,10 @@ function Card({
     cardRef.current?.focus({ preventScroll: true })
     const card = cardRef.current
     if (card) {
+      // Measured against the page's own scroll pane (the framed layout), not the window.
+      const pane = (card.closest('.n4-scroll') as HTMLElement | null)?.getBoundingClientRect() ?? { top: 0, height: window.innerHeight }
       const box = card.getBoundingClientRect()
-      if (box.top < 0 || box.top > window.innerHeight * 0.6) card.scrollIntoView({ block: 'start', behavior: 'smooth' })
+      if (box.top < pane.top || box.top > pane.top + pane.height * 0.6) card.scrollIntoView({ block: 'start', behavior: 'smooth' })
     }
   }, [])
 
@@ -501,11 +530,11 @@ function Card({
                 <span className="n4-option-label">
                   {option.key === 'other' ? 'Something else…' : option.label}
                   {option.recommended ? <span className="n4-tag n4-tag-rec">Recommended</span> : null}
-                  {option.is_default ? <span className="n4-tag">{item.default.applies.unit === 'never' ? 'No default' : item.default.state === 'in_effect' ? 'Default · in effect' : `Default · after ${item.default.applies.unit} ${item.default.applies.after}`}</span> : null}
+                  {option.is_default ? <span className="n4-tag">{!hasDefault(item) ? 'No default recorded' : item.default.state === 'in_effect' ? 'Default · in effect' : `Default · ${appliesAfter(item) ?? WHEN_NOT_STATED}`}</span> : null}
                   {selected && option.key !== 'other' ? <span className="n4-chosen">✓ your answer</span> : null}
                 </span>
                 {option.detail_md ? <Md className="n4-option-detail" text={option.detail_md} /> : option.key === 'other' ? <span className="n4-option-detail vt-faint">Write your own answer; it goes out as your words.</span> : null}
-                {option.is_default ? <span className="n4-option-when">{defaultWhen(doc, item)}</span> : null}
+                {option.is_default && hasDefault(item) ? <span className="n4-option-when">{defaultWhen(doc, item)}</span> : null}
               </span>
             </button>
           )
@@ -762,21 +791,29 @@ function DoneCard({
 function EmptyTracks({ docs, lone }: { docs: NeedsDoc[]; lone: boolean }) {
   return (
     <section className="n4-empty" data-testid="n4-empty">
-      {lone ? <h2 className="vt-h2">Nothing here needs you</h2> : <p className="n4-section-label">Tracks with no structured questions</p>}
+      {lone ? <h2 className="vt-h2">{docs.some((doc) => headerCounts(doc)) ? 'Nothing here needs you' : 'Not reported'}</h2> : <p className="n4-section-label">Tracks with no structured questions</p>}
       {docs.map((doc) => (
         <div key={doc.track} className="n4-empty-track">
           {!lone || docs.length > 1 ? <p className="vt-strong">{doc.track_title}</p> : null}
+          {/* WHY "Not reported" for null counts: no needs-you file means nobody measured, not that nothing waits. */}
           <p>
             {doc.items.length
               ? `All ${doc.items.length} of its questions are answered or closed.`
-              : 'This loop keeps no needs-you file, so there is nothing to answer here.'}
+              : headerCounts(doc)
+                ? 'Nothing on file asks for you.'
+                : lone && docs.length === 1
+                  ? 'This track keeps no needs-you file, so there is nothing to answer here.'
+                  : notReportedText(doc)}
           </p>
-          {doc.source.note ? <p className="vt-small vt-muted">{doc.source.note}</p> : null}
-          <p className="vt-small vt-muted">
-            An answer would reach it by {doc.answer_channel.kind.replace('_', ' ')}
-            {doc.answer_channel.target ? `: ${doc.answer_channel.target}` : ''}
-            {doc.answer_channel.read_back ? `; read back ${doc.answer_channel.read_back}` : ''}.
-          </p>
+          {doc.source.note && (doc.items.length || headerCounts(doc)) ? <p className="vt-small vt-muted">{doc.source.note}</p> : null}
+          {/* A deployment /needs has no source for has no answer channel either ("by none" said nothing). */}
+          {doc.answer_channel.kind !== 'none' ? (
+            <p className="vt-small vt-muted">
+              An answer would reach it by {doc.answer_channel.kind.replace(/_/g, ' ')}
+              {doc.answer_channel.target ? `: ${doc.answer_channel.target}` : ''}
+              {doc.answer_channel.read_back ? `; read back ${doc.answer_channel.read_back}` : ''}.
+            </p>
+          ) : null}
           {doc.source.paths.length ? (
             <ul className="n4-paths vt-small vt-faint">
               {doc.source.paths.map((path) => (

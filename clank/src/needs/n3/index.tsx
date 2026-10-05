@@ -1,7 +1,7 @@
 // Proposal N3 · "Review document": the GitHub pull-request review applied to the Needs-you page. Every question is
 // one "file" in a single readable document: its why, the loop's options (recommendation and default, verbatim), what
-// it holds, its evidence, and an inline answer. Answers save as drafts on every click or keystroke; a sticky
-// "pending review" meter counts them; one "Finish review → copy" at the end emits the agreed markdown.
+// it holds, its evidence, and an inline answer. Answers save as drafts on every click or keystroke; a pinned
+// "pending review" meter (above the document's own scroll, never over it) counts them; one "Finish review → copy" at the end emits the agreed markdown.
 //
 // WHY a document and not a one-at-a-time focus mode (N1/Sauna): Zach answers better when he can see the neighbouring
 // questions (T12 "land on main" and T33 "disk" interact), and a PR review is the reading mode he already uses daily.
@@ -13,9 +13,17 @@ import {
   CopyOut,
   EvidenceLink,
   GROUP_LABEL,
+  NO_DEFAULT_RECORDED,
+  WHEN_NOT_STATED,
+  appliesAfter,
   choiceLabel,
   effectiveChoice,
+  hasDefault,
+  headerCounts,
+  headerSummary,
   isComplete,
+  notReportedText,
+  useFitToScroller,
   type AnswerDraft,
   type Choice,
   type NeedsDoc,
@@ -85,10 +93,13 @@ function day(iso: string | null | undefined): string {
 
 /** The default's tag on its option row: when it fires, or that it never does. `in_effect` is labelled computed. */
 function defaultTag(doc: NeedsDoc, item: NeedsItem): string {
-  const { applies, state } = item.default
-  if (applies.unit === 'never' || state === 'none') return 'No default · the loop waits for you'
-  if (state === 'in_effect') return `Default · already in effect (computed: ${applies.unit} ${applies.after} has finished${doc.iteration?.finished != null ? `; finished ${doc.iteration.unit} ${doc.iteration.finished}` : ''})`
-  return `Default · applies after ${applies.unit} ${applies.after} if you stay silent${doc.iteration?.finished != null ? ` (now: ${doc.iteration.unit} ${doc.iteration.finished} finished)` : ''}`
+  if (!hasDefault(item) || item.default.state === 'none') return `Default · ${NO_DEFAULT_RECORDED}`
+  const after = appliesAfter(item)
+  // WHY: the detection plan note never says when its defaults fire; the raw unit read "applies after unstated null".
+  if (!after) return `Default · ${WHEN_NOT_STATED}`
+  const now = doc.iteration?.finished != null ? `${doc.iteration.unit} ${doc.iteration.finished} finished` : null
+  if (item.default.state === 'in_effect') return `Default · already in effect (computed: due ${after}${now ? `; ${now}` : ''})`
+  return `Default · applies ${after} if you stay silent${now ? ` (now: ${now})` : ''}`
 }
 
 function opened(doc: NeedsDoc, item: NeedsItem): string {
@@ -124,6 +135,10 @@ export default function NeedsN3(props: NeedsProposalProps) {
   const leftAsks = asks.filter((entry) => !isComplete(draftOf(entry)) && !skips[entry.item.id])
   const overrides = defaulting.filter((entry) => isComplete(draftOf(entry)))
 
+  const rootRef = useRef<HTMLDivElement>(null)
+  // WHY a framed page (the review bar above the document's own scroll) and not `position: sticky`: the sticky bar
+  // covered whichever card head scrolled under it (kinsim T54 at max scroll, 1440x900). Measured by elementFromPoint.
+  const height = useFitToScroller(rootRef)
   const [current, setCurrent] = useState<string | null>(null)
   const [expanded, setExpanded] = useState<Record<string, boolean>>({})
   const cards = useRef(new Map<string, HTMLElement>())
@@ -194,8 +209,8 @@ export default function NeedsN3(props: NeedsProposalProps) {
     return () => document.removeEventListener('keydown', onKey)
   }, [order, current, goTo, choose, setSkip, skips])
 
-  if (loading && !docs.length) return <div className="vt-page vt-needs-n3"><p className="vt-muted">Reading the loops…</p></div>
-  if (error && !docs.length) return <div className="vt-page vt-needs-n3"><p className="vt-tone-risk">/needs did not answer: {error}</p></div>
+  if (loading && !docs.length) return <div ref={rootRef} className="vt-page vt-needs-n3"><p className="vt-muted">Reading the loops…</p></div>
+  if (error && !docs.length) return <div ref={rootRef} className="vt-page vt-needs-n3"><p className="vt-tone-risk">/needs did not answer: {error}</p></div>
 
   const single = !multi ? (props.doc ?? docs[0] ?? null) : null
   const total = asks.length
@@ -204,7 +219,7 @@ export default function NeedsN3(props: NeedsProposalProps) {
   const cardProps = { props, skips, setSkip, choose, isOpen, setOpen, current, setCurrent, cards, nextOpen, goTo, goToFinish }
 
   return (
-    <div className="vt-page vt-needs-n3" data-testid="vt-needs-n3">
+    <div ref={rootRef} className="vt-page vt-needs-n3 vt-n3-framed vt-needs-framed" data-testid="vt-needs-n3" style={height ? { height } : undefined}>
       <div className="vt-n3-layout">
         <nav className="vt-n3-toc" aria-label="Questions in this review">
           <p className="vt-label">In this review</p>
@@ -233,12 +248,6 @@ export default function NeedsN3(props: NeedsProposalProps) {
         </nav>
 
         <main className="vt-n3-main">
-          <header className="vt-n3-header">
-            <p className="vt-label">Needs you · review</p>
-            <h1 className="vt-h1">{single ? single.track_title : 'Every track'}</h1>
-            {single ? <TrackSummary doc={single} /> : <p className="vt-sub">{total} questions want you across {docs.filter((doc) => doc.items.length).length} tracks; {docs.filter((doc) => !doc.items.length).length} tracks have no structured questions yet.</p>}
-          </header>
-
           {total || overrides.length ? (
             <div className="vt-n3-reviewbar" data-testid="vt-n3-reviewbar">
               <span className="vt-n3-reviewbar-title">Pending review</span>
@@ -262,6 +271,12 @@ export default function NeedsN3(props: NeedsProposalProps) {
               </button>
             </div>
           ) : null}
+          <div className="vt-n3-doc" data-testid="vt-n3-doc">
+          <header className="vt-n3-header">
+            <p className="vt-label">Needs you · review</p>
+            <h1 className="vt-h1">{single ? single.track_title : 'Every track'}</h1>
+            {single ? <TrackSummary doc={single} /> : <AllSummary docs={docs} />}
+          </header>
 
           {docs.map((doc) => (
             <section key={doc.track} className="vt-n3-track" data-testid={`vt-n3-track-${doc.track}`}>
@@ -312,22 +327,33 @@ export default function NeedsN3(props: NeedsProposalProps) {
               <p className="vt-small vt-faint vt-n3-keys">Keys: j / k move between questions · 1 2 3 pick an option · s skip · drafts save as you go</p>
             </section>
           ) : null}
+          </div>
         </main>
       </div>
     </div>
   )
 }
 
+/** "B blocking now · M open" from needs.py (headerCounts): the same two numbers as the home cell and the track page,
+ * with M split by group after it (disjoint, so the parts sum to M). WHY not counts.no_default: it also counts blocking items
+ * with no default, and the old line summed to 8 for rig's 6. Null counts read "Not reported" plus the doc's note. */
+function CountsLine({ counts }: { counts: NonNullable<ReturnType<typeof headerCounts>> }) {
+  return (
+    <span data-testid="vt-n3-counts" data-blocking={counts.blocking} data-open={counts.open}>
+      <span className="vt-strong">{counts.open} open</span>
+      {': '}
+      <span className={counts.blocking ? 'vt-tone-warn' : undefined}>{counts.blocking} blocking now</span>
+      {` · ${counts.parts.noDefault} waiting with no default · ${counts.parts.waiting} default pending`}
+      {counts.defaulting ? <span className="vt-faint"> · {counts.defaulting} more defaulting without you</span> : null}
+    </span>
+  )
+}
+
 function TrackSummary({ doc }: { doc: NeedsDoc }) {
-  const c = doc.counts
-  const asks = c.blocking_now + c.no_default + c.waiting
+  const counts = headerCounts(doc)
   return (
     <>
-      <p className="vt-sub">
-        {doc.items.length
-          ? `${asks} question${asks === 1 ? '' : 's'} want${asks === 1 ? 's' : ''} you${c.blocking_now ? ` · ${c.blocking_now} blocking now` : ''}${c.no_default ? ` · ${c.no_default} with no default` : ''}${c.waiting ? ` · ${c.waiting} default pending` : ''}${c.defaulting ? ` · ${c.defaulting} more defaulting without you` : ''}`
-          : 'No structured questions from this track yet.'}
-      </p>
+      <p className="vt-sub">{counts ? <CountsLine counts={counts} /> : <span data-testid="vt-n3-not-reported">{notReportedText(doc)}</span>}</p>
       {/* WHY no source line on an empty track: its empty-state box already quotes the note and the channel. */}
       {doc.items.length ? <p className="vt-small vt-faint vt-n3-source">
         {doc.iteration ? `${doc.iteration.unit} ${doc.iteration.n ?? '–'}${doc.iteration.phase ? ` · ${doc.iteration.phase.replace(/_/g, ' ')}` : ''} · ` : ''}
@@ -339,17 +365,30 @@ function TrackSummary({ doc }: { doc: NeedsDoc }) {
   )
 }
 
+function AllSummary({ docs }: { docs: NeedsDoc[] }) {
+  const summary = headerSummary(docs)
+  return (
+    <p className="vt-sub">
+      {summary.counts ? <CountsLine counts={summary.counts} /> : 'Not reported'}
+      {summary.counts ? ` across ${summary.reported.length} track${summary.reported.length === 1 ? '' : 's'}` : ''}
+      {summary.notReported.length ? <span className="vt-faint"> · not reported: {summary.notReported.map((doc) => doc.track_title).join(', ')}</span> : null}
+    </p>
+  )
+}
+
 function EmptyTrack({ doc }: { doc: NeedsDoc }) {
   return (
     <div className="vt-n3-empty" data-testid="vt-n3-empty">
-      <p className="vt-strong">Nothing to review here.</p>
-      <p className="vt-small vt-muted">This track has no needs-you file, so there are no ids, defaults or statuses to answer against. Where its questions live today:</p>
-      {doc.source.note ? <p className="vt-small vt-n3-quote"><Inline text={doc.source.note} /></p> : null}
-      <p className="vt-small vt-muted">
-        How an answer would reach it: {doc.answer_channel.kind.replace(/_/g, ' ')}
-        {doc.answer_channel.target ? ` → ${doc.answer_channel.target}` : ''}
-        {doc.answer_channel.read_back ? `; read back ${doc.answer_channel.read_back}` : ''}.
-      </p>
+      <p className="vt-strong">{headerCounts(doc) ? 'Nothing to review here.' : 'Not reported'}</p>
+      {/* WHY no note here: the track's summary line right above already reads "Not reported: <note>". */}
+      <p className="vt-small vt-muted">This track has no needs-you file, so there are no ids, defaults or statuses to answer against.</p>
+      {doc.answer_channel.kind !== 'none' ? (
+        <p className="vt-small vt-muted">
+          How an answer would reach it: {doc.answer_channel.kind.replace(/_/g, ' ')}
+          {doc.answer_channel.target ? ` → ${doc.answer_channel.target}` : ''}
+          {doc.answer_channel.read_back ? `; read back ${doc.answer_channel.read_back}` : ''}.
+        </p>
+      ) : null}
     </div>
   )
 }

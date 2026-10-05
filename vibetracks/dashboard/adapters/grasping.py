@@ -418,6 +418,28 @@ def needs_cells(cur: Curriculum) -> tuple[dict[str, list[Any]], dict[str, list[s
     return approvals, other
 
 
+_APPROVAL_PHRASE = re.compile(r"^(?P<phrase>.*?\bapproval)\b", re.S)
+
+
+def approval_phrases(cells: list[Any]) -> list[str]:
+    """The words each approval cell's ``why`` uses to name the approval, verbatim and de-duplicated in CELLS order.
+
+    ``"download approval (planar classics, BSD-3)"`` and ``"download approval: the bundled checkpoint is ..."`` both
+    give ``"download approval"``: the ``why`` up to and including the word "approval" (the same word ``needs_cells``
+    routes on), never reworded. WHY: /needs builds the question from these words plus the model id
+    ("M5.ggcnn · download approval"); a question the loop never asked ("Approve downloading M5.ggcnn?") read as the
+    loop's own words.
+    """
+
+    phrases: list[str] = []
+    for cell in cells:
+        match = _APPROVAL_PHRASE.match((cell.why or "").strip())
+        phrase = match.group("phrase").strip() if match else (cell.why or "").strip()
+        if phrase and phrase not in phrases:
+            phrases.append(phrase)
+    return phrases
+
+
 def hardest_gated_env(cur: Curriculum) -> str | None:
     """The last gated env in curriculum order (MuJoCo stage 5 today): the milestone the loop is climbing toward."""
 

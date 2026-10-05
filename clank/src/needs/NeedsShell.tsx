@@ -10,7 +10,8 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type { PluginBackend } from '@clank/api'
 import type { Projection } from '../shared/model'
 import { parseRoute, type Route } from '../shared/route'
-import { useNeeds } from './api'
+import { trackById } from '../shared/model'
+import { isUnknownTrackError, unreportedDoc, useNeeds, type NeedsState } from './api'
 import { useAnswerStore } from './answers'
 import type { NeedsProposalDefinition } from './proposal'
 import N1, { NAME as NAME_1 } from './n1'
@@ -120,6 +121,27 @@ function stepOutOfNeeds(navigate: (route: Route, mode?: 'push' | 'replace') => v
   history.back()
 }
 
+/** /needs, with a track it does not know (a deployment: `#vt?track=can16&needs=1`) answered from the projection.
+ *
+ * WHY: /needs reads loops' question files, and a deployment such as can16 has none, so it answers 404; the page then
+ * showed "/needs did not answer: unknown track" under the raw id "can16". The dashboard does know that track (the
+ * projection lists it, as a loop or as a loop's deployment), so the page names it by its title and says plainly that
+ * nothing is reported, with every count null like any other not-reported track. An id the projection does not know
+ * either keeps the error: then it really is unknown. */
+function useKnownNeeds(needs: NeedsState, track: string | null, projection: Projection | null): NeedsState {
+  const known = track && projection ? trackById(projection, track) : null
+  const unknown = Boolean(track && known && isUnknownTrackError(needs.error) && !needs.docs.some((doc) => doc.track === track))
+  const title = known?.title ?? null
+  const kind = known?.kind ?? null
+  // Memoised on the identity only, so the proposals get the same docs array on every render (their effects key on it).
+  const docs = useMemo(() => {
+    if (!unknown || !track || !title) return null
+    const note = kind === 'deployment' ? 'This deployment has no needs-you source.' : 'This track has no needs-you source.'
+    return [unreportedDoc(track, title, note)]
+  }, [unknown, track, title, kind])
+  return docs ? { ...needs, docs, doc: docs[0], error: null } : needs
+}
+
 export interface NeedsShellProps {
   backend: PluginBackend
   route: Route
@@ -129,7 +151,7 @@ export interface NeedsShellProps {
 
 export function NeedsShell({ backend, route, navigate, projection }: NeedsShellProps) {
   const track = route.track ?? null
-  const needs = useNeeds(backend, track)
+  const needs = useKnownNeeds(useNeeds(backend, track), track, projection)
   const answers = useAnswerStore()
   const [key, setKey] = useState(readStored)
   const choose = useCallback((next: string) => {

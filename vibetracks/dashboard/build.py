@@ -8,7 +8,9 @@ declares, and assembles ``vibetracks-dashboard/1`` with ``source.live: true``. T
 
 **Needs you (live):** every top-level track's ``needs_you`` and ``needs_you_count`` come from
 ``vibetracks/dashboard/needs.py`` (the /needs route's own doc for that track), never from the adapter's list: one
-source, so the home cell, the track page and the needs page show the same "B blocking · M open".
+source, so the home cell, the track page and the needs page show the same "B blocking · M open". A deployment
+(child) has no needs-you source at all, so it reads null/null and an empty list ("not reported"), whatever its
+adapter or the snapshot carried.
 
 **Snapshot (``--snapshot``, and the fallback for the rig's can12/can16 children until the rig adapter draws them):**
 the data home (default ``~/.local/share/vibetracks/dashboard``, or ``dashboard_data_home`` in vibetracks/sources.py) holds:
@@ -404,6 +406,22 @@ class LiveBuilder:
         out["needs_you_source"] = {"adapter": source.get("adapter"), "live": bool(source.get("live")),
                                    "note": source.get("note") if doc is not None else "needs.py could not build this track"}
 
+    @staticmethod
+    def _child_needs(out: dict[str, Any], parent: WorkTrack) -> None:
+        """A deployment's needs-you fields: null/null, an empty list, and a note saying where its questions live.
+
+        WHY not the child's own count: the 2026-10-03 snapshot's CAN 12 / CAN 16 rows carried 0/0, so their cells read
+        "Needs you · nothing open" while needs.py, the one source, reports nothing for a deployment (its page said
+        "not reported"). A count with no source is unknown, never 0 (truth rule); the parent loop's questions are on
+        the parent's page.
+        """
+
+        out["needs_you_count"] = {"open": None, "blocking": None}
+        out["needs_you"] = []
+        out["needs_you_source"] = {"adapter": None, "live": False,
+                                   "note": f"needs.py reads no questions per deployment; the {parent.title} loop's "
+                                           f"questions are on its own page"}
+
     # -------------------------------------------------------------------------------- assembling
 
     @staticmethod
@@ -422,12 +440,14 @@ class LiveBuilder:
         out["reporting"] = reporting
         out["source"] = {**source, **(out.get("source") if isinstance(out.get("source"), dict) else {})} \
             if reporting else {**source, "kind": "none", "live": False}
-        counts = out.get("needs_you_count")
-        if not isinstance(counts, dict):
-            needs = out.get("needs_you") or []
-            counts = ({"open": len(needs), "blocking": sum(1 for need in needs if isinstance(need, dict) and need.get("blocks"))}
-                      if reporting else {"open": None, "blocking": None})
-        out["needs_you_count"] = counts
+        # WHY no count derived here: needs.py is the one source of every Needs-you number. A top-level track gets its
+        # fields from _apply_needs right after this; a child gets null/null from _child_needs. The old fallback
+        # ("blocking" = "names a rung", open = list length) was the second source that disagreed with /needs.
+        if parent is None:
+            out["needs_you_count"] = {"open": None, "blocking": None}
+            out["needs_you"] = []
+        else:
+            LiveBuilder._child_needs(out, parent)
         out["freshness"] = fresh
         state = dict(out.get("state") or {})
         if fresh.get("stale") and state.get("tone") in ("ok", "muted"):

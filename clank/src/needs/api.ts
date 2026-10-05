@@ -44,24 +44,52 @@ export interface NeedsState {
 
 /** Fetch /needs for `track` (null = all tracks); `reload()` re-reads the loops' live files. */
 export function useNeeds(backend: PluginBackend, track: string | null): NeedsState {
-  const [state, setState] = useState<{ docs: NeedsDoc[]; loading: boolean; error: string | null }>({ docs: [], loading: true, error: null })
+  // `key` is the track the docs were read for. WHY: a failed read keeps the last docs (a reload hiccup must not blank
+  // the page), but only for the SAME track; moving from kinsim to a track /needs does not know must never leave
+  // kinsim's questions on screen under the other track's route.
+  const [state, setState] = useState<{ key: string | null; docs: NeedsDoc[]; loading: boolean; error: string | null }>({ key: track, docs: [], loading: true, error: null })
   const [tick, setTick] = useState(0)
   const ticket = useRef(0)
   useEffect(() => {
     const mine = ++ticket.current
     const controller = new AbortController()
-    setState((previous) => ({ ...previous, loading: true }))
+    setState((previous) => (previous.key === track ? { ...previous, loading: true } : { key: track, docs: [], loading: true, error: null }))
     fetchNeeds(backend, track, controller.signal).then(
-      (docs) => mine === ticket.current && setState({ docs, loading: false, error: null }),
+      (docs) => mine === ticket.current && setState({ key: track, docs, loading: false, error: null }),
       (error: unknown) => {
         if (mine !== ticket.current || controller.signal.aborted) return
-        setState((previous) => ({ docs: previous.docs, loading: false, error: error instanceof Error ? error.message : String(error) }))
+        const message = error instanceof Error ? error.message : String(error)
+        setState((previous) => ({ key: track, docs: previous.key === track ? previous.docs : [], loading: false, error: message }))
       },
     )
     return () => controller.abort()
   }, [backend, track, tick])
   const reload = useCallback(() => setTick((n) => n + 1), [])
-  return { ...state, doc: track ? (state.docs.find((doc) => doc.track === track) ?? null) : null, reload }
+  const docs = state.key === track ? state.docs : []
+  return { docs, loading: state.key === track ? state.loading : true, error: state.key === track ? state.error : null, doc: track ? (docs.find((doc) => doc.track === track) ?? null) : null, reload }
+}
+
+/** True for the error /needs answers for a track it has no source for (`404 {"error": "unknown track 'can16'"}`). */
+export function isUnknownTrackError(error: string | null): boolean {
+  return Boolean(error && /^unknown track\b/.test(error))
+}
+
+/** A doc for a track /needs has no source for (a rig deployment such as can16), built from what the dashboard does
+ * know: its title. Every count is null ("not reported", never 0), exactly like needs.py's own empty doc, so every
+ * proposal renders it with the same not-reported path. The note is the dashboard's words, not a loop's. */
+export function unreportedDoc(track: string, title: string, note: string): NeedsDoc {
+  const nulls = { open: null, blocking_now: null, wants_you: null, no_default: null, waiting: null, defaulting: null, answered: null, defaulted: null, closed: null, total: null }
+  return {
+    schema: NEEDS_SCHEMA,
+    track,
+    track_title: title,
+    generated_at: new Date().toISOString(),
+    iteration: null,
+    source: { adapter: 'none (dashboard: /needs has no source for this track)', paths: [], commit: null, live: false, note },
+    answer_channel: { kind: 'none', target: null, row_schema: null, read_back: null },
+    counts: nulls,
+    items: [],
+  }
 }
 
 /** Same-origin URL serving one evidence entry's file, or null when the backend will not serve it (URL, directory). */

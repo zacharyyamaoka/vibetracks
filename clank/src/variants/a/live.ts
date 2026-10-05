@@ -82,9 +82,20 @@ export function freshnessOf(track: Track): Freshness | null {
 /** `{open, blocking}`; each null when unknown (a track that has not reported has not said it needs nothing). */
 export function needsCount(track: Track): { open: number | null; blocking: number | null } {
   const raw = field(track, 'needs_you_count')
+  // WHY a live track's count without `needs_you_source` reads "not reported": the counts have ONE source (needs.py,
+  // which the build stamps as needs_you_source); a deployment (CAN 12/16) has none, and its 0/0 was the build's own
+  // fallback from an empty adapter list, so its page said "nothing open" about questions nobody asked it. `reporting`
+  // marks a live build (it sets it on every track); a snapshot track has neither field and keeps the fallback below.
+  if (field(track, 'reporting') !== undefined && !isObject(field(track, 'needs_you_source'))) return { open: null, blocking: null }
   if (isObject(raw)) return { open: num(raw.open), blocking: num(raw.blocking) }
   // A snapshot track carries the questions themselves.
   return { open: track.needs_you.length, blocking: blockingQuestions(track).length }
+}
+
+/** The build's own note on where this track's questions come from (needs_you_source.note), shown on hover. */
+export function needsSourceNote(track: Track): string | null {
+  const raw = field(track, 'needs_you_source')
+  return isObject(raw) ? str(raw.note) : null
 }
 
 /** "12 min ago", "5 h ago", "3 days ago": wall-clock age, as the build measured it on this request. */

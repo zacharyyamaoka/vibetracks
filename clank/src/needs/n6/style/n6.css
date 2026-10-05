@@ -10,50 +10,40 @@
   .vt-dash .vt-needs-n6.vt-needs-n6:focus-visible {
     outline: none;
   }
-  /* WHY three columns with the card in the middle one: the card keeps reading width and stays centred; the left
-     column holds the key rail, the right one stays empty so nothing competes with the question. */
-  .vt-dash .vt-needs-n6 .n6-layout {
-    display: grid;
-    grid-template-columns: minmax(0, 1fr) minmax(0, 760px) minmax(0, 1fr);
-  }
+  /* WHY one centred column and nothing beside it: the key rail that used to sit left of the card stacked ABOVE the
+     header below 1180 px and pushed the options off the first screen; the keys are now one quiet line under the
+     options. */
   .vt-dash .vt-needs-n6 .n6-main {
-    grid-column: 2;
-    grid-row: 1;
+    max-width: 760px;
+    margin: 0 auto;
     min-width: 0;
   }
-  .vt-dash .vt-needs-n6 .n6-rail {
-    grid-column: 1;
-    grid-row: 1;
-    justify-self: end;
-    align-self: start;
-    position: sticky;
-    top: 12px;
-    padding: 112px 8px 0 16px;
-  }
   .vt-dash .vt-needs-n6 .n6-stage {
-    padding: 8px 32px 120px;
+    padding: 0 32px 120px;
   }
   .vt-dash .vt-needs-n6 .n6-quiet {
     padding-top: 40px;
   }
 
-  /* ---- progress: the one line Zach asked for ("3 of 7 · blocks BT3, BT4") plus one tick per card */
+  /* ---- progress: one row ("1 of 3 · Blocking now", one tick per card, "0 answered") */
   .vt-dash .vt-needs-n6 .n6-progress {
-    padding: 10px 32px 0;
-  }
-  .vt-dash .vt-needs-n6 .n6-progress-line {
     display: flex;
-    flex-wrap: wrap;
-    align-items: baseline;
-    gap: 0 4px;
+    align-items: center;
+    gap: 14px;
+    padding: 6px 32px 0;
+  }
+  .vt-dash .vt-needs-n6 .n6-progress-where {
+    flex: none;
   }
   .vt-dash .vt-needs-n6 .n6-progress-meter {
     margin-left: auto;
+    flex: none;
   }
   .vt-dash .vt-needs-n6 .n6-ticks {
     display: flex;
+    flex: 1;
+    min-width: 0;
     gap: 4px;
-    margin-top: 8px;
   }
   .vt-dash .vt-needs-n6 .n6-tick {
     flex: 1;
@@ -76,10 +66,10 @@
   }
 
   /* ---- the card */
-  /* WHY 20px and not N1's 36: the fact rows now sit above the options, so the lane gives back the space to keep the
-     recommendation on the first screen. */
+  /* WHY 18px and not N1's 36: the update, the why and the fact line sit above the options, so the lane gives back the
+     space that keeps every option on the first screen at 1280x800. */
   .vt-dash .vt-needs-n6 .n6-card {
-    padding-top: 20px;
+    padding-top: 18px;
     animation: vt-n6-in 180ms ease-out;
   }
   @keyframes vt-n6-in {
@@ -98,9 +88,9 @@
     }
   }
   .vt-dash .vt-needs-n6 .n6-question {
-    margin-top: 6px;
-    font-size: 26px;
-    line-height: 1.25;
+    margin-top: 4px;
+    font-size: 23px;
+    line-height: 1.28;
     font-weight: 650;
     letter-spacing: -0.01em;
   }
@@ -111,25 +101,83 @@
     border-radius: 3px;
     background: var(--vt-band);
   }
-  .vt-dash .vt-needs-n6 .n6-why {
-    margin-top: 22px;
+  /* The newest update and the why lead: the loop's own words, clamped with an explicit "…more". */
+  .vt-dash .vt-needs-n6 .n6-lead {
+    margin-top: 10px;
   }
-  .vt-dash .vt-needs-n6 .n6-why .n6-prose {
-    margin-top: 3px;
-    font-size: 15px;
-    line-height: 1.6;
+  .vt-dash .vt-needs-n6 .n6-lead .n6-prose {
+    font-size: 14.5px;
+    line-height: 1.55;
+  }
+  .vt-dash .vt-needs-n6 .n6-update-top {
+    padding-left: 10px;
+    border-left: 2px solid var(--vt-line);
+  }
+  .vt-dash .vt-needs-n6 .n6-inline-label {
+    color: var(--vt-faint);
+    font-size: 12.5px;
+  }
+  .vt-dash .vt-needs-n6 .n6-clamp {
+    position: relative;
+  }
+  .vt-dash .vt-needs-n6 .n6-clamp[data-open='false'] .n6-clamp-body {
+    max-height: calc(var(--n6-lines) * 1lh);
+    overflow: hidden;
+  }
+  .vt-dash .vt-needs-n6 .n6-clamp-body {
+    line-height: 1.55;
+    font-size: 14.5px;
+  }
+  /* The "…more" sits over the end of the last visible line, on a fade, so the cut is never silent. */
+  .vt-dash .vt-needs-n6 .n6-clamp-more {
+    position: absolute;
+    right: 0;
+    bottom: 0;
+    padding: 0 2px 0 36px;
+    font-size: 14.5px;
+    line-height: 1.55;
+    color: var(--vt-fg);
+    font-weight: 500;
+    background: linear-gradient(90deg, transparent, var(--vt-bg) 30px);
+  }
+  .vt-dash .vt-needs-n6 .n6-clamp-more:hover,
+  .vt-dash .vt-needs-n6 .n6-clamp-less:hover,
+  .vt-dash .vt-needs-n6 .n6-inline-btn:hover,
+  .vt-dash .vt-needs-n6 .n6-keys-toggle:hover {
+    text-decoration: underline;
+    color: var(--vt-fg);
+  }
+  .vt-dash .vt-needs-n6 .n6-clamp-less {
+    color: var(--vt-grey);
+  }
+  /* ONE compact fact line: "Blocks BT3, BT4 · If silent: option 2 after wave 5 · Opened wave 3 · 10-02". */
+  .vt-dash .vt-needs-n6 .n6-factline {
+    margin-top: 10px;
+    line-height: 1.55;
+    overflow-wrap: anywhere;
+  }
+  .vt-dash .vt-needs-n6 .n6-factline .vt-strong {
+    color: var(--vt-fg);
+    font-weight: 500;
+  }
+  .vt-dash .vt-needs-n6 .n6-sep {
+    color: var(--vt-faint);
+  }
+  .vt-dash .vt-needs-n6 .n6-inline-btn {
+    color: var(--vt-grey);
+    font-weight: 500;
   }
 
   /* ---- options: numbered rows, the key on the left, the loop's own words underneath */
   .vt-dash .vt-needs-n6 .n6-options {
-    margin-top: 28px;
+    margin-top: 12px;
   }
   .vt-dash .vt-needs-n6 .n6-option {
     display: flex;
     gap: 12px;
     width: 100%;
     margin-top: 6px;
-    padding: 10px 12px;
+    padding: 8px 12px;
     border-radius: 6px;
     box-shadow: 0 0 0 1px var(--vt-line);
   }
@@ -163,7 +211,7 @@
   }
   .vt-dash .vt-needs-n6 .n6-option-detail {
     color: var(--vt-grey);
-    line-height: 1.5;
+    line-height: 1.45;
   }
   .vt-dash .vt-needs-n6 .n6-key {
     display: inline-block;
@@ -183,7 +231,7 @@
   .vt-dash .vt-needs-n6 .n6-note {
     display: block;
     width: 100%;
-    margin-top: 10px;
+    margin-top: 8px;
     padding: 8px 10px;
     border: 1px solid var(--vt-line);
     border-radius: 6px;
@@ -207,23 +255,14 @@
     text-decoration: underline;
   }
 
-  /* ---- context: one key away (Sauna's artifacts panel; Anki's reveal) */
+  /* ---- context: open, verbatim, directly under the options (Zach: "I need enough context") */
   .vt-dash .vt-needs-n6 .n6-context {
     margin-top: 24px;
     padding-top: 14px;
     border-top: 1px solid var(--vt-line);
   }
-  .vt-dash .vt-needs-n6 .n6-fold {
-    display: inline-flex;
-    align-items: center;
-    gap: 8px;
-    color: var(--vt-grey);
-  }
-  .vt-dash .vt-needs-n6 .n6-fold:hover {
-    color: var(--vt-fg);
-  }
-  .vt-dash .vt-needs-n6 .n6-context-body {
-    margin-top: 14px;
+  .vt-dash .vt-needs-n6 .n6-context > * + * {
+    margin-top: 10px;
   }
   .vt-dash .vt-needs-n6 .n6-prose {
     line-height: 1.6;
@@ -240,7 +279,7 @@
   .vt-dash .vt-needs-n6 .n6-provenance {
     margin-bottom: 6px;
   }
-  /* N2's fact rows: Blocks · If you stay silent · When · Opened, above the options. */
+  /* N2's fact rows, in full, at the end of the context (the line above the options is their short form). */
   .vt-dash .vt-needs-n6 .n6-facts {
     display: grid;
     grid-template-columns: 128px minmax(0, 1fr);
@@ -248,11 +287,9 @@
     margin: 18px 0 0;
     padding: 12px 0;
     border-top: 1px solid var(--vt-line);
-    border-bottom: 1px solid var(--vt-line);
   }
-  .vt-dash .vt-needs-n6 .n6-facts-tail {
-    margin-top: 22px;
-    border-bottom: none;
+  .vt-dash .vt-needs-n6 .n6-block-row {
+    display: block;
   }
   .vt-dash .vt-needs-n6 .n6-facts dt {
     color: var(--vt-faint);
@@ -289,9 +326,12 @@
   .vt-dash .vt-needs-n6 .n6-summary-row:hover {
     background: var(--vt-hover);
   }
+  /* WHY nowrap and a minimum, not a fixed width: ids run from "T2" to "M5.contact_graspnet", and a 34px column broke
+     "plan-1" across two lines. */
   .vt-dash .vt-needs-n6 .n6-summary-id {
-    width: 34px;
+    min-width: 34px;
     flex: none;
+    white-space: nowrap;
   }
   .vt-dash .vt-needs-n6 .n6-summary-text {
     display: flex;
@@ -324,76 +364,47 @@
     margin-top: 6px;
   }
 
-  /* ---- the dock: the only chrome; live keys for the current sub-mode, in a rail left of the card. */
-  /* WHY a fixed width: the dock's labels change with the sub-mode ("take recommendation" vs "save and next"); a
-     shrink-wrapped rail would jump sideways on every answer. */
-  .vt-dash .vt-needs-n6 .n6-dock {
-    width: 190px;
-    display: flex;
-    flex-direction: column;
-    align-items: flex-start;
-    gap: 2px;
+  /* ---- keys: one quiet line under the options; "? keys" opens the full legend in place */
+  .vt-dash .vt-needs-n6 .n6-keys {
+    margin-top: 8px;
+  }
+  .vt-dash .vt-needs-n6 .n6-keys-toggle {
     color: var(--vt-grey);
   }
-  .vt-dash .vt-needs-n6 .n6-dock-title {
-    padding: 0 4px 6px;
+  .vt-dash .vt-needs-n6 .n6-legend {
+    display: grid;
+    grid-template-columns: 56px minmax(0, 1fr);
+    gap: 4px 12px;
+    margin-top: 8px;
+    padding: 10px 12px;
+    border-radius: 6px;
+    background: var(--vt-band);
+    color: var(--vt-grey);
   }
-  .vt-dash .vt-needs-n6 .n6-dock-item {
-    display: inline-flex;
-    align-items: center;
-    gap: 8px;
-    padding: 3px 8px 3px 4px;
-    border-radius: 5px;
-    white-space: nowrap;
-  }
-  .vt-dash .vt-needs-n6 .n6-dock-item .n6-key {
-    min-width: 34px;
-  }
-  .vt-dash .vt-needs-n6 button.n6-dock-item:hover {
-    background: var(--vt-hover);
+  .vt-dash .vt-needs-n6 .n6-legend dt {
     color: var(--vt-fg);
   }
-  /* Narrow panel: no room for a rail, so the keys sit as one wrapped line under the progress ticks. */
-  @container vt-n6 (max-width: 1180px) {
-    .vt-dash .vt-needs-n6 .n6-layout {
-      grid-template-columns: minmax(0, 1fr);
-    }
-    .vt-dash .vt-needs-n6 .n6-main {
-      grid-column: 1;
-      grid-row: 2;
-    }
-    .vt-dash .vt-needs-n6 .n6-rail {
-      grid-column: 1;
-      grid-row: 1;
-      position: static;
-      justify-self: stretch;
-      width: 100%;
-      max-width: 760px;
-      margin: 0 auto;
-      padding: 6px 28px 0;
-    }
-    .vt-dash .vt-needs-n6 .n6-dock {
-      flex-direction: row;
-      flex-wrap: wrap;
-    }
-    .vt-dash .vt-needs-n6 .n6-dock-title {
-      display: none;
-    }
-    .vt-dash .vt-needs-n6 .n6-dock-item .n6-key {
-      min-width: 20px;
-    }
+  .vt-dash .vt-needs-n6 .n6-legend dd {
+    margin: 0;
+  }
+  .vt-dash .vt-needs-n6 .n6-end .n6-keys {
+    margin-top: 14px;
   }
 
   /* ---- N6 additions: header counts, labels, markdown, end-screen lines */
+  /* Title and the home cell's two numbers on one line. */
   .vt-dash .vt-needs-n6 .n6-head {
-    padding: 14px 32px 0;
+    display: flex;
+    flex-wrap: wrap;
+    align-items: baseline;
+    gap: 0 12px;
+    padding: 8px 32px 0;
   }
   .vt-dash .vt-needs-n6 .n6-head-title {
     font-size: 15px;
     font-weight: 600;
   }
   .vt-dash .vt-needs-n6 .n6-head-counts {
-    margin-top: 2px;
     color: var(--vt-grey);
   }
   .vt-dash .vt-needs-n6 .n6-head-counts .vt-strong {

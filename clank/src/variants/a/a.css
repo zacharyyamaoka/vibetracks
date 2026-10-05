@@ -34,7 +34,13 @@
     background: var(--vt-hover);
     border-radius: 3px;
     padding: 0 4px;
-    word-break: break-all;
+    /* WHY break-word and not break-all: break-all split tokens anywhere ("loo|p-status.json" in a purpose line); a
+       path or file name wraps only at its natural breaks (a space, a hyphen), and a token wider than the line may
+       still break so nothing overflows. The padding/background repeat on each wrapped line. */
+    overflow-wrap: break-word;
+    word-break: normal;
+    -webkit-box-decoration-break: clone;
+    box-decoration-break: clone;
   }
   .vt-dash .vt-a .vt-a-section {
     margin-top: 36px;
@@ -90,10 +96,19 @@
     font-weight: 600;
     font-size: 14.5px;
   }
+  /* WHY max-width + a shrinkable text column: the cell is 19% of the table; a long detail line ("4 proven (not
+     current)") pushed the trend glyph out over the next column. The text wraps at its spaces, the glyph never shrinks. */
   .vt-dash .vt-a .vt-a-prog {
     display: inline-flex;
     align-items: center;
     gap: 14px;
+    max-width: 100%;
+  }
+  .vt-dash .vt-a .vt-a-prog > .vt-a-two {
+    min-width: 0;
+  }
+  .vt-dash .vt-a .vt-a-prog > :not(.vt-a-two) {
+    flex-shrink: 0;
   }
   .vt-dash .vt-a .vt-a-prog strong {
     font-weight: 600;

@@ -41,12 +41,15 @@ Served by `GET /needs?track=<id>` (one doc) and `GET /needs` (`vibetracks-needs-
 - `grasping`: one `approval` item per model id from `curriculum.py` CELLS with status `needs` whose reason names a download approval, parsed by the grasping adapter's own `needs_cells()`. `local_id` is the model id (`M5.ggcnn`); `ask` is "Approve downloading <model id>?" (the only words not in the file: CELLS carry reasons, not questions); `context_md` is the model's title, licence and notes and the cells it holds by their own reason, verbatim. No default is recorded, so they group `no_default`. `blocks` are `cell`s, not rungs: the adapter's frontier rule counts wave-1 cells and gates only, so an approval never blocks now. Answers go by `chat_paste`, naming model ids verbatim.
 - `detection`: the vault plan note's `## Needs you` items, parsed by the detection adapter's own `parse_needs_section()`, every field verbatim (`context_md` is the whole item, nested bullets and wikilinks included). `blocks` are the rungs the item says it blocks. A stated default has `applies.unit` `unstated` (the note never says when it fires), state `pending`; an item with no `*Default if silent:*` has unit `never` ("no default recorded").
 - `pyblocks` and any registry track needs.py has no source for: `items: []`, `source.note` saying where the questions live, and **every count null** ("not reported", never 0).
+- A track /needs does not know (a rig deployment such as `can16`) answers `404 {"error": "unknown track 'can16'"}`. The shell (`NeedsShell.tsx`) then looks the id up in the projection (a loop or a loop's deployment) and hands the proposal `unreportedDoc(...)`: the projection's title, every count null, `source.note` "This deployment has no needs-you source.", `answer_channel.kind` `none`. So a proposal never sees that error or the raw id; an id the projection does not know either keeps the error.
 
 **Per doc:** `track`, `track_title`, `generated_at`, `iteration {unit, n, phase, finished}`, `source {adapter, paths, commit, live, note}`, `answer_channel {kind, target, row_schema, read_back}`, `counts`, `items`.
 
 `counts`: `open` (raw status open), `blocking_now`, **`wants_you`** (groups blocking + no_default + waiting: open items whose default is NOT already in effect), `no_default` (waits for Zach forever), `waiting` (default pending, blocks nothing), `defaulting` (open, but its default is already in effect), `answered`, `defaulted`, `closed`, `total`. Every value is null on a doc with no structured source.
 
 **The frozen counts contract.** needs.py is the ONE source of every Needs-you number. The projection's `needs_you_count` is `{open: counts.wants_you, blocking: counts.blocking_now}` for the same track (build.py fills it from this doc, and its `needs_you` list from these items), so a page header must show exactly `B blocking · M open` with `B = counts.blocking_now`, `M = counts.wants_you`, and "not reported" when they are null. `tests/test_dashboard_needs_counts.py` pins it.
+
+**Read the header numbers through `headerCounts(doc)`** (or `headerSummary(docs)` for every track), never by adding count fields: it returns `{blocking, open, parts: {blocking, noDefault, waiting}, defaulting}` or `null` for a not-reported doc. `parts` is `open` split by item group, so each item is counted once and the three sum to `open`. **`counts.no_default` is not one of them:** it also counts blocking items that have no default (rig T2, T14), and "2 blocking now · 4 no default · 2 default pending" summed to 8 against rig's 6. The shared header line is `M open: B blocking now · N waiting with no default · P default pending` (then `· D more defaulting without you`). A null doc reads `notReportedText(doc)`: "Not reported: " plus its `source.note`, verbatim.
 
 **Per item** (every field the source has, verbatim):
 
@@ -61,7 +64,7 @@ Served by `GET /needs?track=<id>` (one doc) and `GET /needs` (`vibetracks-needs-
 | `context_summary` | only when a loop emits one; always `null` today. The dashboard never invents one |
 | `recommendation_md` | the loop's recommendation, verbatim |
 | `default {text_md, applies {unit, after}, state}` | what happens if Zach is silent, and when. `applies.unit` `never` = it waits for him (`text_md` is `""`); `unstated` = there is a default but the source never says when it fires (`after` null; say "when: not stated", never "after unstated null"). `state` is **computed** (`pending`, `in_effect`, `none`); do not trust `status` alone, since loops leave items open after their default applied |
-| `options[]` | the implicit choices, each with the loop's own words: `accept_recommendation` (detail = recommendation; **absent** when the source records no recommendation, as for grasping and detection), `use_default` (detail = default; labelled "Keep waiting (no default)" for `never` items), `other` (needs a note) |
+| `options[]` | the choices, in order: any leading ones (grasping's `approve`, "Approve the download"), then the implicit ones: `accept_recommendation` (detail = recommendation; **absent** when the source records no recommendation, as for grasping and detection), `use_default` (detail = default; labelled "Keep waiting (no default)" for `never` items), `other` (needs a note). Every option has `source: "dashboard"`: its `label` is the dashboard's words, and `detail_md` is the only loop text (or null). Never assume a key is there: a key or ↵ that picks `accept_recommendation` on an item without it files an answer to a choice the loop never gave |
 | `blocks[] {id, kind, label}` | what it holds, with titles: rungs or packages (triage, detection), `cell`s (grasping, label "env title · tier N"). `blocking_now`, not a non-empty `blocks`, says whether it blocks now |
 | `blocking_now` | open, unanswered, default not in effect, and blocks something |
 | `group` | `blocking`, `no_default`, `waiting`, `defaulting`, `answered`, `done`. `GROUP_LABEL` has the words |
@@ -70,7 +73,7 @@ Served by `GET /needs?track=<id>` (one doc) and `GET /needs` (`vibetracks-needs-
 | `status`, `raw_status` | `status` is effective: an answer row the integrator has not folded yet already reads `answered` |
 | `answer` | `{choice, note, ts, by, channel, folded, action_md, quoted}` when the loop has one. `by: null` means the loop closed it without Zach's words; `quoted: false` means the note is the integrator's paraphrase |
 
-Helpers: `openAsks(doc)` (blocking + no default + pending), `itemsInGroup(doc, group)`, `describeDefault(item)`.
+Helpers: `openAsks(doc)` (blocking + no default + pending), `itemsInGroup(doc, group)`, `describeDefault(item)`, `appliesAfter(item)` ("after wave 5", or `null` when the source does not say when), `hasDefault(item)`, and the words `NO_DEFAULT_RECORDED` ("no default recorded", unit `never`) and `WHEN_NOT_STATED` ("when: not stated", unit `unstated`). Never print `applies.unit`/`applies.after` raw: that produced "after unstated null".
 
 **Live today (2026-10-04):** kinsim has 1 blocking (T47 → BT3, BT4, default after wave 5), 2 with no default (T12, T33), and 8 open items whose default is already in effect (T11, T15, T52–T57). Rig has 2 blocking (T2 → BN1, T14 → HW1, both no default), 2 more with no default (T15, T17), 2 pending (T13, T16) and 5 defaulting.
 
@@ -85,9 +88,11 @@ Helpers: `openAsks(doc)` (blocking + no default + pending), `itemsInGroup(doc, g
 | `exportAnswers(docs, answers.get)`, `exportTrack(doc, …)` | the export text, if you need it without the button |
 | `<EvidenceLink backend doc item index projection? />` | one evidence entry: opens through the projection's media route when the path is a known media file, else through `/needs/evidence` (which serves only paths the backend itself extracted from that item); a directory or unservable file is shown as its path with a copy button, never as a dead link |
 | `evidenceHref(...)`, `evidenceUrl(...)` | the href alone |
+| `headerCounts(doc)`, `headerSummary(docs)`, `notReportedText(doc)` | the header's two numbers and their disjoint parts, from needs.py; `null` / `notReported` for a track that reports none (see the counts contract above) |
+| `useFitToScroller(rootRef, reserve?)` | fits your page to the rest of `.vt-scroll` (less `CHOOSER_RESERVE`, 56 px, for the N-chooser) so your panes scroll inside it. Give the root the class `vt-needs-framed` too; the shell then drops its own bottom padding. Use it for any bar that must stay in view (see CSS) |
 | `<PlaceholderList {...props} label />` | the placeholder every folder starts with. Delete it from your folder once your page renders |
 
-**The export format** (what Copy answers produces; one block per track, unanswered items omitted):
+**The export format** (what Copy answers produces; one block per track, unanswered items omitted). For a track whose loop reads rows (`row_schema` `bam-triage-answer/1`: kinsim):
 
 ````markdown
 # Answers · Kinematic Sim · 2026-10-04 19:19 PDT
@@ -102,11 +107,24 @@ Helpers: `openAsks(doc)` (blocking + no default + pending), `itemsInGroup(doc, g
 ```
 ````
 
-The `jsonl` fence appears only when the track's `answer_channel.row_schema` is `bam-triage-answer/1` (kinsim). Those rows are exactly `{ts, triage_id, choice, note}`, so the integrator can append them verbatim to `triage_answers.jsonl`. Rig and the others get the same markdown without the fence, for a chat paste. Every heading carries `local_id` and the full title, so the integrator never has to ask which item.
+The `jsonl` fence appears only when the track's `answer_channel.row_schema` is `bam-triage-answer/1` (kinsim). Those rows are exactly `{ts, triage_id, choice, note}`, so the integrator can append them verbatim to `triage_answers.jsonl`; the loop resolves the choice against its own file. Every heading carries `local_id` and the full title, so the integrator never has to ask which item.
+
+Every other track (rig's `chat_paste`, detection's `note_paste`, …) gets no fence, and **the chosen option's own words are quoted under the answer line**, every line of the loop's text, because the label alone ("Go with the recommendation") does not say what was approved and a chat-paste integrator has nothing else to read:
+
+````markdown
+## T2 · Flash diff on controller 192551cb (plan D2)
+- **Answer:** Go with the recommendation (accept_recommendation)
+  > Approve the diff the first bench window shows you; until then RAM-only config with readback.
+- **Note:** …
+````
+
+"Something else" quotes nothing (the note is the answer). An option the loop recorded no words for reads `> (the loop recorded no words for this option)`.
 
 ## CSS
 
 Use `calm.css` (`vt-page`, `vt-h1`…, `vt-muted`, `vt-faint`, `vt-small`, `vt-chip-btn`, the `--vt-*` tokens; see `VARIANT-KIT.md`). Root your own rules in `.vt-dash .vt-needs-n<k>` inside `@layer base`, in a CSS file in your folder. The page sits inside `.vt-scroll`; the chooser and the A · B · C switcher cover the bottom-right ~90 px, so leave bottom padding.
+
+**No `position: sticky` bar over scrolling content.** A sticky bar covers whatever scrolls under it: measured with `elementFromPoint` at 1440x900, N3's review bar sat over kinsim T54's card head and N4's stack over option 1 at max scroll. A bar that must stay in view goes above a pane that scrolls on its own: frame the page with `useFitToScroller` (N3, N4 do; N2 and N5 fit themselves the same way).
 
 ## Rules (from Zach's memory)
 

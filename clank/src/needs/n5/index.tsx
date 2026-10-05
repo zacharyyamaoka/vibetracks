@@ -17,9 +17,15 @@ import {
   CopyOut,
   EvidenceLink,
   GROUP_LABEL,
+  WHEN_NOT_STATED,
+  appliesAfter,
   choiceLabel,
   effectiveChoice,
+  hasDefault,
+  headerCounts,
+  headerSummary,
   isComplete,
+  notReportedText,
   type AnswerDraft,
   type Choice,
   type NeedsDoc,
@@ -97,12 +103,14 @@ function unitWord(doc: NeedsDoc): string {
 
 /** The default line's computed half: when it fires, measured against where the loop is. Labelled as computed. */
 function defaultTiming(doc: NeedsDoc, item: NeedsItem): { text: string; tone: 'warn' | 'muted' } {
-  const { applies, state } = item.default
   const finished = doc.iteration?.finished
   const at = finished !== null && finished !== undefined ? `the loop has finished ${unitWord(doc)} ${finished}` : null
-  if (applies.unit === 'never') return { text: 'No default: this waits for you.', tone: 'warn' }
-  if (state === 'in_effect') return { text: `Already in effect (after ${applies.unit} ${applies.after}${at ? `; ${at}` : ''}).`, tone: 'muted' }
-  return { text: `Applies after ${applies.unit} ${applies.after}${at ? `; ${at}` : ''}.`, tone: 'muted' }
+  if (!hasDefault(item)) return { text: 'No default recorded.', tone: 'warn' }
+  const after = appliesAfter(item)
+  // WHY: the detection plan note never says when its defaults fire; the raw unit read "Applies after unstated null."
+  if (!after) return { text: `Applies if you stay silent; ${WHEN_NOT_STATED}.`, tone: 'muted' }
+  if (item.default.state === 'in_effect') return { text: `Already in effect (${after}${at ? `; ${at}` : ''}).`, tone: 'muted' }
+  return { text: `Applies ${after}${at ? `; ${at}` : ''}.`, tone: 'muted' }
 }
 
 function draftSummary(item: NeedsItem, draft: AnswerDraft | null): string | null {
@@ -236,8 +244,10 @@ export default function NeedsN5(props: NeedsProposalProps) {
       if (key === 'j' || key === 'k') {
         const next = list[key === 'j' ? Math.min(list.length - 1, index + 1) : Math.max(0, index - 1)]
         if (next) select(next.item.id)
-      } else if (current && key === 'a') reply(current, 'accept_recommendation', composerRef.current?.value ?? '')
-      else if (current && key === 'd') reply(current, 'use_default', composerRef.current?.value ?? '')
+      // WHY only when the thread offers that option: grasping and detection record no recommendation, and a key must
+      // never file an answer to an option the loop did not give.
+      } else if (current && key === 'a' && current.item.options.some((option) => option.key === 'accept_recommendation')) reply(current, 'accept_recommendation', composerRef.current?.value ?? '')
+      else if (current && key === 'd' && current.item.options.some((option) => option.key === 'use_default')) reply(current, 'use_default', composerRef.current?.value ?? '')
       else if (current && key === 's') skip(current)
       else if (current && key === 'r') composerRef.current?.focus()
       else return
@@ -256,7 +266,9 @@ export default function NeedsN5(props: NeedsProposalProps) {
     if (!active || active === document.body || active === document.documentElement) rootRef.current?.focus({ preventScroll: true })
   }, [currentId])
 
-  const totalAsking = threads.filter((t) => ASKING.includes(t.item.group)).length
+  // WHY the header shows needs.py's B and M (headerSummary) and not a count of threads: the home cell and the track page
+  // say "B blocking · M open" from the same doc, and a track with no structured source must read "not reported".
+  const summary = headerSummary(docs)
   const repliedCount = threads.filter(replied).length
   const stillNeed = threads.filter((t) => ASKING.includes(t.item.group) && !replied(t)).length
 
@@ -265,8 +277,15 @@ export default function NeedsN5(props: NeedsProposalProps) {
       <aside className="n5-rail" aria-label="Threads" data-testid="n5-rail">
         <div className="n5-rail-head">
           <h1 className="vt-h3">Needs you</h1>
-          <p className="vt-small vt-faint">
-            {totalAsking} asking · {stillNeed} still need you
+          <p className="vt-small vt-faint" data-testid="n5-counts">
+            {summary.counts ? (
+              <>
+                <span className={summary.counts.blocking ? 'vt-tone-warn' : undefined}>{summary.counts.blocking} blocking now</span> · {summary.counts.open} open · {stillNeed} without a reply
+              </>
+            ) : (
+              'Not reported'
+            )}
+            {summary.counts && summary.notReported.length ? ` · not reported: ${summary.notReported.map((doc) => doc.track_title).join(', ')}` : ''}
           </p>
         </div>
         {loading && !docs.length ? <p className="vt-small vt-muted n5-pad">Reading the loops…</p> : null}
@@ -287,7 +306,7 @@ export default function NeedsN5(props: NeedsProposalProps) {
                 {doc.track_title}
                 {doc.counts.blocking_now ? <span className="vt-tone-warn n5-rail-count">{doc.counts.blocking_now} blocking</span> : null}
               </h2>
-              {!doc.items.length ? <p className="vt-small vt-faint n5-rail-empty" title={doc.source.note ?? undefined}>No questions from this loop.</p> : null}
+              {!doc.items.length ? <p className="vt-small vt-faint n5-rail-empty">{headerCounts(doc) ? 'No questions from this loop.' : 'Not reported'}</p> : null}
               {RAIL_OPEN.map((group) => {
                 const items = open.filter((item) => item.group === group)
                 if (!items.length) return null
@@ -364,19 +383,27 @@ function RailRow({ doc, item, current, draft, skipped, onSelect }: { doc: NeedsD
 function EmptyState({ docs, track }: { docs: NeedsDoc[]; track: string | null }) {
   return (
     <div className="n5-empty" data-testid="n5-empty">
-      <p className="vt-h2">No agent is asking you anything here.</p>
+      <p className="vt-h2">{docs.some((doc) => headerCounts(doc)) ? 'No agent is asking you anything here.' : 'Not reported'}</p>
       {docs.map((doc) => (
         <div key={doc.track} className="n5-empty-track">
           {track ? null : <p className="vt-strong">{doc.track_title}</p>}
-          <p className="vt-muted">
-            This loop has no structured questions file, so there are no threads to show.
-            {doc.source.note ? ' Where its questions actually live:' : ''}
-          </p>
-          {doc.source.note ? <p className="n5-empty-note">{doc.source.note}</p> : null}
-          <p className="vt-small vt-faint">
-            An answer would reach it by {doc.answer_channel.kind.replace(/_/g, ' ')}
-            {doc.answer_channel.target ? ` → ${doc.answer_channel.target}` : ''}.
-          </p>
+          {headerCounts(doc) ? (
+            <>
+              <p className="vt-muted">0 blocking now · 0 open.</p>
+              {doc.source.note ? <p className="n5-empty-note">{doc.source.note}</p> : null}
+            </>
+          ) : (
+            <>
+              <p className="vt-muted">This track has no structured questions file, so there are no threads to show.</p>
+              <p className="n5-empty-note">{doc.source.note ?? notReportedText(doc)}</p>
+            </>
+          )}
+          {doc.answer_channel.kind !== 'none' ? (
+            <p className="vt-small vt-faint">
+              An answer would reach it by {doc.answer_channel.kind.replace(/_/g, ' ')}
+              {doc.answer_channel.target ? ` → ${doc.answer_channel.target}` : ''}.
+            </p>
+          ) : null}
         </div>
       ))}
     </div>
@@ -477,8 +504,8 @@ function ThreadView(props: ThreadProps) {
           <div className="n5-default" data-testid="n5-default">
             <p className="n5-key">If you don't answer</p>
             <p className="n5-pre"><Inline text={item.default.text_md || 'No default recorded.'} /></p>
-            {/* WHY skip the computed line when the loop's own words already open with "No default": say it once. */}
-            {item.default.applies.unit === 'never' && /^no default/i.test(item.default.text_md) ? null : (
+            {/* WHY skip the computed line when there is no default: the line above already says so, once. */}
+            {!hasDefault(item) ? null : (
             <p className={`vt-small ${timing.tone === 'warn' ? 'vt-tone-warn' : 'vt-faint'}`}>
               {timing.text}
               {item.default.state === 'in_effect' ? ' Computed from the loop’s finished iteration; its own status still reads open.' : ''}
@@ -578,7 +605,8 @@ function ThreadView(props: ThreadProps) {
                 >
                   {option.label}
                   {option.recommended ? <span className="n5-chip-tag">recommended</span> : null}
-                  <kbd>{option.key === 'accept_recommendation' ? 'A' : 'D'}</kbd>
+                  {/* Only the two keys the thread listens for; an `approve` chip has no key, so it shows none. */}
+                  {option.key === 'accept_recommendation' ? <kbd>A</kbd> : option.key === 'use_default' ? <kbd>D</kbd> : null}
                 </button>
               ))}
           </div>
@@ -651,7 +679,8 @@ function Outbox({ docs, answers, skipped, repliedCount, stillNeed, onSelect }: N
         <span style={{ width: total ? `${Math.round((100 * Math.min(repliedCount, total)) / total)}%` : '0%' }} />
       </div>
       <p className="vt-small vt-muted">
-        {repliedCount} {repliedCount === 1 ? 'reply' : 'replies'} drafted · {stillNeed} still need you
+        {repliedCount} {repliedCount === 1 ? 'reply' : 'replies'} drafted
+        {docs.some((doc) => headerCounts(doc)) ? ` · ${stillNeed} without a reply` : ' · not reported'}
       </p>
       {docs.map((doc) => {
         const lines = doc.items
