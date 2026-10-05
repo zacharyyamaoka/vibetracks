@@ -133,7 +133,7 @@ def main() -> int:
             root_children = page.evaluate("() => document.querySelector('#storybook-root')?.childElementCount || 0")
             # The decorator's "Fixture missing" line (stories/decorators.tsx): the story rendered, but not the component.
             fixture_missing = page.evaluate("() => document.querySelector('[data-testid=story-fixture-missing]')?.dataset.missing ?? null")
-            shot = out / f"{story_id}.png"
+            shot = checked_out(out / f"{story_id}.png")  # each file too: a symlink inside the folder must not lead out (Codex D01)
             page.screenshot(path=str(shot), full_page=False)
             problems = []
             if outcome["status"] != "rendered":
@@ -177,7 +177,7 @@ def main() -> int:
         "out": str(out),
         "results": results,
     }
-    (out / "summary.json").write_text(json.dumps(summary, indent=2) + "\n")
+    checked_out(out / "summary.json").write_text(json.dumps(summary, indent=2) + "\n")
     print(f"\n{passed} of {len(results)} stories passed ({summary['fixture_missing']} showing \"Fixture missing\") in {summary['seconds']} s; summary {out / 'summary.json'}")
     return 0 if results and passed == len(results) else 1
 

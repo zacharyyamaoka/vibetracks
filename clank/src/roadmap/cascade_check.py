@@ -171,7 +171,7 @@ def main() -> int:
             results = [page.evaluate(PROBE, override)]
             if args.shots:
                 args.shots.mkdir(parents=True, exist_ok=True)
-                page.screenshot(path=str(args.shots / f"{story}.png"))
+                page.screenshot(path=str(checked_out(args.shots / f"{story}.png")))  # each file: a symlink must not lead out (Codex D01)
             # Going to a lineage neighbour puts a trail (crumb, back button) on the card; probe that state too.
             neighbour = page.locator(".vt-rm-mini:not(.vt-rm-mini-strong)").first
             if neighbour.count():
@@ -194,7 +194,7 @@ def main() -> int:
     print(f"DISCARDED DECLARATIONS: {discarded} across {len(by_class)} class sets")
     print(f"BUTTON CLASSES NOT RENDERED BY ANY STORY (not covered): {unseen or 'none'}")
     if args.json:
-        args.json.write_text(json.dumps({"discarded": {c: {p: sorted(v) for p, v in props.items()} for c, props in by_class.items()}, "unseen": unseen}, indent=1))
+        checked_out(args.json).write_text(json.dumps({"discarded": {c: {p: sorted(v) for p, v in props.items()} for c, props in by_class.items()}, "unseen": unseen}, indent=1))
     return 1 if discarded or unseen else 0
 
 
