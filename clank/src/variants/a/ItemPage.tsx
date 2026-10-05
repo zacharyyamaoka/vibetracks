@@ -6,6 +6,7 @@ import { useRef } from 'react'
 import type { EvidenceItem, Kpi, MediaRef, Projection, Track } from '../../shared'
 import {
   Breadcrumb,
+  MediaErrorLine,
   MediaView,
   N1_WORD,
   StaleMediaLine,
@@ -246,7 +247,7 @@ function VideoPair({ pair, mediaUrl }: { pair: MediaRef[]; mediaUrl: (id: string
                 </a>
               </figcaption>
               {refusal ? (
-                <p className="vt-error" data-testid="vt-media-error">Could not load: {refusal}</p>
+                <MediaErrorLine refusal={refusal} />
               ) : (
                 <video
                   ref={(element) => {

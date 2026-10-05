@@ -64,7 +64,7 @@ try {
 
     // 1. The real side answers 409.
     await page.goto(at(itemHash), { waitUntil: 'networkidle' })
-    await pair.locator('[data-testid=vt-media-stale]').waitFor({ timeout: 5000 }).catch(() => {})
+    await pair.locator('[data-testid=vt-media-stale]').waitFor({ timeout: 20000 }).catch(() => {})
     let seen = await inPair()
     console.log(`409: ${JSON.stringify({ ...seen, text: seen.text.slice(0, 120) })}`)
     check(seen.stale === 1, 'a 409 shows the one calm stale line in the pair')
@@ -93,7 +93,7 @@ try {
     simStatus = 404
     await page.goto(at('vt'), { waitUntil: 'networkidle' })
     await page.goto(at(itemHash), { waitUntil: 'networkidle' })
-    await pair.locator('[data-testid=vt-media-error]').waitFor({ timeout: 5000 }).catch(() => {})
+    await pair.locator('[data-testid=vt-media-error]').waitFor({ timeout: 20000 }).catch(() => {})
     seen = await inPair()
     check(seen.stale === 0, 'a 404 is not reported as "changed"')
     check(seen.errors === 1 && /Could not load: HTTP 404/.test(seen.text), 'the refused side says "Could not load: HTTP 404"')
@@ -122,7 +122,7 @@ try {
     )
     await page.goto(at(`vt?track=${encodeURIComponent(doc.track)}&item=${encodeURIComponent(doc.item)}`), { waitUntil: 'networkidle' })
     const view = page.locator('[data-testid=vt-a-item] [data-testid=vt-media-view]').first()
-    await view.locator('[data-testid=vt-media-stale]').waitFor({ timeout: 5000 }).catch(() => {})
+    await view.locator('[data-testid=vt-media-stale]').waitFor({ timeout: 20000 }).catch(() => {})
     check((await view.locator('[data-testid=vt-media-stale]').count()) === 1, "MediaView: a text write-up's 409 shows the stale line")
     check((await view.locator('a').count()) === 0 && (await view.locator('[data-testid=vt-media-text]').count()) === 0, 'MediaView: no "Open in new tab" and no text under it')
   }

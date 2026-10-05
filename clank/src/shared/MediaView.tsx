@@ -7,7 +7,7 @@
 // link shows, in place of the player and its "Open in new tab" (a link that would only 409 is a fake control), and
 // waits for Zach: it never retries with a newer revision on its own, which would show a file he has not seen listed.
 
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import type { MediaRef } from './model'
 import { checkMedia, requestProjectionReload, useProjectionsLoaded } from './api'
 import { VideoPlayer } from './VideoPlayer'
@@ -21,8 +21,9 @@ export interface MediaRefusals {
   markChanged(url: string): void
 }
 
-/** Ask the backend whether each url still opens (HEAD), and re-ask a refused one after each accepted projection.
- * `check` false skips the HEAD (a text write-up learns its status from its own GET and reports it via markChanged).
+/** Ask the backend whether each url still opens (HEAD), and re-ask EVERY refused one after each accepted projection.
+ * `check` false skips the first HEAD (a text write-up learns its status from its own GET and reports it via
+ * markChanged); a refusal recorded that way is still re-asked with HEAD after a reload.
  *
  * WHY one hook for MediaView and the item page's real|sim pair (verifier, 2026-10-05, item c): the pair drew its own
  * <video> elements without asking, so a 409 left two dead players at 0:00 and two "open in new tab" links that would
@@ -34,14 +35,26 @@ export function useMediaRefusals(urls: readonly string[], check = true): MediaRe
   const key = urls.join('\n')
   const current = (url: string) => (urls.includes(url) ? (refused[url] ?? null) : null)
   const stale = urls.some((url) => refused[url] === 'changed')
-  const settle = useCallback((url: string, verdict: string) => {
-    setRefused((previous) => {
-      if (verdict === 'ok' && !(url in previous)) return previous
-      const next = { ...previous }
-      if (verdict === 'ok') delete next[url]
-      else next[url] = verdict
-      return next
-    })
+  // WHY a ticket per url (the stale-response guard): an url can be asked twice in flight (its first HEAD, then a
+  // re-check after a reload). Only the answer to the LATEST question may land, so a slow early 404 can never undo the
+  // recovery a later 200 reported, nor a slow early 200 hide a later refusal.
+  const asked = useRef(new Map<string, number>())
+  const ask = useCallback((url: string, isLive: () => boolean) => {
+    const ticket = (asked.current.get(url) ?? 0) + 1
+    asked.current.set(url, ticket)
+    void checkMedia(url).then(
+      (verdict) => {
+        if (!isLive() || asked.current.get(url) !== ticket) return
+        setRefused((previous) => {
+          if (verdict === 'ok' ? !(url in previous) : previous[url] === verdict) return previous
+          const next = { ...previous }
+          if (verdict === 'ok') delete next[url]
+          else next[url] = verdict
+          return next
+        })
+      },
+      () => undefined, // the backend unreachable: the page's own banner says so; the player shows its own state
+    )
   }, [])
 
   useEffect(() => {
@@ -54,37 +67,32 @@ export function useMediaRefusals(urls: readonly string[], check = true): MediaRe
     // common case pays no wait.
     if (!check) return
     let live = true
-    for (const url of urls) {
-      void checkMedia(url).then(
-        (verdict) => live && settle(url, verdict),
-        () => undefined, // the backend unreachable: the page's own banner says so; the player shows its own state
-      )
-    }
+    for (const url of urls) ask(url, () => live)
     return () => {
       live = false
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps -- `key` is the url list's identity
-  }, [key, check, settle])
+  }, [key, check, ask])
 
   useEffect(() => {
-    // After a reload that kept the same revision (a restarted backend hands the same one back), check again: the
-    // projection that was re-read is what the backend holds now. Only while refused, so a poll costs nothing.
-    if (!stale) return
+    // After each accepted projection, ask again about EVERY url this view holds a refusal for, whatever the refusal.
+    // WHY every one and not only 409s (Codex audit 2026-10-05 round 4, finding 2): a reload that keeps the revision
+    // (a restored file, a fixed permission, a restarted backend handing the same revision back) gives the same urls,
+    // so nothing else would ever ask again: a 404 or 403 seen once stayed on screen for good, hiding evidence that
+    // opens. Only refused urls are asked, so a reload with everything open costs no request.
     let live = true
-    for (const url of urls) {
-      if (refused[url] !== 'changed') continue
-      void checkMedia(url).then(
-        (verdict) => live && verdict !== 'changed' && settle(url, verdict),
-        () => undefined,
-      )
-    }
+    for (const url of urls) if (url in refused) ask(url, () => live)
     return () => {
       live = false
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- re-run on each accepted projection, not on `stale` flips
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- re-run on each accepted projection only
   }, [loaded])
 
-  const markChanged = useCallback((url: string) => settle(url, 'changed'), [settle])
+  const markChanged = useCallback((url: string) => {
+    // A refusal learnt from the url's own GET is the newest answer: it outranks any HEAD still in flight.
+    asked.current.set(url, (asked.current.get(url) ?? 0) + 1)
+    setRefused((previous) => (previous[url] === 'changed' ? previous : { ...previous, [url]: 'changed' }))
+  }, [])
   return { refusal: current, stale, markChanged }
 }
 
@@ -95,6 +103,22 @@ export function StaleMediaLine() {
     <p className="vt-media-stale" role="status" data-testid="vt-media-stale" style={{ color: 'var(--vt-risk)' }}>
       This changed since you opened it:{' '}
       <button type="button" className="vt-btn vt-faint vt-small" onClick={() => requestProjectionReload()}>
+        reload
+      </button>
+    </p>
+  )
+}
+
+/** The line a view shows when the backend refused its media for another reason (404, 403, …), in place of the player.
+ * WHY it offers "reload" too (Codex audit 2026-10-05 round 4, finding 2): a restored file or a fixed permission keeps
+ * the same revision, and only a re-read of the projection makes every view ask again (useMediaRefusals, TextMedia).
+ * Without it the item page had no way back short of leaving it. Like StaleMediaLine, it never retries on its own. */
+export function MediaErrorLine({ refusal }: { refusal: string }) {
+  return (
+    <p className="vt-error" data-testid="vt-media-error">
+      Could not load: {refusal}
+      {' · '}
+      <button type="button" className="vt-btn vt-faint vt-small" data-testid="vt-media-reload" onClick={() => requestProjectionReload()}>
         reload
       </button>
     </p>
@@ -131,7 +155,7 @@ export function MediaView({ media, url, onClose }: MediaViewProps) {
         <StaleMediaLine />
       ) : (
         <>
-          {refusal ? <p className="vt-error" data-testid="vt-media-error">Could not load: {refusal}</p> : null}
+          {refusal ? <MediaErrorLine refusal={refusal} /> : null}
           {media.kind === 'video' && !refusal ? <VideoPlayer src={url} label={media.label} /> : null}
           {media.kind === 'html' && !refusal ? <iframe src={url} title={media.label} loading="lazy" /> : null}
           {media.kind === 'image' && !refusal ? <img src={url} alt={media.label} style={{ maxWidth: '100%' }} /> : null}
@@ -147,6 +171,16 @@ export function MediaView({ media, url, onClose }: MediaViewProps) {
 function TextMedia({ url, onChanged }: { url: string; onChanged: () => void }) {
   const [text, setText] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
+  // WHY a retry on each accepted projection while failed (Codex audit 2026-10-05 round 4, finding 2, the text sibling):
+  // a write-up reads its status from its own GET, keyed by its url; a reload that keeps the revision keeps the url, so
+  // a 404 seen once would never be asked again. A write-up that loaded is left alone: a reload costs it nothing.
+  const loaded = useProjectionsLoaded()
+  const [attempt, setAttempt] = useState(0)
+  const failed = useRef(false)
+  failed.current = error !== null
+  useEffect(() => {
+    if (failed.current) setAttempt((previous) => previous + 1)
+  }, [loaded])
   useEffect(() => {
     // Belt and braces beside the key above: any caller that reuses this instance for a new URL still starts clean.
     setText(null)
@@ -169,9 +203,9 @@ function TextMedia({ url, onChanged }: { url: string; onChanged: () => void }) {
         },
       )
     return () => controller.abort()
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- `onChanged` is a fresh closure each render; the url is the input
-  }, [url])
-  if (error) return <p className="vt-error" data-testid="vt-media-error">Could not load: {error}</p>
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- `onChanged` is a fresh closure each render; url + attempt are the input
+  }, [url, attempt])
+  if (error) return <MediaErrorLine refusal={error} />
   if (text === null) return <p className="vt-faint" data-testid="vt-media-loading">Loading…</p>
   return <pre data-testid="vt-media-text">{text}</pre>
 }

@@ -20,7 +20,7 @@
 | prop | what |
 |---|---|
 | `projection` | the whole projection (`docs/dashboard/PROJECTION.md`) |
-| `mediaUrl(id)` | same-origin URL for a media id, `/media/<id>?rev=<media_rev>` of the projection being drawn: `<video src>`, `<iframe src>`, `<a href>`. A 409 means the file changed since that projection; show the reload line (PROJECTION.md, Media). Never used on the Needs page, whose evidence goes through `/needs/evidence` (NEEDS-KIT.md) |
+| `mediaUrl(id)` | same-origin URL for a media id, `/media/<id>?rev=<media_rev>` of the projection this viewer shows (bound per viewer: two viewers of one `.vtdash` never share a revision): `<video src>`, `<iframe src>`, `<a href>`. A 409 means the file changed since that projection; show the reload line (PROJECTION.md, Media). Never used on the Needs page, whose evidence goes through `/needs/evidence` (NEEDS-KIT.md) |
 | `route`, `navigate(route, 'push' \| 'replace')` | place, kept in the URL hash (`#vt?track=…&kpi=…&iteration=…&item=…`, plus any keys you add; `needs=1` opens the Needs page, `settings=1` the settings page). Push for a deeper level so Back climbs a level; replace for a sideways move. |
 | `reload({rebuild?})` | re-read the projection, or rerun the adapter first |
 | `title` | the .vtdash file's title ("Agent work") |
@@ -48,7 +48,7 @@
 | `<Sparkline values target? domain? selected? step? />` | a 64 × 18 glyph; gaps break the line; the latest point is emphasised |
 | `<SeriesChart kpi iterations selected onSelectIteration compact? domain? leftMargin? readout? />` | one KPI on the aligned x-axis: target line or band, change-marker hairlines (marker text in the readout and tooltip), n labels, hollow points for n ≤ 1, gaps for unmeasured iterations, a clickable column per iteration. Keep `leftMargin` equal across stacked charts so their columns line up. |
 | `<EvidenceList items mediaUrl openMedia? onOpenMedia? selectedItem? onSelectItem? />` | level-3 rows with metrics; media open in place (video, report frame, audit text) plus "Open in new tab" |
-| `<MediaView media url />`, `<VideoPlayer src />` | one media item on its own |
+| `<MediaView media url />`, `<VideoPlayer src />` | one media item on its own; a refusal shows a line with "reload", and every refused view asks again after each accepted projection |
 | `<Breadcrumb items />` | every crumb but the last is a button |
 
 **CSS (`shared/calm.css`, rooted in `.vt-dash`):** `vt-page`, `vt-h1`, `vt-h2`, `vt-h3`, `vt-sub`, `vt-muted`, `vt-faint`, `vt-small`, `vt-num`, `vt-strong`, `vt-label`, `vt-table` (`tr.vt-row-link`, `tr.vt-group`, `.vt-latest`, `.vt-gap`), `vt-btn` (an unstyled button), `vt-chip-btn`, `vt-tone-*`. The colour tokens are `--vt-fg`, `--vt-grey`, `--vt-faint`, `--vt-line`, `--vt-hover`, `--vt-press`, `--vt-accent`, `--vt-band`, `--vt-warn`, `--vt-risk` and `--vt-stale`. Root any CSS of your own in `.vt-dash .vt-<your variant>` inside `@layer base`, and import it from your folder.

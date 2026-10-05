@@ -36,28 +36,9 @@ export async function fetchProjection(backend: PluginBackend, options: { rebuild
   return projection
 }
 
-/** The media revision a projection answer carries (`media_rev`, added by the backend), or null when it has none. */
-export function mediaRevision(projection: Projection | null | undefined): string | null {
-  const value = (projection as { media_rev?: unknown } | null | undefined)?.media_rev
-  return typeof value === 'string' && value ? value : null
-}
-
-// The media revision of the projection on screen, per backend. WHY written while useProjection renders (and not in a
-// fetch callback or an effect): every variant gets one `mediaUrl(id)` memoised on the backend alone (Dashboard.tsx),
-// and calls it while rendering the projection it was handed; the hook's render runs first in that same pass, so the
-// revision read is the one of the projection being drawn - never a newer fetch's, never the last one's.
-const shownMediaRevision = new WeakMap<PluginBackend, string | null>()
-
-/** The URL a `<video src>`, `<iframe src>` or `<a href>` uses for one media id. Same origin as the page.
- *
- * WHY it carries the revision (audit 2026-10-05 round 2, sibling of finding 1): the backend serves a media id only
- * from the files recorded under the projection the page was given, so a poll or another tab that sees a retargeted
- * alias cannot change what this page's URL opens. A URL with no revision is refused (409): the page must reload. */
-export function mediaUrl(backend: PluginBackend, id: string, revision?: string | null): string {
-  const rev = revision === undefined ? shownMediaRevision.get(backend) ?? null : revision
-  const base = `${backend.baseUrl}/media/${encodeURIComponent(id)}`
-  return rev ? `${base}?rev=${encodeURIComponent(rev)}` : base
-}
+// The media URL builders live in mediaBinding.ts (bound to a projection, never to a backend); re-exported here so the
+// variants keep one import.
+export { bindMediaUrl, mediaRevision, mediaUrl } from './mediaBinding'
 
 /** Ask the backend whether a media URL still opens, reading only its status (HEAD): 'ok', 'changed' (409: the
  * projection it came from is no longer held, or its file changed since it was shown), or `HTTP <status>`. */
@@ -169,6 +150,5 @@ export function useProjection(backend: PluginBackend): ProjectionState {
       reloadListeners.delete(listener)
     }
   }, [reload])
-  shownMediaRevision.set(backend, mediaRevision(state.projection))
   return { ...state, reload }
 }

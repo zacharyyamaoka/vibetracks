@@ -14,7 +14,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Settings as SettingsIcon } from 'lucide-react'
 import type { PluginBackend, SettingsSection, ViewerProps } from '@clank/api'
 import './shared/calm.css'
-import { mediaUrl as buildMediaUrl, useProjection } from './shared/api'
+import { bindMediaUrl, mediaRevision, useProjection } from './shared/api'
 import { KitPreview } from './shared/KitPreview'
 import { useRoute, type Route } from './shared/route'
 import {
@@ -117,7 +117,12 @@ export function Dashboard({ session, panel, backend }: ViewerProps & { backend: 
     return () => window.removeEventListener('keydown', onKey)
   }, [settingsOpen, closeSettings])
 
-  const mediaUrl = useMemo(() => (id: string) => buildMediaUrl(backend, id), [backend])
+  // WHY bound to THIS viewer's projection, with its revision in the memo key (Codex audit 2026-10-05 round 4, finding 1):
+  // a Clank split shows two viewers of one .vtdash on one backend, each with the projection it last accepted. A link
+  // must open the file this viewer listed, so its revision comes from the projection object this viewer renders, never
+  // from a value shared with the other viewer. A reload that brings a new revision rebinds; one that keeps it does not.
+  const shownRevision = mediaRevision(projection)
+  const mediaUrl = useMemo(() => bindMediaUrl(backend, shownRevision), [backend, shownRevision])
   const needsPage = route.needs === '1' && !settingsOpen
 
   return (
