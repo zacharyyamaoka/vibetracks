@@ -48,10 +48,11 @@ class RoadmapApiTestCase(unittest.TestCase):
             "schema": SCHEMA,
             "title": "Kinsim curriculum",
             "generated_at": "2026-10-03T22:35:10+00:00",
-            # a link at the top, one buried in a criteria target, one in a history-like list, one absent
+            # a link at the top, one buried in a criteria target, one a rung's evidence item, one absent: each at a
+            # place the schema declares a Link (api._links reads no other)
             "sources": [link(str(self.linked))],
-            "rungs": [{"criteria": [{"targets": [link(None, None), link(str(self.nested), line=2)]}]}],
-            "history": [{"evidence": link(str(self.missing))}],
+            "rungs": [{"criteria": [{"targets": [link(None, None), link(str(self.nested), line=2)]}],
+                       "evidence": [link(str(self.missing))]}],
         }
         self.document_bytes = (json.dumps(self.document, indent=1) + "\n").encode("utf-8")
         (self.docs / "kinsim.json").write_bytes(self.document_bytes)
