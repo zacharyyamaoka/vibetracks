@@ -21,8 +21,12 @@ from vibetracks.benches import grasp_bench_bridge
 FAKE_PACKAGE = {
     "__init__.py": "",
     "registry.py": "THRESHOLD = 0.5\n",
-    "contracts.py": "SCHEMA = 1\n",
-    "runner.py": "from . import contracts\n",
+    # WHY this import graph: it is the real bench's (contracts -> grasp, runner -> contracts + stats, gallery ->
+    # registry + runner), so the fake imports exactly the module set the bridge requires as witnesses.
+    "grasp.py": "",
+    "stats.py": "",
+    "contracts.py": "from . import grasp\nSCHEMA = 1\n",
+    "runner.py": "from . import contracts, stats\n",
     "curriculum.py": "GATES = ('toy/a', 'toy/b')\n",
     "ledger.py": '''
 import json, os
@@ -43,7 +47,7 @@ class Ledger:
 ''',
     # WHY the threshold lives in registry.py: the verdict depends on a module only gallery.py names.
     "gallery.py": '''
-from . import registry
+from . import registry, runner
 
 
 def is_frozen_protocol(run):

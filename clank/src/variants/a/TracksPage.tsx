@@ -28,7 +28,7 @@ import { blockingWords, isReporting, lastMoved, needsCount, registryOf, rungOf }
 import { openRung, type Nav } from './nav'
 import { TrackMenu, TrackName, type Renamer } from './rename'
 import { useRegisteredRoadmap } from './roadmapReload'
-import { provenOf } from './proven'
+import { provenOf, provenTitle } from './proven'
 import { openNeeds } from '../../needs'
 import { formatLocal } from '../../shared/time'
 
@@ -216,7 +216,7 @@ export function ProvenNote({ doc }: { doc: unknown }) {
   const proven = provenOf(doc)
   if (!proven) return null
   return (
-    <span className="vt-num" data-testid="vt-a-proven" data-stale={proven.stale} title="Rungs the roadmap projector counts as proven (green + done)">
+    <span className="vt-num" data-testid="vt-a-proven" data-stale={proven.stale} title={provenTitle(proven)}>
       <span style={{ whiteSpace: 'nowrap' }}>{proven.proven} proven</span>
       {proven.stale ? (
         <>

@@ -43,6 +43,15 @@ export interface NeedsState {
 }
 
 /** Fetch /needs for `track` (null = all tracks); `reload()` re-reads the loops' live files. */
+// WHY a module-level reload signal: an evidence link that the backend refuses with 409 ("the document changed") offers
+// "reload", and that reload must re-read the same document the page shows, which only the mounted useNeeds owns.
+const reloadListeners = new Set<() => void>()
+
+/** Ask every mounted useNeeds to re-read /needs (the evidence link's "reload" after a 409). Never automatic. */
+export function requestNeedsReload(): void {
+  for (const listener of [...reloadListeners]) listener()
+}
+
 export function useNeeds(backend: PluginBackend, track: string | null): NeedsState {
   // `key` is the track the docs were read for. WHY: a failed read keeps the last docs (a reload hiccup must not blank
   // the page), but only for the SAME track; moving from kinsim to a track /needs does not know must never leave
@@ -65,6 +74,12 @@ export function useNeeds(backend: PluginBackend, track: string | null): NeedsSta
     return () => controller.abort()
   }, [backend, track, tick])
   const reload = useCallback(() => setTick((n) => n + 1), [])
+  useEffect(() => {
+    reloadListeners.add(reload)
+    return () => {
+      reloadListeners.delete(reload)
+    }
+  }, [reload])
   const docs = state.key === track ? state.docs : []
   return { docs, loading: state.key === track ? state.loading : true, error: state.key === track ? state.error : null, doc: track ? (docs.find((doc) => doc.track === track) ?? null) : null, reload }
 }
@@ -92,12 +107,51 @@ export function unreportedDoc(track: string, title: string, note: string): Needs
   }
 }
 
-/** Same-origin URL serving one evidence entry's file, or null when the backend will not serve it (URL, directory). */
+/** needs.py stamps these on every doc and evidence entry (`bind_evidence`); read here without widening types.ts. */
+type BoundDoc = NeedsDoc & { evidence_rev?: string }
+type BoundEvidence = NeedsEvidence & { eid?: string }
+
+/** The backend path (`/needs/evidence?track&item&eid&rev`) for one evidence entry's file, or null when the backend
+ * will not serve it (a URL, a directory, or a doc/entry without the identity needs.py binds).
+ *
+ * WHY eid + rev and never the list index (audit 2026-10-05, finding 1): the link must open the file Zach reviewed.
+ * `eid` names the evidence as written (stable under reordering); `rev` is the document revision he was shown, and
+ * the backend answers 409 instead of serving when the document's evidence, or what it resolves to, changed since. */
+export function evidencePath(doc: NeedsDoc, item: NeedsItem, index: number): string | null {
+  const entry: BoundEvidence | undefined = item.evidence[index]
+  const rev = (doc as BoundDoc).evidence_rev
+  if (!entry || entry.kind === 'url' || !entry.path || entry.is_dir) return null
+  if (typeof entry.eid !== 'string' || !entry.eid || typeof rev !== 'string' || !rev) return null
+  const query = new URLSearchParams({ track: doc.track, item: item.local_id, eid: entry.eid, rev })
+  return `/needs/evidence?${query.toString()}`
+}
+
+/** Same-origin URL serving one evidence entry's file (a URL entry is itself), or null when it cannot be opened. */
 export function evidenceUrl(backend: PluginBackend, doc: NeedsDoc, item: NeedsItem, index: number): string | null {
   const entry: NeedsEvidence | undefined = item.evidence[index]
   if (!entry) return null
   if (entry.kind === 'url') return entry.value
-  if (!entry.path || entry.is_dir) return null
-  const query = new URLSearchParams({ track: doc.track, item: item.local_id, n: String(index) })
-  return `${backend.baseUrl}/needs/evidence?${query.toString()}`
+  const path = evidencePath(doc, item, index)
+  return path ? `${backend.baseUrl}${path}` : null
+}
+
+/** Ask the backend whether an evidence path still opens, reading only its status: 'ok', 'changed' (409: the document
+ * changed since it was shown), or the backend's refusal text. The body is never read (the abort drops it). */
+export async function checkEvidence(backend: PluginBackend, path: string): Promise<'ok' | 'changed' | string> {
+  const controller = new AbortController()
+  try {
+    const response = await backend.fetch(path, { signal: controller.signal })
+    if (response.ok) return 'ok'
+    if (response.status === 409) return 'changed'
+    let message = `HTTP ${response.status}`
+    try {
+      const body = (await response.json()) as { error?: unknown }
+      if (body && typeof body.error === 'string') message = body.error
+    } catch {
+      // not JSON: the status line is the message
+    }
+    return message
+  } finally {
+    controller.abort()
+  }
 }

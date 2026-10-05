@@ -754,11 +754,58 @@
     font-size: inherit;
     font-weight: inherit;
   }
+  /* WHY anywhere and min-width 0 on the page title only (peer report 2026-10-05): with Clank's left panel open at a
+     390 px window the dashboard is 152 px wide, and "Kinematic" alone is 178 px at title size; break-word could not
+     split it and the flex item would not shrink below it, so the title was clipped. The home table keeps break-word
+     (anywhere there broke "Kinematic" into letters in a narrow cell); here the title wraps only where it must, and
+     every character stays on screen. The rename input shrinks with it instead of keeping its 12-character size. */
+  .vt-dash .vt-a .vt-a-titleline > * {
+    min-width: 0;
+    max-width: 100%;
+  }
+  .vt-dash .vt-a .vt-a-titleline .vt-a-title-text {
+    overflow-wrap: anywhere;
+  }
+  .vt-dash .vt-a .vt-a-titleline .vt-a-rename-input {
+    box-sizing: border-box;
+    min-width: 0;
+    width: 100%;
+  }
+  /* WHY the title's menu opens rightward from its ⋯, and on a narrow page under the title line from its left edge: the
+     ⋯ follows the title, so a menu right-aligned to it ran off the page's left edge whenever the ⋯ sat near the start
+     (a short title, or a wrapped one with Clank's left panel open at 390 px), and below 600 px a rightward menu ran
+     past the right edge ("Kinematic Sim ⋯" at 390 px). Anchored to the h1 there, it is always inside the page. */
+  .vt-dash .vt-a .vt-a-titleline .vt-a-menu-pop {
+    right: auto;
+    left: 0;
+  }
+  @container vt-scroll (max-width: 600px) {
+    .vt-dash .vt-a .vt-a-titleline {
+      position: relative;
+    }
+    .vt-dash .vt-a .vt-a-titleline .vt-a-menu {
+      position: static;
+    }
+    .vt-dash .vt-a .vt-a-titleline .vt-a-menu-pop {
+      top: 100%;
+      min-width: 0;
+      max-width: 100%;
+    }
+  }
   .vt-dash .vt-a .vt-a-stateline {
     margin: 6px 0 0;
   }
+  /* WHY the state word may wrap on the track page: `.vt-status` is nowrap, and with Clank's left panel open at a 390 px
+     window (a 152 px dashboard) grasping's "Tier 2 · MuJoCo physics" ran 29 px past the page edge. It wraps at its
+     spaces; the dot stays beside the first line. */
   .vt-dash .vt-a .vt-a-stateline .vt-status {
     display: inline-flex;
+    max-width: 100%;
+    white-space: normal;
+  }
+  .vt-dash .vt-a .vt-a-stateline .vt-status .vt-word {
+    min-width: 0;
+    overflow-wrap: anywhere;
   }
   .vt-dash .vt-a .vt-a-needsline {
     margin: 6px 0 0;

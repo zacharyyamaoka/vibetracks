@@ -3,7 +3,7 @@
 // strips the types of the .ts it imports.
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
-import { provenOf, provenText } from './proven.ts'
+import { PROVEN_TITLE, provenOf, provenText, provenTitle } from './proven.ts'
 
 const bare = { counts: { by_status: { green: 1, done: 3, claimed: 15 } }, warnings: [] }
 
@@ -34,4 +34,14 @@ test('absent or malformed counts say nothing (never 0)', () => {
 test('rung statuses are never recounted', () => {
   const doc = { counts: { by_status: { green: 1, done: 0 } }, rungs: [{ status: 'green' }, { status: 'green' }, { status: 'done' }] }
   assert.equal(provenText(doc), '1 proven')
+})
+
+test('the hover says what proven means and why it can be lower than the gates met; stale adds why', () => {
+  assert.equal(
+    PROVEN_TITLE,
+    'Proven: rungs the roadmap marks green or done; a rung counts only when every prerequisite is proven too, so this can be lower than the gates the loop reports as met.',
+  )
+  assert.equal(provenTitle(provenOf(bare)), PROVEN_TITLE)
+  const stale = provenTitle(provenOf({ ...bare, warnings: ['stale: x'] }))
+  assert.ok(stale.startsWith(PROVEN_TITLE) && /Not current/.test(stale))
 })

@@ -208,7 +208,9 @@
     width: 15px;
     height: 15px;
     margin: 3px 0 0;
-    accent-color: var(--vt-accent);
+    /* WHY near-black and not the accent: a ticked setting is an ordinary state (Codex audit 2026-10-05 round 2
+       finding 7); the accent is left for the keyboard focus ring only. */
+    accent-color: var(--vt-fg);
   }
 
   /* ---- typography */

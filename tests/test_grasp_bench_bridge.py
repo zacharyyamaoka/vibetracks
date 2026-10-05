@@ -69,9 +69,34 @@ def digests(runs_jsonl: Path) -> list[str]:
     return [hashlib.sha256(line).hexdigest() for line in raw_lines(runs_jsonl)]
 
 
-# A ledger whose first load_runs() sees a row that was appended after the bridge's own bytes read: the digests are
-# unaligned on attempt one. GROWS_EVERY_TIME keeps doing it, GROWS_ONCE does it a single time.
+# A concurrent writer: every load_runs() first appends a new row to the bench's REAL runs.jsonl (the path is baked in
+# per test), whatever root its own Ledger reads. The bridge must judge and digest the one snapshot it read, unmoved.
 GROWING_LEDGER = '''
+import json, os
+from types import SimpleNamespace
+
+from . import contracts
+
+REAL_RUNS = __REAL_RUNS__
+
+
+class Ledger:
+    def __init__(self, root):
+        self.root = root
+        self.attestations_path = os.path.join(root, "attestations.jsonl")
+        self.runs_path = os.path.join(root, "runs.jsonl")
+
+    def load_runs(self):
+        with open(REAL_RUNS, "a", encoding="utf-8") as handle:
+            handle.write(json.dumps({"run_id": "grown", "cell_id": "m@toy/a", "model": "m", "env": "toy/a",
+                                     "value": 0.99, "ci_lo": 0.98, "n": 10, "started_at": "t"}) + "\\n")
+        with open(self.runs_path, encoding="utf-8") as handle:
+            return [SimpleNamespace(**json.loads(line)) for line in handle if line.strip()]
+'''
+
+# A bench whose parser is not line-for-line (a newer reader that keeps only the last row of a re-used run_id): the
+# bridge cannot say which line a run came from, so it must refuse rather than pair a digest by position.
+DEDUPLICATING_LEDGER = '''
 import json, os
 from types import SimpleNamespace
 
@@ -85,15 +110,14 @@ class Ledger:
         self.runs_path = os.path.join(root, "runs.jsonl")
 
     def load_runs(self):
-        marker = os.path.join(self.root, "grew-once")
-        path = os.path.join(self.root, "runs.jsonl")
-        if not (ONCE and os.path.exists(marker)):
-            with open(path, "a", encoding="utf-8") as handle:
-                handle.write(json.dumps({"run_id": "r%d" % len(open(path).readlines()), "cell_id": "m@toy/a", "model": "m",
-                                         "env": "toy/a", "value": 0.7, "ci_lo": 0.6, "n": 10, "started_at": "t"}) + "\\n")
-            open(marker, "w").close()
-        with open(path, encoding="utf-8") as handle:
-            return [SimpleNamespace(**json.loads(line)) for line in handle if line.strip()]
+        with open(self.runs_path, encoding="utf-8") as handle:
+            rows = {}
+            for line in handle:
+                if line.strip():
+                    row = json.loads(line)
+                    rows.pop(row["run_id"], None)
+                    rows[row["run_id"]] = row
+        return [SimpleNamespace(**row) for row in rows.values()]
 '''
 
 
@@ -167,22 +191,29 @@ class RowDigestTest(unittest.TestCase):
             self.assertEqual(again, first)
             self.assertEqual(grasp_bench_bridge.VERDICT_CACHE_NAME, "verdict-v3.json")
 
-    def test_a_ledger_that_grew_between_the_two_reads_is_retried_and_stays_aligned(self) -> None:
+    def test_a_ledger_that_keeps_growing_during_the_call_is_judged_as_the_one_snapshot_read(self) -> None:
         with tempfile.TemporaryDirectory() as folder:
             bench = make_bench(Path(folder) / "grasp_bench")
-            (bench / "src" / "grasp_bench" / "ledger.py").write_text(GROWING_LEDGER.replace("ONCE", "True"), encoding="utf-8")
+            runs_jsonl = bench / "out" / "ledger" / "runs.jsonl"
+            snapshot = digests(runs_jsonl)
+            (bench / "src" / "grasp_bench" / "ledger.py").write_text(
+                GROWING_LEDGER.replace("__REAL_RUNS__", repr(str(runs_jsonl))), encoding="utf-8")
             result = self.verdict(bench, Path(folder) / "cache")
-            expected = digests(bench / "out" / "ledger" / "runs.jsonl")
-            self.assertEqual(len(result["runs"]), len(ROWS) + 1)
-            self.assertEqual([result["runs"][str(index)]["line_sha256"] for index in range(len(expected))], expected)
+            self.assertGreater(len(digests(runs_jsonl)), len(snapshot), "the writer must have appended during the call")
+            self.assertEqual([result["runs"][str(index)]["line_sha256"] for index in range(len(result["runs"]))],
+                             snapshot)
+            self.assertNotIn("grown", json.dumps(result))
 
-    def test_a_ledger_that_never_holds_still_is_an_error_with_nothing_to_misread(self) -> None:
+    def test_a_parser_that_is_not_line_for_line_is_an_error_with_nothing_to_misread(self) -> None:
         with tempfile.TemporaryDirectory() as folder:
             bench = make_bench(Path(folder) / "grasp_bench")
-            (bench / "src" / "grasp_bench" / "ledger.py").write_text(GROWING_LEDGER.replace("ONCE", "False"), encoding="utf-8")
+            (bench / "src" / "grasp_bench" / "ledger.py").write_text(DEDUPLICATING_LEDGER, encoding="utf-8")
+            runs_jsonl = bench / "out" / "ledger" / "runs.jsonl"
+            runs_jsonl.write_text("".join(json.dumps(row) + "\n" for row in (ROWS[0], ROWS[1], dict(ROWS[0], value=0.1))),
+                                  encoding="utf-8")
             cache = Path(folder) / "cache"
             result = grasp_bench_bridge.verdict(bench, cache_dir=cache)
-            self.assertEqual(result["error"], "ledger changed during read; row digests unaligned")
+            self.assertEqual(result["error"], grasp_bench_bridge.LEDGER_UNALIGNED)
             self.assertEqual((result["envs"], result["runs"], result["headline"]), ({}, {}, {}))
             self.assertFalse((cache / grasp_bench_bridge.VERDICT_CACHE_NAME).exists())
 

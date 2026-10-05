@@ -1,7 +1,8 @@
 /* N4 · Decision cards. Rooted in .vt-dash .vt-needs-n4, in @layer base (clank-workbench CLAUDE.md §1.5).
-   WHY no colour except the blocking dot and the recommended tag: calm is the container, the question is the content;
-   colour only for exceptions (calm.css research principle 11). The recommended tag uses the accent because it is the
-   one thing on the card the reader's eye should find first. */
+   WHY no colour except the blocking dot: calm is the container, the question is the content; colour only for
+   exceptions (calm.css research principle 11). The recommended tag is an ordinary state, so it is told apart by its word
+   and weight on a neutral wash, never the accent blue (Codex audit 2026-10-05 round 2 finding 7: a blue tag on every
+   card made colour mean nothing). The accent is left for the keyboard focus ring only. */
 @layer base {
   .vt-dash .vt-needs-n4 {
     max-width: 860px;
@@ -221,8 +222,9 @@
     border-radius: 3px;
   }
   .vt-dash .vt-needs-n4 .n4-tag-rec {
-    color: var(--vt-accent);
-    background: var(--vt-accent-soft);
+    color: var(--vt-fg);
+    background: var(--vt-press);
+    font-weight: 600;
   }
   .vt-dash .vt-needs-n4 .n4-chosen {
     font-size: 12px;

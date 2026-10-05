@@ -40,6 +40,19 @@ export function provenOf(doc: unknown): Proven | null {
   return { proven: green + done, stale }
 }
 
+/**
+ * The hover on "· N proven". WHY it says how a rung counts (peer report 2026-10-05): the subline sat beside a loop's
+ * "gates met" headline and read lower than it with no reason given; the projector counts a rung only when every
+ * prerequisite is proven too, so the two numbers legitimately differ and the hover must say so.
+ */
+export const PROVEN_TITLE =
+  'Proven: rungs the roadmap marks green or done; a rung counts only when every prerequisite is proven too, so this can be lower than the gates the loop reports as met.'
+
+/** The hover for one count: PROVEN_TITLE, plus why "(not current)" when the document is a fallback. */
+export function provenTitle(proven: Proven): string {
+  return proven.stale ? `${PROVEN_TITLE} Not current: the roadmap could not be refreshed, so this is its last good count.` : PROVEN_TITLE
+}
+
 /** "4 proven", "4 proven (not current)", or null (leave the line exactly as it is). */
 export function provenText(doc: unknown): string | null {
   const proven = provenOf(doc)

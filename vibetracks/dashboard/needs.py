@@ -2,9 +2,10 @@
 
     GET /needs?track=kinsim     -> one ``vibetracks-needs/1`` document
     GET /needs                  -> ``vibetracks-needs-all/1``: ``{"schema", "generated_at", "tracks": [doc, ...]}``
-    GET /needs/evidence?track=kinsim&item=T47&n=0
-                                -> the file behind that item's n-th evidence entry (only paths this module itself
-                                   extracted from the item's text, only servable suffixes, only regular files)
+    GET /needs/evidence?track=kinsim&item=T47&eid=<entry eid>&rev=<doc evidence_rev>
+                                -> the file recorded for that evidence entry when the document was built (only paths
+                                   this module itself extracted from the item's text, only servable suffixes, only
+                                   regular files); 409 when the document's evidence changed since ``rev``
 
 Mounted by ``clank/backend/mounts.py`` (``('/needs', 'vibetracks.dashboard.needs:handle')``). Stdlib only.
 
@@ -36,10 +37,10 @@ worktree holding ``kinsim_loop_branch``, else ``kinsim_loop_dir``, else ``kinsim
 
 from __future__ import annotations
 
+import hashlib
 import json
 import os
 import re
-import stat
 import subprocess
 import time
 from datetime import datetime, timezone
@@ -50,6 +51,7 @@ from vibetracks.dashboard.adapters import detection as detection_adapter
 from vibetracks.dashboard.adapters import grasping as grasping_adapter
 from vibetracks.dashboard.registry import read_registry
 from vibetracks.errors import VibeTracksError
+from vibetracks.safe_open import UnsafePath, open_no_symlinks
 from vibetracks.sources import load_sources
 
 SCHEMA = "vibetracks-needs/1"
@@ -368,8 +370,9 @@ def extract_evidence(text: str, roots: Iterable[Path]) -> list[dict[str, Any]]:
 
 def _canonical(path: str | os.PathLike[str]) -> str | None:
     """The file ``path`` resolves to now (``os.path.realpath``), recorded when the evidence allowlist is built; None
-    when it does not resolve. WHY: the /needs/evidence route refuses an entry whose path resolves elsewhere at serve
-    time, so a listed symlink retargeted after listing cannot stream an unlisted file (audit 2026-10-04, finding 9)."""
+    when it does not resolve. WHY: it is bound into the document's ``evidence_rev``, so a listed symlink retargeted
+    after Zach saw the document answers 409 instead of streaming an unlisted file (audit 2026-10-04 finding 9,
+    2026-10-05 finding 1), and it is the one path the route opens, symlink-free at every component."""
     try:
         return os.path.realpath(path, strict=True)
     except OSError:
@@ -920,12 +923,51 @@ def build_track(track: str, sources: Mapping[str, str] | None = None, *, title: 
         title = titles.get(track, track)
     builder = BUILDERS.get(track)
     if builder is not None:
-        return builder(sources, title)
+        return bind_evidence(builder(sources, title))
     spec = NOT_REPORTED.get(track)
     if spec is not None:
-        return _empty_doc(track, title, spec["note"], paths=spec["paths"], channel=spec["channel"],
-                          adapter="none (prose only)")
-    return _empty_doc(track, title, "needs.py has no question source for this track yet", adapter="none")
+        return bind_evidence(_empty_doc(track, title, spec["note"], paths=spec["paths"], channel=spec["channel"],
+                                        adapter="none (prose only)"))
+    return bind_evidence(_empty_doc(track, title, "needs.py has no question source for this track yet", adapter="none"))
+
+
+# ------------------------------------------------------------------------------- evidence identity and revision
+
+def _digest(value: Any, length: int) -> str:
+    raw = json.dumps(value, ensure_ascii=False, separators=(",", ":"), sort_keys=False)
+    return hashlib.sha256(raw.encode("utf-8")).hexdigest()[:length]
+
+
+def evidence_id(item_id: str, entry: Mapping[str, Any]) -> str:
+    """A stable id for one evidence entry: a hash of the item id and the entry as written (kind, label, value).
+
+    WHY never a list index (audit 2026-10-05, finding 1): an index names "whatever is n-th now", so reordering an
+    item's evidence silently changed what an open link served. The canonical ``target`` is deliberately NOT part of
+    the id: the id says which evidence was written; ``evidence_rev`` says what it resolved to when it was reviewed.
+    """
+    return _digest([item_id, entry.get("kind"), entry.get("label"), entry.get("value")], 16)
+
+
+def evidence_revision(doc: Mapping[str, Any]) -> str:
+    """A hash over every item's evidence entries in order, each with the canonical target recorded for it.
+
+    It changes when an entry is added, removed, reordered or rewritten, or when a listed path now resolves to a
+    different file (a symlink retargeted). Items are taken by id, not page order, so an item moving between groups
+    (a default applying) does not invalidate links whose evidence did not change.
+    """
+    items = sorted((item for item in doc.get("items") or []), key=lambda item: str(item.get("id")))
+    return _digest([[item.get("id"), [[entry.get("eid"), entry.get("kind"), entry.get("label"), entry.get("value"),
+                                       entry.get("path"), entry.get("target"), entry.get("line"), entry.get("is_dir")]
+                                      for entry in item.get("evidence") or []]] for item in items], 32)
+
+
+def bind_evidence(doc: dict[str, Any]) -> dict[str, Any]:
+    """Give each evidence entry its ``eid`` and the doc its ``evidence_rev``; the /needs/evidence URL carries both."""
+    for item in doc.get("items") or []:
+        for entry in item.get("evidence") or []:
+            entry["eid"] = evidence_id(str(item.get("id")), entry)
+    doc["evidence_rev"] = evidence_revision(doc)
+    return doc
 
 
 def build_all(sources: Mapping[str, str] | None = None,
@@ -993,36 +1035,38 @@ def _stream(handle: Any, chunk: int = 256 * 1024) -> Iterable[bytes]:
 
 
 def serve_evidence(entry: Mapping[str, Any]) -> tuple[int, dict[str, str], Iterable[bytes]]:
-    """Stream one evidence entry's file, or refuse it.
+    """Stream the file recorded for one evidence entry, or refuse it.
 
-    404 when the entry names no absolute regular file; 415 when the listed path's suffix is not served; 403 when the
-    path now resolves to a different file than the ``target`` recorded when the entry was listed, or that file's own
-    suffix is not served. The canonical target is what gets opened (``O_NOFOLLOW``: it holds no symlink), never the
-    alias, so a link swapped in between the check and the open fails instead of being followed.
+    404 when the entry names no absolute path or recorded no canonical ``target`` (it did not resolve, or names a
+    directory), or that file is gone; 415 when the listed path's suffix is not served; 403 when the recorded target's
+    own suffix is not served, or when a symlink now sits at ANY component of the target (``open_no_symlinks``).
+
+    WHY open the recorded target and never the listed alias: the target is what the reviewed document resolved the
+    path to (``realpath`` at build time, so it holds no symlink); a link swapped in anywhere on its path since then
+    is a substitution and fails to open instead of being followed.
     """
     path = Path(entry.get("path") or "")
-    if not entry.get("path") or not path.is_absolute() or ".." in path.parts or not path.is_file():
+    if not entry.get("path") or not path.is_absolute() or ".." in path.parts or entry.get("is_dir"):
         return _json(404, {"error": "evidence is not a servable file", "path": entry.get("path")})
     if SERVABLE.get(path.suffix.lower()) is None:
         return _json(415, {"error": f"{path.suffix or 'no suffix'} is not served", "path": str(path)})
     recorded = entry.get("target")
-    current = _canonical(path)
-    if not recorded or current != recorded:
-        return _json(403, {"error": "the evidence path now resolves to a different file than the one listed",
-                           "path": str(path)})
-    content_type = SERVABLE.get(Path(current).suffix.lower())
+    if not isinstance(recorded, str) or not recorded:
+        return _json(404, {"error": "evidence did not resolve to a file when it was listed", "path": str(path)})
+    content_type = SERVABLE.get(Path(recorded).suffix.lower())
     if content_type is None:
-        return _json(403, {"error": f"the evidence path resolves to a {Path(current).suffix or 'suffix-less'} file, "
+        return _json(403, {"error": f"the evidence path resolves to a {Path(recorded).suffix or 'suffix-less'} file, "
                                     "which is not served", "path": str(path)})
     try:
-        fd = os.open(current, os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0))
-    except OSError:
+        fd = open_no_symlinks(recorded)
+    except UnsafePath:
         return _json(403, {"error": "the evidence file changed while it was being opened", "path": str(path)})
+    except FileNotFoundError:
+        return _json(404, {"error": "the evidence file is gone", "path": str(path)})
+    except OSError as error:
+        return _json(403, {"error": f"the evidence file could not be opened: {error.strerror}", "path": str(path)})
     handle = os.fdopen(fd, "rb")
     info = os.fstat(fd)
-    if not stat.S_ISREG(info.st_mode):
-        handle.close()
-        return _json(403, {"error": "the evidence target is not a regular file", "path": str(path)})
     if info.st_size > MAX_EVIDENCE_BYTES:
         handle.close()
         return _json(413, {"error": "file too large to serve here", "path": str(path), "bytes": info.st_size})
@@ -1042,20 +1086,27 @@ def handle(method: str, subpath: str, query: Mapping[str, list[str]], headers: M
         return _json(200, doc) if doc is not None else _json(404, {"error": f"unknown track {track!r}",
                                                                    "tracks": [t for t, _ in registry_tracks(workspace)[0]]})
     if subpath == "/evidence":
-        item_id, index = _first(query, "item"), _first(query, "n")
-        if not track or not item_id or index is None or not index.isdigit():
-            return _json(400, {"error": "need track, item and n"})
+        item_id, eid, rev = _first(query, "item"), _first(query, "eid"), _first(query, "rev")
+        if not track or not item_id or not eid or not rev:
+            return _json(400, {"error": "need track, item, eid and rev"})
         doc = build_track(track, sources, workspace=workspace)
         if doc is None:
             return _json(404, {"error": f"unknown track {track!r}"})
+        # WHY a revision check before anything is looked up (audit 2026-10-05, finding 1): the link was approved
+        # against the document Zach was shown. If any evidence entry, its order or the file it resolves to changed
+        # since, this rebuilt document is not that one, and serving from it would re-authorize a substituted target.
+        # No current revision in the answer: the page must reload what it shows, never retry silently.
+        if doc.get("evidence_rev") != rev:
+            return _json(409, {"error": "the document changed; reload"})
         local = item_id.split(":", 1)[-1]
         item = next((it for it in doc["items"] if it["local_id"] == local), None)
-        if item is None or int(index) >= len(item["evidence"]):
+        entry = next((found for found in (item or {}).get("evidence") or [] if found.get("eid") == eid), None)
+        if entry is None:
             return _json(404, {"error": "no such evidence entry"})
         # WHY serve only what this module extracted from the item's own text: the route must not become a way to
-        # read any file on the machine by naming it; the evidence list is the allowlist, rebuilt on every request,
-        # and each entry carries the canonical target it resolved to when it was listed.
-        return serve_evidence(item["evidence"][int(index)])
+        # read any file on the machine by naming it; the evidence list is the allowlist, and the entry's recorded
+        # canonical target (bound into the revision just checked) is the one file it may serve.
+        return serve_evidence(entry)
     return _json(404, {"error": f"no route {subpath!r} under /needs"})
 
 

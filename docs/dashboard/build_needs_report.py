@@ -308,24 +308,28 @@ def judges_html() -> str:
 
 
 # ---- wave 2: N6 and the shared fixes ------------------------------------------------------------------------------
-def png_uri(path: Path) -> str:
-    """A PNG capture re-encoded to WebP in memory (a third of the bytes; nothing is written next to the capture)."""
+def png_uri(path: Path, crop: tuple[int, int, int, int] | None = None) -> str:
+    """A PNG capture re-encoded to WebP in memory (a third of the bytes; nothing is written next to the capture).
+    WHY the optional crop: the page sits under a 9 MB budget, and the audit stills only need the dashboard, not Clank's
+    sidebar and window chrome; the crop box is in the capture's own pixels and the caption says the capture is cropped."""
     key = str(path)
     assert path.exists(), f"missing media: {path}"
     assert key not in _inlined, f"would inline twice: {path}"
     _inlined.add(key)
     buf = io.BytesIO()
     with Image.open(path) as image:
-        image.convert("RGB").save(buf, "WEBP", quality=78, method=6)
+        # WHY quality 70 for the cropped audit stills: they are UI text on white, where 70 reads the same as 78, and the
+        # 9 MB budget is otherwise spent; the uncropped first-wave stills keep 78.
+        (image.crop(crop) if crop else image).convert("RGB").save(buf, "WEBP", quality=70 if crop else 78, method=6)
     return "data:image/webp;base64," + base64.b64encode(buf.getvalue()).decode()
 
 
-def still(rel: str, label: str, cap: str) -> str:
+def still(rel: str, label: str, cap: str, crop: tuple[int, int, int, int] | None = None) -> str:
     """Two-tier caption: the bold label says what it is, the dim line says what to notice."""
     path = Path(rel) if rel.startswith("/") else MEDIA / rel
     return (
         '<figure class="cell w2"><button class="zoom nocrop" type="button" aria-label="Open '
-        f'{esc(label)} full size"><img alt="{esc(label)}" loading="lazy" src="{png_uri(path)}"></button>'
+        f'{esc(label)} full size"><img alt="{esc(label)}" loading="lazy" src="{png_uri(path, crop)}"></button>'
         f'<figcaption><b>{esc(label)}</b><span class="cap">{esc(cap)}</span></figcaption></figure>'
     )
 
@@ -496,6 +500,79 @@ AUDIT_PASS = sum(1 for n, _s, _t in AUDIT_ROWS if AUDIT_FIX[n]["pass"])
 AUDIT_SEV = Counter(sev for _n, sev, _t in AUDIT_ROWS)
 SEV_LINE = ", ".join(f"{AUDIT_SEV[k]} {k}" for k in ("high", "medium", "low") if AUDIT_SEV[k])
 
+# ---- Codex round 2: its re-read of round 1, its new findings, and what verify-6 measured after the fixes ---------
+# WHY the same split as round 1: the status words, severities and titles are parsed from Codex's own file, and the
+# evidence is verify-6's, kept in a JSON beside the captures; the live-tracks report renders the same rows from the same files.
+AUDIT2_FILE = Path("/home/bam/vibetracks/reports/media/audits/2026-10-05-vibetracks-live-needs-r2.md")
+AUDIT2 = json.loads((MEDIA / "audit-r2-fixes.json").read_text())
+_AUDIT2_TEXT = AUDIT2_FILE.read_text()
+AUDIT2_VERDICT = _AUDIT2_TEXT.splitlines()[0].strip()
+AUDIT2_R1 = [(int(n), word, note) for n, word, note in
+             re.findall(r"^(\d+)\. (fixed|partly) — (.+?)\s*$", _AUDIT2_TEXT, re.M)]
+AUDIT2_ROWS = [(int(n), sev, title) for n, sev, title in
+               re.findall(r"^(\d+)\. \*\*\[(high|medium|low)\] (.+?)\*\*\s*$", _AUDIT2_TEXT, re.M)]
+assert AUDIT2_VERDICT == "VERDICT: FAIL", AUDIT2_VERDICT
+assert [n for n, _w, _x in AUDIT2_R1] == list(range(1, 14)), "round 2's re-read of round 1 changed"
+AUDIT2_PARTLY = [n for n, w, _x in AUDIT2_R1 if w == "partly"]
+assert AUDIT2_PARTLY == [7, 9, 13] and sorted(map(int, AUDIT2["r1_partly_now"])) == AUDIT2_PARTLY, AUDIT2_PARTLY
+assert [n for n, _s, _t in AUDIT2_ROWS] == list(range(1, 8)), "the round-2 file's numbered findings changed"
+AUDIT2_FIX = {f["n"]: f for f in AUDIT2["findings"]}
+assert set(AUDIT2_FIX) == {n for n, _s, _t in AUDIT2_ROWS}
+AUDIT2_PASS = sum(1 for n, _s, _t in AUDIT2_ROWS if AUDIT2_FIX[n]["pass"] is True)
+AUDIT2_SEV = Counter(sev for _n, sev, _t in AUDIT2_ROWS)
+SEV2_LINE = ", ".join(f"{AUDIT2_SEV[k]} {k}" for k in ("high", "medium", "low") if AUDIT2_SEV[k])
+N_IN_SCOPE = len(AUDIT2_ROWS) + len(AUDIT2_PARTLY)
+
+
+def fix_word(f: dict) -> tuple[str, str]:
+    """(css class, words) for the Fixed? column; only a failure gets colour."""
+    if f.get("word"):
+        return ("afix", f["word"])
+    return ("afix", "fixed · verified") if f["pass"] is True else ("afix no", "NOT fixed")
+
+
+def audit2_html(stills: list[tuple[str, str, str]], r1_stills: list[tuple[str, str, str]]) -> str:
+    r1 = "".join(
+        f'<li class="r1row"><span class="an">{n}</span><span class="r1w{" partly" if w == "partly" else ""}">{esc(w)}</span>'
+        f'<span class="r1note">{inline_md(note)}</span>'
+        f'<span class="r1now">{esc(AUDIT2["r1_partly_now"][str(n)] + " · verified") if w == "partly" else ""}</span></li>'
+        for n, w, note in AUDIT2_R1)
+    rows = [(str(n), sev, title, AUDIT2_FIX[n]) for n, sev, title in AUDIT2_ROWS] + [
+        ("+", "peer", p["title"], p) for p in AUDIT2["peers"]]
+    items = "".join(
+        f'<li class="arow"><span class="an">{esc(n)}</span><span class="asev">{esc(sev)}</span>'
+        f'<div class="abody"><b>{esc(title)}</b><p>{esc(f["short"])}</p>'
+        + (f'<p class="asib"><b>Still open beside it:</b> {esc(f["sibling"])}</p>' if f.get("sibling") else "")
+        + f'<details><summary>The verifier\'s evidence, and the test that fails when the old behaviour returns</summary>'
+        f'<p class="averb">{esc(f["verifier"])}</p><p class="averb"><b>Test left ({esc(f["lane"])} lane):</b> {esc(f["tests"])}</p>'
+        f'</details></div><span class="{fix_word(f)[0]}">{esc(fix_word(f)[1])}</span></li>'
+        for n, sev, title, f in rows)
+    notes = "".join(f"<li><b>{esc(t)}.</b> <span>{esc(x)}</span></li>" for t, x in AUDIT2["observations"])
+    c = AUDIT2["checks"]
+    figs = '<div class="stills">' + "".join(still(*x) for x in stills) + "</div>" if stills else ""
+    partly = ", ".join(map(str, AUDIT2_PARTLY[:-1])) + f" and {AUDIT2_PARTLY[-1]}"
+    return f"""
+<p class="lead"><b>{esc(AUDIT2['auditor'])}</b>, round {AUDIT2['round']}, read-only, audited <code>{esc(AUDIT2['audited_sha'])}</code> and
+returned <b>{esc(AUDIT2_VERDICT)}</b>: round-1 findings {partly} were only partly fixed, and it found {len(AUDIT2_ROWS)} new ones
+({SEV2_LINE}). Three lanes fixed them on the uncommitted tree ({esc(AUDIT2['tree_after'])}). Then {esc(AUDIT2['verifier'])} re-probed
+all {N_IN_SCOPE}: <b>{AUDIT2_PASS + len(AUDIT2_PARTLY)} of {N_IN_SCOPE} pass</b>, each with a test at the consumer that fails on
+<code>{esc(AUDIT2['audited_sha'])}</code>. <b>Codex round 3 reads this tree next</b>; until it returns, "fixed" is our own measurement,
+not Codex's.</p>
+<p class="small dim">Audit file: <code>{esc(str(AUDIT2_FILE))}</code><br>After the fixes: pytest {esc(c['pytest'])}; unittest
+{esc(c['unittest'])}; backend {esc(c['backend'])}; tsc {esc(c['tsc'])}; node checks {esc(c['node_checks'])}; browser checks
+{esc(c['browser_checks'])}. On {esc(AUDIT2['audited_sha'])}: {esc(c['fails_on_old'])}; and {esc(c['mutation'])}. Report videos:
+{esc(c['videos'])}.</p>
+<h4>Round 1's {len(AUDIT2_R1)} findings, as Codex round 2 re-read them</h4>
+<ol class="r1s">{r1}</ol>
+<h4>Round 2's {len(AUDIT2_ROWS)} new findings, plus the two asks from the track pages</h4>
+<div class="ahead"><span>#</span><span>Severity</span><span>Codex's finding · what verify-6 measured after the fix</span><span>Fixed?</span></div>
+<ol class="audit">{items}</ol>
+{figs}
+<h4>What verify-6 noticed but did not count as a failure</h4>
+<ul class="open">{notes}</ul>
+<details class="limits"><summary>Round 1: Codex's {len(AUDIT_ROWS)} findings on 3e90b94 and verify-5's evidence</summary>
+{audit_html(r1_stills)}</details>"""
+
 
 def audit_html(stills: list[tuple[str, str, str]]) -> str:
     peer = AUDIT["peer"]
@@ -514,8 +591,8 @@ def audit_html(stills: list[tuple[str, str, str]]) -> str:
 <p class="lead"><b>{esc(AUDIT['auditor'])}</b>, round {AUDIT['round']}, read-only, audited <code>{esc(AUDIT['audited_sha'])}</code> and
 returned <b>{esc(AUDIT_VERDICT)}</b> with {len(AUDIT_ROWS)} findings ({SEV_LINE}). Three lanes fixed them on the uncommitted tree
 ({esc(AUDIT['tree_after'])}). Then {esc(AUDIT['verifier'])} re-ran every finding Codex's way or harder: <b>{AUDIT_PASS} of
-{len(AUDIT_ROWS)} pass</b>, plus the 390 px overflow a peer found, with no regressions. <b>Codex round 2 reads this tree next</b>;
-until it returns, "fixed" is our own measurement, not Codex's.</p>
+{len(AUDIT_ROWS)} pass</b>, plus the 390 px overflow a peer found, with no regressions. Codex round 2 then re-read
+all {len(AUDIT_ROWS)}: its status line for each is above.</p>
 <p class="small dim">Audit file: <code>{esc(str(AUDIT_FILE))}</code><br>After the fixes: pytest {esc(checks['pytest'])}; backend
 {esc(checks['backend_pytest'])}; tsc {esc(checks['tsc'])}; node checks {esc(checks['node_checks'])}; videos {esc(checks['videos'])};
 {checks['console_errors']} console errors.</p>
@@ -526,18 +603,62 @@ until it returns, "fixed" is our own measurement, not Codex's.</p>
 <ul class="open">{notes}</ul>"""
 
 
+# The dashboard without Clank's sidebar and window chrome, in capture pixels (the captures are 1440 x 900).
+PAGE_CROP = (288, 130, 1440, 872)
+
 AUDIT_STILLS = [
     ("verify-5/v5-n6-2-changed-notice.png", "Finding 1: a draft on a changed question is not copied",
      "verify-5 rewrote the real /needs in flight so T47's recommendation reads '(UPDATED: now 46 V)'; that text is the "
      "probe's, not the loop's. The draft made on 44 V shows its note word for word, is named as not in the copy, and "
-     "waits for Reconfirm or Discard."),
+     "waits for Reconfirm or Discard. Cropped to the dashboard.", PAGE_CROP),
     ("verify-5/v5-n5-changed.png", "N5 on the live lane: the new module is served",
      "Round 3's leftover is gone: the 4390 lane serves N5 with 'Recommended', not 'I recommend', and the same stale "
-     "notice. Copy answers is disabled and T47 is named under 'Not in the copy'."),
+     "notice. Copy answers is disabled and T47 is named under 'Not in the copy'. Cropped to the dashboard.", PAGE_CROP),
     ("verify-5/v5-settings-include-defaulting.png", "Finding 13: the queue option lives in Settings",
      "'Needs you · Include questions whose default is already in effect', off by default. 'Review them too' is gone from "
-     "N1–N6; turning this on takes N6's kinsim lane from 3 cards to 11."),
+     "N1–N6; turning this on takes N6's kinsim lane from 3 cards to 11. Cropped to the settings page.", (48, 130, 800, 700)),
 ]
+
+AUDIT2_STILLS = [
+    ("verify-6/v6-evidence-real-409.png", "Finding 1: a link to a changed document opens nothing",
+     "verify-6 handed the page a stale revision (the probe's doing; the evidence itself was unchanged). The real backend "
+     "answered 409, T47's evidence line reads 'This changed since you opened it: reload' and no tab opened; reload "
+     "re-fetched /needs and the link then opened with 200. Cropped to the card.", (480, 130, 1240, 740)),
+    ("verify-6/v6-n5-kinsim-chip-pressed.png", "Finding 7: N5 with a chip pressed, and no blue",
+     "'Go with the recommendation' pressed on kinsim T12: a grey fill and ring; the recommended tag, the meter and the "
+     "draft bubble are neutral. verify-6's census found 0 blue elements on N1–N6 for kinsim and rig. Cropped to the "
+     "dashboard.", (288, 170, 1440, 830)),
+]
+
+DECISION_R5 = f"""
+<ul>
+  <li><strong>Done and proved</strong> (verify-6, a measure-only re-check by a separate Claude agent; it made no product edits):
+    <ul>
+      <li><b>Codex round 2:</b> its {len(AUDIT2_ROWS)} new findings and the partly fixed round-1 findings 7, 9 and 13 are fixed. verify-6 re-probed all {N_IN_SCOPE} Codex's way or harder, and each has a test at the consumer that fails on b53567e. Table above.</li>
+      <li><b>For this page:</b> an evidence link opens only the file listed in the document you reviewed; if anything in it changed, the click says 'This changed since you opened it: reload' and opens nothing (1). No path component is followed through a symlink (2). Copy-out keeps every CR, CRLF and option edge space, with an 'exact:' line where Markdown would lose one (3). N4 and N5 use no blue for ordinary states (7).</li>
+      <li><b>From the track pages:</b> the proven subline's hover now explains the count (its text is pinned by a check, but it was not seen in the app: this worktree's roadmap is a stub), and a long track title wraps at 390 px with Clank's panel open.</li>
+      <li><b>Regressions checked:</b> one Needs-you count everywhere (kinsim 1/3, rig 2/6, grasping 0/7, detection 1/3; pyblocks and CAN 12/16 'not reported'); the rename round trip is byte-identical for an LF and a BOM+CRLF note; 7 of 7 report videos play; no sideways scroll at 1440 on 22 routes.</li>
+      <li><b>Build:</b> pytest 299 passed, 0 skipped; unittest discover 299 OK (it crashed on b53567e); backend 23; tsc clean; node checks 74/74; rename_fence and media_switch pass in the browser.</li>
+    </ul></li>
+  <li><strong>Left</strong> (next; none blocked on you):
+    <ul>
+      <li><b>Codex round 3</b> on this tree (b53567e plus the round-2 fixes, uncommitted). It runs next; both reports are re-shared before it starts.</li>
+      <li>Siblings verify-6 found beside fixed findings: /media links are not bound to a revision (beside 1); an item title's trailing spaces are lost in the parsed Markdown heading (beside 3); the V1 bench verdict does not yet require all nine modules (beside 6); variants B and C still use blue (beside 7).</li>
+      <li>At 390 × 844 with Clank's panel open, 6 of 14 iteration and item pages scroll sideways (detail in the live-tracks report). On N6 at 1280 × 800, rig T2's note box loses its bottom 8 px under the switcher (unchanged since verify-5).</li>
+      <li>Docs: PROJECTION.md:159 still describes the old O_NOFOLLOW / 403 evidence rule; NEEDS-KIT.md does not describe the 'exact:' lines.</li>
+      <li>From earlier rounds: the settled-draft copy line offers a Reconfirm that does not exist; N6's deployment lane says 'loop' twice; the first-wave N1–N5 cards below still describe 'Review them too'.</li>
+    </ul></li>
+  <li><strong>Needs you</strong> (each has the default I take if you say nothing):
+    <ol>
+      <li><b>Fix verify-6's siblings before Codex round 3 reads the tree?</b> Recommendation: yes for the /media revision binding and the 390 px item and iteration pages, which Codex would read as the same class as finding 1 and the old overflow; the rest can ride. Default: round 3 runs on this tree, with these listed for it.</li>
+      <li><b>Your existing drafts still show the stale notice</b> ('drafted before the dashboard recorded which version of the question you saw'). Recommendation: discard them and answer again on N6. Default: they stay stale and are never copied.</li>
+      <li><b>Keep N6 as the default?</b> The judges' round 2 scored it 93 against N1's 87; nothing since has lowered it. Recommendation: keep it. Default: N6 stays the default.</li>
+      <li><b>Retire N2–N5 from the chooser</b> after Codex round 3? Recommendation: yes, keep N1 as the calm comparison. Default: all six stay selectable.</li>
+      <li><b>Commit the wave</b> on <code>claude/vibetracks-dashboard</code>? Recommendation: yes, once a Codex round passes, so a peer's <code>stash -u</code> cannot take it. Default: left uncommitted.</li>
+    </ol></li>
+  <li><strong>Deliberately not done:</strong> no re-judge of N6, so its scores are the judges' round 2. Nothing is sent; answers only copy out. No commits, no vault edits. verify-6's siblings and the 390 px pages were not fixed in this pass, and the proven hover was not seen in the app.</li>
+</ul>
+"""
 
 DECISION_R4 = f"""
 <ul>
@@ -791,6 +912,14 @@ p.averb{font-size:13px;color:var(--fg);white-space:pre-wrap;overflow-wrap:anywhe
 .afix{font-size:13px;color:var(--dim)} .afix.no{color:var(--bad);font-weight:700}
 @media(max-width:700px){.ahead{display:none}.arow{grid-template-columns:2.2em minmax(0,1fr);row-gap:2px}
   .asev{grid-column:2}.abody{grid-column:1 / -1}.afix{grid-column:1 / -1}}
+p.asib{font-size:13px;color:var(--fg);margin:2px 0 4px;padding-left:10px;border-left:2px solid var(--line2)}
+/* round 2's re-read of round 1: one quiet line per finding; 'partly' is bold, not coloured, since each is now completed */
+ol.r1s{list-style:none;margin:0 0 18px;padding:0;max-width:1080px}
+.r1row{display:grid;grid-template-columns:2.2em 5.5em minmax(0,1fr) 12em;column-gap:14px;align-items:baseline;padding:6px 0;
+  border-bottom:1px solid var(--line);font-size:13px}
+.r1w{color:var(--dim)} .r1w.partly{color:var(--fg);font-weight:700} .r1note{color:var(--dim);min-width:0;overflow-wrap:anywhere}
+.r1now{color:var(--fg)}
+@media(max-width:700px){.r1row{grid-template-columns:2.2em minmax(0,1fr);row-gap:2px}.r1note,.r1now{grid-column:1 / -1}}
 """
 
 # Light-theme override of the house feedback module, which was written dark. WHY an override block rather
@@ -900,14 +1029,14 @@ def build() -> str:
     if N6_LEADS:
         n_fixed = sum(1 for st, _ in D.N6_R3_ITEM_STATUS if st == "fixed")
         verdict = (
-            f"{AUDIT['auditor']} failed round 1 with {len(AUDIT_ROWS)} findings; all {AUDIT_PASS} are fixed, and an "
-            f"independent re-check ran each one Codex's way or harder with no regressions. On this page that means a draft "
-            f"is copied only while the question still reads as you saw it, notes copy byte-exact, and the defaulting-questions "
-            f"option moved to Settings. Round 3's two leftovers are gone: the live lane serves the new N5, and no hover shows "
-            f"a raw ISO stamp. N6 · {D.N6['name']} stays the default on round 2's scores ({MEAN2['N6']:.0f} against N1's "
-            f"{MEAN2['N1']:.0f}). Codex round 2 runs next; nothing here is Codex-approved yet."
+            f"{AUDIT2['auditor']} failed round 2 at {AUDIT2['audited_sha']} with {len(AUDIT2_PARTLY)} round-1 findings only "
+            f"partly fixed and {len(AUDIT2_ROWS)} new ones ({SEV2_LINE}). All {N_IN_SCOPE} are now fixed and independently "
+            f"re-probed, each with a test that fails on {AUDIT2['audited_sha']}. Here: evidence links open only what you "
+            f"reviewed, copy-out keeps every CR and edge space, N4 and N5 drop blue. Still open: /media links are not bound to a "
+            f"revision, a title's trailing spaces are lost in the parsed copy, and 6 item and iteration pages scroll at 390 px. N6 stays the "
+            f"default ({MEAN2['N6']:.0f} vs N1's {MEAN2['N1']:.0f}). Codex round 3 runs next; nothing here is Codex-approved yet."
         )
-        h1 = "Vibe Tracks Needs-you: the Codex findings are fixed, round 2 next"
+        h1 = "Vibe Tracks Needs-you: Codex round 2's findings are fixed, round 3 next"
     else:
         verdict = (
             f"N6 · {D.N6['name']} still scores below N1: {MEAN2['N6']:.0f} against {MEAN2['N1']:.0f} (N2 "
@@ -919,8 +1048,8 @@ def build() -> str:
     # N6 leading. If a re-judge flips the order, the brief's rule applies (make N1 the default page, keep N6
     # selectable) and the ask, the recommendation and the numbers in it all need rewriting, not one phrase.
     assert N6_LEADS, "N6 trails N1: rewrite DECISION_R2's first ask to 'make N1 the default page and keep N6 selectable'"
-    decision = DECISION_R4
-    audit = audit_html(AUDIT_STILLS)
+    decision = DECISION_R5
+    audit = audit2_html(AUDIT2_STILLS, AUDIT_STILLS)
     # grid first, so GRID_USED is known when the details pick their extra stills; the page below places them in order.
     videos = videos_html()
     grid = grid_html()
@@ -938,10 +1067,10 @@ def build() -> str:
 <body><div class="wrap">
 
 <header class="top">
-  <div class="date">2026-10-05 · round 4: after Codex audit round 1</div>
+  <div class="date">2026-10-05 · round 5: after Codex audit round 2</div>
   <h1>{esc(h1)}</h1>
   <p class="verdict">{esc(verdict)}</p>
-  <p class="built">Built on the live lane at 127.0.0.1:4390 against the real /needs data · answers only ever copy out, nothing is sent · branch claude/vibetracks-dashboard at 3e90b94 plus 63 uncommitted changes · N1–N5 scored by two judges in the first wave; N6 vs N1 vs N2 re-judged in round 2 (not since) · Codex round 1 audited 3e90b94 (FAIL, 13 findings); after the fixes verify-5 re-checked all 13 (pass, 276 pytest, tsc clean) · Codex round 2 next · browser-only (over the desktop preview's size cap).</p>
+  <p class="built">Built on the live lane at 127.0.0.1:4390 against the real /needs data · answers only ever copy out, nothing is sent · branch claude/vibetracks-dashboard at b53567e plus the round-2 fixes, uncommitted · N1–N5 scored by two judges in the first wave; N6 vs N1 vs N2 re-judged in round 2 (not since) · Codex round 1 audited 3e90b94 (FAIL, 13 findings), Codex round 2 audited b53567e (FAIL, 3 partly + 7 new); after the fixes verify-6 re-probed all 10 (pass, 299 pytest, tsc clean) · Codex round 3 next · browser-only (over the desktop preview's size cap).</p>
   <div class="launch"><pre id="launch-cmd">{esc(LAUNCHER)}</pre><button id="copy-launch" type="button">Copy</button></div>
   <div class="reach">
     <h4>How to reach it</h4>
@@ -978,8 +1107,9 @@ def build() -> str:
 
 <section id="decide">
   <h2>Decision</h2>
-  <p class="lead">After Codex round 1 and its fixes. The first-wave sections for N1–N5 follow it.</p>
+  <p class="lead">After Codex round 2 and its fixes. The first-wave sections for N1–N5 follow it.</p>
   <div class="decide">{decision}</div>
+  <details class="limits"><summary>Round 4's decision packet, after Codex round 1 (superseded)</summary>{DECISION_R4}</details>
   <details class="limits"><summary>Round 3's decision packet (superseded: its two 'Left' failures are fixed)</summary>{D.DECISION_R3}</details>
   <details class="limits"><summary>Round 2's decision packet (superseded)</summary>{D.DECISION_R2}</details>
   <details class="limits"><summary>Round 1's decision packet (superseded)</summary>{D.DECISION_N6}</details>

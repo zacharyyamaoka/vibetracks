@@ -33,6 +33,7 @@ from __future__ import annotations
 
 import argparse
 import importlib
+import importlib.util
 import json
 import os
 import re
@@ -47,9 +48,29 @@ from pathlib import Path
 from typing import Any, Callable, Iterable, Mapping
 from urllib.parse import parse_qs, unquote, urlsplit
 
-import mounts
+BACKEND_DIR = Path(__file__).resolve().parent
+REPO_ROOT = BACKEND_DIR.parents[1]
 
-REPO_ROOT = Path(__file__).resolve().parents[2]
+
+def _load_mounts():
+    """The sibling ``mounts.py``. WHY not a bare ``import mounts`` alone: run as a program (Clank, or
+    ``python3 clank/backend/server.py``) this directory is ``sys.path[0]`` and the import finds the sibling; loaded by
+    file location from a test elsewhere (tests/test_dashboard_needs_unreadable.py) it is not on the path, and a test
+    must not put it there (it would shadow ``tests/test_server.py`` with this directory's ``test_server.py`` and break
+    ``unittest discover -s tests``). So: the importable sibling when it is that file, else load it by its path."""
+    try:
+        import mounts as found  # noqa: PLC0415
+    except ModuleNotFoundError:
+        found = None
+    if found is not None and Path(getattr(found, "__file__", "") or "").resolve() == BACKEND_DIR / "mounts.py":
+        return found
+    spec = importlib.util.spec_from_file_location("vibetracks_dashboard_backend_mounts", BACKEND_DIR / "mounts.py")
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)  # type: ignore[union-attr]
+    return module
+
+
+mounts = _load_mounts()
 if str(REPO_ROOT) not in sys.path:
     # Clank sets PYTHONPATH={pluginDir}/.. (the repo root); a bare `python3 clank/backend/server.py` or the unittest
     # run from clank/backend does not, and vibetracks.sources must import either way.
@@ -59,6 +80,7 @@ from vibetracks.dashboard.registry import TitleInvalid, find_registry, rename_ti
 from vibetracks.edits import read_note_exact  # noqa: E402
 from vibetracks.errors import RevisionConflict, UnknownFeature, VibeTracksError  # noqa: E402
 from vibetracks.notes import note_revision  # noqa: E402
+from vibetracks.safe_open import UnsafePath, open_no_symlinks  # noqa: E402
 from vibetracks.sources import load_sources  # noqa: E402
 
 
@@ -510,12 +532,18 @@ def make_handler(projection: Projection, workspace: Path | None = None):
                     close()
 
         def _send_file(self, file: Path, head: bool) -> None:
-            # WHY O_NOFOLLOW on the canonical path: it holds no symlink, so a link swapped in after the check fails to
-            # open instead of being followed; size and type come from the opened file itself.
+            # WHY open_no_symlinks on the canonical path (audit 2026-10-05, finding 2): the path holds no symlink, so
+            # one found at ANY component at open time (a parent directory swapped for a link after media_lookup's
+            # check) is a substitution and fails, where O_NOFOLLOW alone guarded only the last component. It also
+            # refuses anything but a regular file; size and type come from the opened file itself.
             try:
-                fd = os.open(file, os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0))
-            except OSError:
+                fd = open_no_symlinks(str(file))
+            except UnsafePath:
                 return self._json(403, {"error": "the listed file changed while it was being opened"})
+            except FileNotFoundError:
+                return self._json(404, {"error": "the listed file is gone"})
+            except OSError as error:
+                return self._json(403, {"error": f"the listed file could not be opened: {error.strerror}"})
             handle = os.fdopen(fd, "rb")
             try:
                 info = os.fstat(fd)

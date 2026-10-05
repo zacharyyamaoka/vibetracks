@@ -12,7 +12,9 @@ import types
 import unittest
 from pathlib import Path
 
-sys.path.insert(0, str(Path(__file__).resolve().parent))
+# WHY no sys.path.insert here: every way this file is run already has this directory on the path (`unittest discover
+# -s clank/backend` inserts its start dir; `python3 clank/backend/test_server.py` runs from it; pytest prepends it),
+# and a test that mutates sys.path at import time leaks into whatever else the same process collects.
 import mounts  # noqa: E402
 import server  # noqa: E402
 

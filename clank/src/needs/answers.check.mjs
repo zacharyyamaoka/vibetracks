@@ -4,7 +4,9 @@
 // WHY markdown-it as the oracle for the Markdown round trip: it is an independent CommonMark parser, so "the note comes
 // back exactly" is measured by something other than the code that wrote it.
 // Regressions these pin (Codex audit 2026-10-04): finding 1 (a draft outlived a changed question and a settled item,
-// and still exported), finding 7 (notes were trimmed and folded to one line; a note alone exported an unoffered `other`).
+// and still exported), finding 7 (notes were trimmed and folded to one line; a note alone exported an unoffered `other`);
+// round 2 (2026-10-05) finding 3 (a lone CR let the note escape its fence, CRLF was unrecoverable on Markdown-only
+// channels, and the option's words were trimmed). 31 of these fail against b53567e's exporter.
 
 import { register, createRequire } from 'node:module'
 import { test } from 'node:test'
@@ -316,4 +318,176 @@ test('every exported choice is one the item offers', () => {
       }
     }
   }
+})
+
+// ------------------------------------------------------------------------------------------- round 2, finding 3
+// Codex audit 2026-10-05 (round 2) finding 3: the note formatter split on LF only, so "a\rb" put `b` outside the fenced
+// block (a CommonMark parser ends a line at a lone CR too); CRLF came back as LF with nothing to recover it from on a
+// Markdown-only channel; and the option's words were trim()med. Each check below parses the copy with markdown-it (an
+// independent CommonMark parser) AND checks the source lines strictly, so a regression fails here, at the exporter that
+// builds the clipboard text, not only in a helper.
+
+const NOTE_PASTE = { kind: 'note_paste', target: 'Projects/Detection/Answers.md', row_schema: null }
+const JSONL = {}
+const CHANNELS = { chat_paste: CHAT, note_paste: NOTE_PASTE, jsonl_append: JSONL }
+
+/** What any CommonMark parser makes of the text inside a fenced block: CR and CRLF end lines, NUL becomes U+FFFD. */
+const commonmarkLiteral = (text) => `${text.replace(/\r\n|\r/g, '\n').replace(/\0/g, '�')}\n`
+
+/** The `exact: …` twins in the copy, decoded: [{label, value}], read from markdown-it's tokens, never by regex on the
+ * source, so the line must parse as `label: ` followed by ONE code span holding a JSON string. */
+function exactTwins(markdown) {
+  const twins = []
+  for (const token of md.parse(markdown, {})) {
+    if (token.type !== 'inline') continue
+    const kids = token.children ?? []
+    if (kids.length === 2 && kids[0].type === 'text' && /^exact( option words)?: $/.test(kids[0].content) && kids[1].type === 'code_inline') {
+      twins.push({ label: kids[0].content.slice(0, -2), value: JSON.parse(kids[1].content) })
+    }
+  }
+  return twins
+}
+
+/** Strict structure: every line of the copy is a heading, the header comment, a list item, list-item content (two
+ * spaces in), a jsonl fence line, or blank. A line that escaped its block starts at column 0 with anything else. */
+function assertContained(markdown) {
+  let inRows = false
+  for (const line of markdown.split('\n')) {
+    if (line === '```jsonl') inRows = true
+    else if (inRows && line === '```') inRows = false
+    else if (inRows) assert.ok(line.startsWith('{'), `jsonl fence holds only rows: ${JSON.stringify(line)}`)
+    else assert.match(line, /^(# |## |<!-- |- \*\*|  |$)/, `line escaped its block: ${JSON.stringify(line)}`)
+  }
+  assert.ok(!markdown.includes('\r'), 'the copy holds no raw CR: every line ending is LF')
+}
+
+const CR_NOTES = {
+  lone_cr: 'a\rb',
+  crlf: 'a\r\nb',
+  mixed: 'x\r\n\r\ny\rz\n',
+  only_cr: '\r',
+  cr_then_fence: 'a\r```\r# not a heading',
+  nul: 'a\u0000b',
+}
+
+for (const [name, note] of Object.entries(CR_NOTES)) {
+  for (const [channelName, channel] of Object.entries(CHANNELS)) {
+    test(`note "${name}" on ${channelName}: stays inside its block, and the copy can give it back exactly`, () => {
+      const item = makeItem()
+      const result = exporter.exportTrack(makeDoc([item], channel), lookup(rules.boundDraft(item, 'use_default', note, NOW)), NOW)
+      assert.deepEqual(result.exported, ['kinsim:T47'])
+      assertContained(result.markdown)
+      const tokens = md.parse(result.markdown, {})
+      assert.equal(tokens.filter((token) => token.type === 'heading_open' && token.tag === 'h2').length, 1)
+      const noteBlocks = fences(result.markdown).filter((token) => token.info === 'text')
+      assert.equal(noteBlocks.length, 1)
+      assert.equal(noteBlocks[0].content, commonmarkLiteral(note), 'the whole note, and nothing else, is in the block')
+      // Nothing of the note became a paragraph of its own (b escaping the fence did exactly that).
+      const paragraphs = tokens.filter((token) => token.type === 'inline' && !token.content.startsWith('exact')).map((token) => token.content)
+      assert.ok(!paragraphs.some((text) => text === 'b' || text.startsWith('b') || text.includes('not a heading')), JSON.stringify(paragraphs))
+      const twins = exactTwins(result.markdown)
+      if (channelName === 'jsonl_append') {
+        // The row carries the raw string; no twin is added.
+        assert.deepEqual(twins, [])
+        const rows = fences(result.markdown).find((token) => token.info === 'jsonl').content.trimEnd().split('\n').map((line) => JSON.parse(line))
+        assert.equal(rows[0].note, note)
+      } else {
+        assert.deepEqual(twins, [{ label: 'exact', value: note }], 'a Markdown-only channel carries the exact twin')
+      }
+    })
+  }
+}
+
+test('a note Markdown carries exactly gets no exact twin (ordinary answers stay compact)', () => {
+  const item = makeItem()
+  for (const note of Object.values(NASTY_NOTES)) {
+    const result = exporter.exportTrack(makeDoc([item], CHAT), lookup(rules.boundDraft(item, 'use_default', note, NOW)), NOW)
+    assert.deepEqual(exactTwins(result.markdown), [], JSON.stringify(note))
+  }
+})
+
+test('a note-only draft with a CR on a chat channel keeps its twin', () => {
+  const item = approveOnly()
+  const note = 'only after\r\nthe licence check'
+  const result = exporter.exportTrack(makeDoc([item], CHAT), lookup(rules.boundDraft(item, null, note, NOW)), NOW)
+  assertContained(result.markdown)
+  assert.deepEqual(exactTwins(result.markdown), [{ label: 'exact', value: note }])
+})
+
+const OPTION_WORDS = {
+  edge_spaces_crlf: '  first\r\n\r\nlast  ',
+  edge_spaces: '  keep my spaces  ',
+  lone_cr: 'Run at 44 V.\rThen log it.',
+  whitespace_only: '   ',
+  plain_multiline: 'Run at 44 V.\n\n- then log it\n- and stop',
+}
+
+for (const [name, words] of Object.entries(OPTION_WORDS)) {
+  for (const [channelName, channel] of Object.entries(CHANNELS)) {
+    test(`option words "${name}" on ${channelName}: quoted untrimmed, line for line, inside the quote`, () => {
+      const item = makeItem({ options: [option('accept_recommendation', 'Go with the recommendation', words), ...makeItem().options.slice(1)] })
+      const note = 'my note'
+      const result = exporter.exportTrack(makeDoc([item], channel), lookup(rules.boundDraft(item, 'accept_recommendation', note, NOW)), NOW)
+      assert.deepEqual(result.exported, ['kinsim:T47'])
+      assertContained(result.markdown)
+      // Source level: the quote lines, prefix removed, are the option's lines exactly (no trim, no dropped spaces).
+      const section = result.markdown.split('\n')
+      const start = section.findIndex((line) => line.startsWith('- **Answer:**')) + 1
+      const quoted = []
+      for (let i = start; i < section.length && section[i].startsWith('  >'); i++) quoted.push(section[i].replace(/^  >(?: |$)/, ''))
+      assert.deepEqual(quoted, words.split(/\r\n|\r|\n/))
+      // Parse level: one blockquote, the note's fence after it, and nothing of the twin inside the quote.
+      const tokens = md.parse(result.markdown, {})
+      assert.equal(tokens.filter((token) => token.type === 'blockquote_open').length, 1)
+      const quoteEnd = tokens.findIndex((token) => token.type === 'blockquote_close')
+      const inside = tokens.slice(0, quoteEnd).filter((token) => token.type === 'inline').map((token) => token.content).join('\n')
+      assert.doesNotMatch(inside, /exact/)
+      assert.equal(fences(result.markdown).find((token) => token.info === 'text').content, `${note}\n`)
+      const lossy = /\r/.test(words) || words !== words.trim()
+      assert.deepEqual(exactTwins(result.markdown), lossy ? [{ label: 'exact option words', value: words }] : [])
+    })
+  }
+}
+
+test('an empty note exports no note block and no twin; "other" with an empty note is left out and named', () => {
+  const item = makeItem()
+  for (const [channelName, channel] of Object.entries(CHANNELS)) {
+    const result = exporter.exportTrack(makeDoc([item], channel), lookup(rules.boundDraft(item, 'use_default', '', NOW)), NOW)
+    assert.deepEqual(result.exported, ['kinsim:T47'], channelName)
+    assertContained(result.markdown)
+    assert.doesNotMatch(result.markdown, /\*\*Note:\*\*/, channelName)
+    assert.equal(fences(result.markdown).filter((token) => token.info === 'text').length, 0, channelName)
+    assert.deepEqual(exactTwins(result.markdown), [], channelName)
+    if (channelName === 'jsonl_append') {
+      const row = JSON.parse(fences(result.markdown).find((token) => token.info === 'jsonl').content.trimEnd())
+      assert.equal(row.note, '')
+    }
+    const other = exporter.exportTrack(makeDoc([item], channel), lookup(rules.boundDraft(item, 'other', '', NOW)), NOW)
+    assert.deepEqual(other.exported, [], channelName)
+    assert.deepEqual(other.skipped, [{ id: 'kinsim:T47', reason: '"Something else" needs a note' }], channelName)
+  }
+})
+
+test("the loop's title, id and option label can never break their one line: a line ending is shown as JSON", () => {
+  const title = 'Bus voltage?\n# injected heading\r\n- injected item'
+  const item = makeItem({ title, options: [option('use_default', 'Keep\rwaiting', 'Stay at 40 V.'), ...makeItem().options.slice(2)] })
+  const doc = { ...makeDoc([item], CHAT), track_title: 'Kinematic\nSim', source: { adapter: 'kinsim', paths: ['/x/a-->b.json'], commit: null, live: true, note: null } }
+  const result = exporter.exportTrack(doc, lookup(rules.boundDraft(item, 'use_default', '', NOW)), NOW)
+  assertContained(result.markdown)
+  const tokens = md.parse(result.markdown, {})
+  assert.equal(tokens.filter((token) => token.type === 'heading_open').length, 2, 'the H1 and one H2, nothing injected')
+  assert.equal(tokens.filter((token) => token.type === 'bullet_list_open').length, 1)
+  const h2 = tokens[tokens.findIndex((token) => token.type === 'heading_open' && token.tag === 'h2') + 1]
+  assert.equal(JSON.parse(h2.children.find((child) => child.type === 'code_inline').content), title)
+  // With raw HTML on (as a chat renderer may have it), the header comment is one html block that ends where it should.
+  const comment = new MarkdownIt({ html: true }).parse(result.markdown, {}).find((token) => token.type === 'html_block')
+  assert.ok(comment.content.trimEnd().endsWith('-->') && comment.content.indexOf('-->') === comment.content.lastIndexOf('-->'), comment.content)
+  assert.match(result.markdown, /`"Keep\\rwaiting"` \(use_default\)/)
+})
+
+test('plain titles and labels are left exactly as written (no code span, no trimming)', () => {
+  const item = makeItem({ title: '  Bus *voltage*?  ' })
+  const result = exporter.exportTrack(makeDoc([item], CHAT), lookup(rules.boundDraft(item, 'use_default', '', NOW)), NOW)
+  assert.ok(result.markdown.includes('## T47 ·   Bus *voltage*?  \n'))
+  assert.ok(result.markdown.includes('- **Answer:** Let the default apply (use_default)'))
 })

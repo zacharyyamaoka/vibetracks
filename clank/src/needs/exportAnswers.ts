@@ -41,7 +41,19 @@
 //
 // Import from './answerRules' (pure), never './answers' (React): answers.check.mjs runs this file under plain node.
 
-import { draftState, effectiveChoice, isComplete, isNoteOnly, noteBlockLines, staleText, type AnswerDraft } from './answerRules'
+import {
+  draftState,
+  effectiveChoice,
+  exactLine,
+  inlineExact,
+  isComplete,
+  isNoteOnly,
+  markdownIsLossy,
+  markdownLines,
+  noteBlockLines,
+  staleText,
+  type AnswerDraft,
+} from './answerRules'
 import type { Choice, NeedsDoc, NeedsItem } from './types'
 
 export const ANSWER_ROW_SCHEMA = 'bam-triage-answer/1'
@@ -102,9 +114,22 @@ export const NOTE_ONLY_NEEDS_OPTION = 'note only, this loop needs an option'
 export function optionQuoteLines(item: NeedsItem, choice: Choice): string[] {
   if (choice === 'other') return []
   const option = item.options.find((candidate) => candidate.key === choice)
-  const text = option?.detail_md?.trim() ?? ''
-  if (!text) return ['  > (the loop recorded no words for this option)']
-  return text.split(/\r?\n/).map((line) => (line.trim() ? `  > ${line}` : '  >'))
+  // WHY no trim() (Codex round 2 finding 3): these are the loop's own words; edge spaces and blank lines are part of
+  // what was approved, and the quote keeps each line's characters after its `  > ` prefix.
+  const text = option?.detail_md ?? ''
+  if (text === '') return ['  > (the loop recorded no words for this option)']
+  const lines = markdownLines(text).map((line) => (line === '' ? '  >' : `  > ${line}`))
+  // A quote cannot hold a CR, CRLF or NUL as such, and a parser drops the text's edge whitespace (whitespace-only words
+  // render as nothing): then the exact twin follows. WHY the blank line before it: without one, the next line would
+  // continue the quote's paragraph (lazy continuation) and read as the loop's words.
+  if (markdownIsLossy(text) || text !== text.trim()) lines.push('', exactLine(text, 'exact option words'))
+  return lines
+}
+
+/** A value inside the header's HTML comment: as is, or as a JSON string when it holds a line ending or `-->` (either
+ * could end the comment and spill the rest into the copy as markup). Never trimmed. */
+function commentField(value: string): string {
+  return /[\r\n]|-->/.test(value) || markdownIsLossy(value) ? JSON.stringify(value).replace(/>/g, '\\u003e') : value
 }
 
 /** One track's block, or null when nothing in it is answered. */
@@ -138,10 +163,16 @@ export function exportTrack(doc: NeedsDoc, draftOf: DraftLookup, now: Date = new
     }
     // The note exactly as typed (never trimmed); a whitespace-only note is still shown, since it is what was saved.
     const note = draft.note
-    const answer = choice ? `${choiceLabel(item, choice)} (${choice})` : 'no option chosen (note only)'
-    const lines = [`## ${item.local_id} · ${item.title}`, `- **Answer:** ${answer}`]
+    const answer = choice ? `${inlineExact(choiceLabel(item, choice))} (${choice})` : 'no option chosen (note only)'
+    // WHY inlineExact on the loop's id, title and label: each must stay on its one Markdown line; a title holding a line
+    // ending would otherwise end the heading and spill the rest into the copy as markup.
+    const lines = [`## ${inlineExact(item.local_id)} · ${inlineExact(item.title)}`, `- **Answer:** ${answer}`]
     if (choice) lines.push(...optionQuoteLines(item, choice))
     if (note) lines.push(...noteBlockLines(note))
+    // WHY the exact twin only where no JSONL row carries the note (Codex round 2 finding 3): a bam-triage-answer/1 row
+    // holds the raw string already; a chat or note paste has nothing else that can give back a CR, CRLF or NUL.
+    const rowCarriesNote = rowsCarryChoice && choice !== null
+    if (note && !rowCarriesNote && markdownIsLossy(note)) lines.push(exactLine(note))
     sections.push(lines.join('\n'))
     exported.push(item.id)
     // Key order matters for a reader comparing rows by eye; JSON.stringify keeps insertion order. `note` is the raw
@@ -152,8 +183,8 @@ export function exportTrack(doc: NeedsDoc, draftOf: DraftLookup, now: Date = new
   const channel = doc.answer_channel
   const source = doc.source.paths[0] ? `${doc.source.paths[0].split('/').pop()}${doc.source.commit ? `@${doc.source.commit}` : ''}` : doc.source.adapter
   const header = [
-    `# Answers · ${doc.track_title} · ${headingTime(now)}`,
-    `<!-- vibetracks-needs/1 · track=${doc.track} · source=${source} · channel=${channel.kind}${channel.target ? ` -> ${channel.target}` : ''} -->`,
+    `# Answers · ${inlineExact(doc.track_title)} · ${headingTime(now)}`,
+    `<!-- vibetracks-needs/1 · track=${commentField(doc.track)} · source=${commentField(source)} · channel=${commentField(channel.kind)}${channel.target ? ` -> ${commentField(channel.target)}` : ''} -->`,
   ].join('\n')
   let markdown = `${header}\n\n${sections.join('\n\n')}`
   if (rowsCarryChoice) markdown += `\n\n\`\`\`jsonl\n${rows.join('\n')}\n\`\`\``

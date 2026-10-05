@@ -27,7 +27,8 @@ The request names each snapshot by the ledger ``run_id``s it holds (the adapter'
 bench judges exactly the rows the adapter read even if the ledger grows in between. The document printed back:
 
     {"schema": "grasp-bench-verdict/1",
-     "modules": {"gallery": <realpath>, ...},          # checked against the declared paths
+     "modules": {"gallery": <realpath>, ...},          # every grasp_bench module imported; REQUIRED_MODULES must
+                                                       # be there, the declared five at their declared paths
      "attestations_path": <realpath>, "ledger_rows": int, "duplicate_run_ids": [...],
      "gated": [env ids, curriculum.GATES order],
      "runs": {run_id: {frozen, privileged, clears_gate, provenance_gap, schema_version}},
@@ -58,6 +59,13 @@ _SCRUB = ("VIRTUAL_ENV", "PYTHONPATH", "PYTHONHOME", "PYTHONSTARTUP", "PYTHONSAF
 #: The bench modules whose code decides the verdict, as the bridge reports them, against the declared path keys.
 MODULE_KEYS = {"gallery": "gallery_py", "ledger": "ledger_py", "curriculum": "curriculum_py", "runner": "runner_py",
                "contracts": "contracts_py"}
+#: The module witnesses a verdict must carry: every grasp_bench module a verdict run of the live bench imports, pinned
+#: from a real run on 2026-10-05 ("__init__" is the package itself). WHY required and pinned (Codex r2 finding 6): the
+#: validator used to check only the entries the subprocess happened to print, so ``modules: {}`` was accepted. Each
+#: must be imported from the bench's own src/grasp_bench (exact file), and so must every other module the run reports.
+#: If the bench's import graph changes, the bridge answers "bench verdict unavailable" naming the module, and this pin
+#: is updated from a new real run; it never silently accepts a verdict whose deciding code it cannot place.
+REQUIRED_MODULES = ("__init__", "contracts", "curriculum", "gallery", "grasp", "ledger", "registry", "runner", "stats")
 
 # WHY ``gallery._run_privileged``, a private name: it is the exact predicate env_verdict uses. If the bench renames it
 # the bridge fails with an AttributeError and the dashboard says "bench verdict unavailable", which is the truth.
@@ -107,9 +115,13 @@ for snapshot_id, run_ids in request["subsets"].items():
                         "best_run": brief(best)}
     snapshots[snapshot_id] = {"heads": {cell: brief(run) for cell, run in heads.items()}, "envs": envs,
                               "missing": sorted(wanted - {run.run_id for run in subset})}
-modules = {name: os.path.realpath(module.__file__) for name, module in (
-    ("gallery", gallery), ("ledger", ledger_module), ("curriculum", curriculum), ("runner", runner),
-    ("contracts", contracts))}
+modules = {}
+for name, module in list(sys.modules.items()):
+    path = getattr(module, "__file__", None)
+    if path and name == "grasp_bench":
+        modules["__init__"] = os.path.realpath(path)
+    elif path and name.startswith("grasp_bench."):
+        modules[name[len("grasp_bench."):]] = os.path.realpath(path)
 document = {"schema": "grasp-bench-verdict/1", "modules": modules, "dependencies": _dependencies(),
             "attestations_path": os.path.realpath(str(book.attestations_path)), "ledger_rows": len(runs),
             "duplicate_run_ids": duplicates, "gated": list(curriculum.GATES), "runs": judged, "snapshots": snapshots}
@@ -252,6 +264,51 @@ def _write_cache(directory: Path, payload: dict[str, Any], name: str = CACHE_NAM
         pass  # WHY swallow: a read-only data home costs a re-run next time, never the verdict itself
 
 
+def _inside(path: str, root: str) -> bool:
+    real = _real(path)
+    return real == root or real.startswith(root + os.sep)
+
+
+def _witness_problem(doc: dict[str, Any], code: Path, *, required: bool = True) -> str | None:
+    """Why ``doc`` does not prove it was decided by the bench's own src/grasp_bench (``code``), or None when it does.
+
+    Always: every reported ``modules`` entry and ``dependencies`` file lies inside ``code``. With ``required`` (the
+    default, verdict()): a ``dependencies`` list and a ``modules`` map must be present, with every one of
+    REQUIRED_MODULES in ``modules`` as exactly its file under ``code`` and listed in ``dependencies``.
+    WHY bench_verdict() passes required=False: its own contract already requires its five declared modules at their
+    declared paths (_check), and a document without a dependency list is pinned there as "returned, never cached"
+    (tests/test_dashboard_adapter_grasping.py::BridgeTest); it still gets the placement check.
+    """
+
+    root = _real(str(code))
+    files = doc.get("dependencies")
+    listed = isinstance(files, list) and bool(files) and all(isinstance(path, str) and path for path in files)
+    if not listed:
+        if required:
+            return "the bench did not report the module files its verdict imported"
+        files = []  # bench_verdict(): _dependencies() reports it as "never cached"
+    imported_files = {_real(path) for path in files}
+    for path in sorted(imported_files):
+        if not _inside(path, root):
+            return f"the bench's verdict imported {path}, outside {code}"
+    modules = doc.get("modules")
+    if not isinstance(modules, dict):
+        return "the bench's verdict names none of the modules that decided it"
+    for name, path in modules.items():
+        if not isinstance(path, str) or not path or not _inside(path, root):
+            return f"the bench venv imports grasp_bench {name} from {path}, outside {code}"
+    if not required:
+        return None
+    for name in REQUIRED_MODULES:
+        expected = _real(str(code / ("__init__.py" if name == "__init__" else f"{name}.py")))
+        imported = modules.get(name)
+        if not imported or _real(imported) != expected:
+            return f"the bench's verdict has no {name} witness at {expected} (got {imported})"
+        if expected not in imported_files:
+            return f"the bench's verdict does not list {expected} among the modules it imported"
+    return None
+
+
 def _check(doc: Any, paths: BenchPaths) -> str | None:
     """Why ``doc`` is not the verdict of the declared bench, or None when it is."""
 
@@ -267,7 +324,7 @@ def _check(doc: Any, paths: BenchPaths) -> str | None:
                 f"{paths.attestations}")
     if not isinstance(doc.get("runs"), dict) or not isinstance(doc.get("snapshots"), dict):
         return "the bench's verdict document has no runs or snapshots"
-    return None
+    return _witness_problem(doc, Path(paths.gallery_py).parent, required=False)
 
 
 def bench_verdict(paths: BenchPaths, subsets: dict[str, list[str]], *, timeout: float = TIMEOUT_S) -> BridgeResult:
@@ -338,14 +395,14 @@ VERDICT_SCHEMA = "grasp-bench-verdict/2"
 # /2 keep working; but a cache entry written before the field existed would answer without it, so it must be a miss.
 VERDICT_CACHE_SCHEMA = "grasp-bench-verdict/3"
 VERDICT_CACHE_NAME = "verdict-v3.json"
-LEDGER_UNALIGNED = "ledger changed during read; row digests unaligned"
+LEDGER_UNALIGNED = "the bench's parse of the runs.jsonl snapshot does not match its lines one for one; row digests unaligned"
 #: The dashboard data home's folder for this bridge's cache (sources.py: ``{dashboard_data_home}/grasping-bench-verdict``).
 DEFAULT_CACHE_DIR = "~/.local/share/vibetracks/dashboard/grasping-bench-verdict"
 
 # WHY run_id = the row's index in runs.jsonl: the ledger's own run_id strings are free-form file names; the position is
 # stable while the ledger is append-only and needs no knowledge of the bench's naming.
 VERDICT_SCRIPT = r'''
-import hashlib, json, os, sys
+import hashlib, json, os, sys, tempfile
 request = json.load(sys.stdin)
 # WHY after the verdict and from sys.modules: the files that decided it are exactly the grasp_bench modules this run
 # imported (gallery -> registry, runner -> contracts, ...), which no fixed list can name ahead of time.
@@ -356,69 +413,85 @@ def _dependencies():
         if path and (name == "grasp_bench" or name.startswith("grasp_bench.")):
             found.add(os.path.realpath(path))
     return sorted(found)
+
+def _modules():
+    found = {}
+    for name, module in list(sys.modules.items()):
+        path = getattr(module, "__file__", None)
+        if path and name == "grasp_bench":
+            found["__init__"] = os.path.realpath(path)
+        elif path and name.startswith("grasp_bench."):
+            found[name[len("grasp_bench."):]] = os.path.realpath(path)
+    return found
+
+def _answer(document):
+    sys.stdout.write("\n" + json.dumps(document) + "\n")
+    sys.exit(0)
+
 from grasp_bench import curriculum, gallery
-from grasp_bench import ledger as ledger_module
 from grasp_bench.ledger import Ledger
 
-# WHY line_sha256 is computed here, from a read the Ledger's own parse is checked against: a digest taken by another
-# process, or from another read, could describe a row the frozen/gap judgement never saw (the file grew in between).
-# Alignment is guaranteed by construction, not by hope: read runs.jsonl as bytes once, split it the way the Ledger's
-# text-mode read does (bytes.splitlines breaks on \n, \r\n and a lone \r, exactly Python's universal newlines, and
-# drops that one terminator, so a CRLF file hashes without its \r too), skip blank and undecodable-JSON lines by the
-# same rule (line.strip() empty, json.JSONDecodeError), then require the parsed rows to equal what load_runs() holds,
-# count and every row's run_id and fields. One retry; a second disagreement is an error, never a misaligned digest.
-def _raw_rows(data):
-    pairs = []
-    for raw in data.splitlines():
-        text = raw.decode("utf-8")
-        if not text.strip():
-            continue
-        try:
-            pairs.append((raw, json.loads(text)))
-        except json.JSONDecodeError:
-            continue
-    return pairs
-
-def _aligned(loaded, pairs):
-    if len(loaded) != len(pairs):
-        return False
-    for run, (raw, row) in zip(loaded, pairs):
-        if not isinstance(row, dict) or row.get("run_id") != run.run_id:
-            return False
-        for key, value in row.items():
-            if key != "attestation" and hasattr(run, key) and getattr(run, key) != value:
-                return False
-    return True
-
+# WHY one byte snapshot, parsed by the bench's own Ledger (Codex r2 finding 4, 2026-10-05): the bridge used to read
+# runs.jsonl as bytes, let load_runs() read it again, and pair the two by comparing only the keys present in the raw
+# row. A legacy sparse row enriched in place between the reads still "aligned", and the old bytes' digest went out
+# beside the new row's frozen/beaten judgement. Now runs.jsonl (and attestations.jsonl) are read once, the bytes are
+# written into a scratch ledger root, and Ledger(scratch).load_runs() judges exactly those bytes. Each line is then
+# parsed alone the same way: a line the bench's parser turns into one run is that run's row, a line it drops (blank, a
+# torn tail) is no row, and every row's whole parsed run must equal the snapshot parse's run at the same index. Both
+# the judgement and line_sha256 thus come from the same immutable bytes through the bench's own normalisation; nothing
+# here re-implements its skip rule. bytes.splitlines splits as the Ledger's text-mode read does (\n, \r\n, lone \r)
+# and drops that one terminator, so a CRLF file hashes without its \r.
 book = Ledger(request["ledger_root"])
-for _attempt in (0, 1):
-    with open(book.runs_path, "rb") as handle:
-        data = handle.read()
-    loaded = book.load_runs()
-    pairs = _raw_rows(data)
-    if _aligned(loaded, pairs):
-        break
-else:
-    sys.stdout.write("\n" + json.dumps({"error": request["unaligned"]}) + "\n")
-    sys.exit(0)
+with open(book.runs_path, "rb") as handle:
+    data = handle.read()
+try:
+    with open(book.attestations_path, "rb") as handle:
+        attestations = handle.read()
+except FileNotFoundError:
+    attestations = None
+
+def _shape(run):
+    return json.dumps(vars(run) if hasattr(run, "__dict__") else repr(run), sort_keys=True, default=repr)
+
+with tempfile.TemporaryDirectory(prefix="grasp-bench-verdict-") as scratch:
+    def _parse(name, runs_bytes):
+        root = os.path.join(scratch, name)
+        os.mkdir(root)
+        ledger = Ledger(root)
+        for path, payload in ((ledger.runs_path, runs_bytes), (ledger.attestations_path, attestations)):
+            if os.path.dirname(os.path.realpath(str(path))) != os.path.realpath(root):
+                _answer({"error": "the bench's Ledger(root) does not read %s inside its root" % path})
+            if payload is not None:
+                with open(path, "wb") as handle:
+                    handle.write(payload)
+        return ledger.load_runs()
+
+    loaded = _parse("snapshot", data)
+    rows = []
+    for number, raw in enumerate(data.splitlines()):
+        alone = _parse("line-%d" % number, raw + b"\n")
+        if len(alone) > 1:
+            _answer({"error": request["unaligned"]})
+        if alone:
+            rows.append((raw, alone[0]))
+if len(rows) != len(loaded) or any(_shape(run) != _shape(alone) for run, (_raw, alone) in zip(loaded, rows)):
+    _answer({"error": request["unaligned"]})
+
 index_of = {id(run): str(position) for position, run in enumerate(loaded)}
 runs = {}
 for position, run in enumerate(loaded):
     runs[index_of[id(run)]] = {"frozen": bool(gallery.is_frozen_protocol(run)), "gap": str(gallery.provenance_gap(run)),
                                "privileged": bool(gallery._run_privileged(run)), "started_at": run.started_at,
                                "env": run.env, "model": run.model,
-                               "line_sha256": hashlib.sha256(pairs[position][0]).hexdigest()}
+                               "line_sha256": hashlib.sha256(rows[position][0]).hexdigest()}
 heads = gallery.headline_runs(loaded)
 envs = {}
 for env_id in curriculum.GATES:
     beaten, best = gallery.env_verdict(env_id, heads)
     envs[env_id] = {"beaten": bool(beaten), "provisional": bool(gallery.env_provisional(env_id, heads)),
                     "best_run": None if best is None else index_of[id(best)]}
-document = {"envs": envs, "runs": runs, "headline": {cell: index_of[id(run)] for cell, run in heads.items()},
-            "modules": {"gallery": os.path.realpath(gallery.__file__), "ledger": os.path.realpath(ledger_module.__file__),
-                        "curriculum": os.path.realpath(curriculum.__file__)},
-            "dependencies": _dependencies()}
-sys.stdout.write("\n" + json.dumps(document) + "\n")
+_answer({"envs": envs, "runs": runs, "headline": {cell: index_of[id(run)] for cell, run in heads.items()},
+         "modules": _modules(), "dependencies": _dependencies()})
 '''
 
 
@@ -452,8 +525,9 @@ def verdict(bench_dir: str | Path, *, cache_dir: str | Path | None = None, timeo
     ``bench_dir`` is the grasp_bench package root. Never a replica: when the bench cannot run, ``error`` says why and
     ``envs``/``runs``/``headline`` are empty. Every ``runs[run_id]`` carries ``line_sha256``: the sha256 hex of that
     ledger row's exact bytes in runs.jsonl, without its one line terminator (``\\n`` or ``\\r\\n``), computed in the
-    bench subprocess from the same read the Ledger's parse was checked against. When the two cannot be aligned (the
-    file changed during the read, twice) ``error`` is "ledger changed during read; row digests unaligned".
+    bench subprocess from the one byte snapshot the bench's own Ledger parsed for the judgement. When the bench's parse
+    does not match the snapshot's lines one for one, ``error`` is LEDGER_UNALIGNED. A document without the required
+    module witnesses (REQUIRED_MODULES, each inside the bench's src/grasp_bench) is an error too; neither is cached.
     """
 
     bench = Path(bench_dir)
@@ -500,9 +574,9 @@ def verdict(bench_dir: str | Path, *, cache_dir: str | Path | None = None, timeo
         return _verdict_failure(str(raw["error"]), head)  # never cached: the next call reads the ledger afresh
     if not isinstance(raw, dict) or not all(isinstance(raw.get(name), dict) for name in ("envs", "runs", "headline")):
         return _verdict_failure("the bench printed no verdict document", head)
-    for name, imported in (raw.get("modules") or {}).items():
-        if not imported or _real(imported) != _real(str(code / f"{name}.py")):
-            return _verdict_failure(f"the bench venv imports {name}.py from {imported}, not from {code}", head)
+    problem = _witness_problem(raw, code)
+    if problem:
+        return _verdict_failure(problem, head)  # never cached: nothing below runs
     doc = {"schema": VERDICT_SCHEMA, "envs": raw["envs"], "runs": raw["runs"], "headline": raw["headline"],
            "bench_head": None, "error": None}
     deps, _uncached = _dependencies(raw, before)

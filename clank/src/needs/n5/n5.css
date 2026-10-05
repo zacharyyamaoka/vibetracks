@@ -241,8 +241,11 @@
     padding-left: 12px;
     border-left: 2px solid var(--vt-line);
   }
+  /* WHY grey and not the accent on every ordinary state here (the recommendation's rule, the draft bubble, a picked
+     chip, its "recommended" tag, the progress meter): colour only for exceptions (Codex audit 2026-10-05 round 2
+     finding 7); the accent is left for the keyboard focus ring only. Weight and the words tell these apart. */
   .vt-dash .vt-needs-n5 .n5-rec {
-    border-left-color: var(--vt-accent);
+    border-left-color: var(--vt-grey);
   }
   .vt-dash .vt-needs-n5 .n5-attachments {
     display: flex;
@@ -288,7 +291,8 @@
     max-width: 100%;
   }
   .vt-dash .vt-needs-n5 .n5-reply.is-draft .n5-reply-bubble {
-    background: var(--vt-accent-soft);
+    background: var(--vt-bg);
+    box-shadow: inset 0 0 0 1px var(--vt-line);
   }
   .vt-dash .vt-needs-n5 .n5-reply-bubble > * + * {
     margin-top: 3px;
@@ -330,13 +334,14 @@
     background: var(--vt-hover);
   }
   .vt-dash .vt-needs-n5 .n5-chip[aria-pressed='true'] {
-    background: var(--vt-accent-soft);
-    box-shadow: 0 0 0 1px var(--vt-accent);
+    background: var(--vt-press);
+    box-shadow: 0 0 0 1px var(--vt-grey);
+    font-weight: 500;
   }
   .vt-dash .vt-needs-n5 .n5-chip-tag {
     margin-left: 6px;
     font-size: 11px;
-    color: var(--vt-accent);
+    color: var(--vt-grey);
   }
   .vt-dash .vt-needs-n5 .n5-skip {
     align-self: center;
@@ -423,7 +428,7 @@
   .vt-dash .vt-needs-n5 .n5-meter > span {
     display: block;
     height: 100%;
-    background: var(--vt-accent);
+    background: var(--vt-grey);
     transition: width 0.25s ease;
   }
   .vt-dash .vt-needs-n5 .n5-out-track {

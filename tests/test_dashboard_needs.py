@@ -247,13 +247,29 @@ class RouteTest(unittest.TestCase):
         self.assertEqual(self.get("", track="nope")[0], 404)
 
     def test_evidence_served_only_from_the_items_own_list(self) -> None:
-        status, headers, body = self.get("/evidence", track="kinsim", item="kinsim:T47", n="0")
+        doc = json.loads(self.get("", track="kinsim")[2])
+        rev = doc["evidence_rev"]
+        t47 = next(item for item in doc["items"] if item["local_id"] == "T47")
+        eid = t47["evidence"][0]["eid"]
+        status, headers, body = self.get("/evidence", track="kinsim", item="kinsim:T47", eid=eid, rev=rev)
         self.assertEqual(status, 200)
         self.assertEqual(body, b"# belt\n")
         self.assertTrue(headers["Content-Type"].startswith("text/plain"))
-        self.assertEqual(self.get("/evidence", track="kinsim", item="T47", n="1")[0], 404)
-        self.assertEqual(self.get("/evidence", track="kinsim", item="T47", n="x")[0], 400)
-        self.assertEqual(self.get("/evidence", track="kinsim", item="T999", n="0")[0], 404)
+        self.assertEqual(self.get("/evidence", track="kinsim", item="T47", eid="f" * 16, rev=rev)[0], 404)
+        self.assertEqual(self.get("/evidence", track="kinsim", item="T999", eid=eid, rev=rev)[0], 404)
+        self.assertEqual(self.get("/evidence", track="kinsim", item="T47", eid=eid, rev="stale")[0], 409)
+        self.assertEqual(self.get("/evidence", track="kinsim", item="T47", n="0")[0], 400)  # an index is not an id
+
+    def test_evidence_ids_are_stable_and_the_revision_covers_targets(self) -> None:
+        first = needs.build_track("kinsim", self.sources)
+        second = needs.build_track("kinsim", self.sources)
+        self.assertEqual(first["evidence_rev"], second["evidence_rev"], "rebuilding an unchanged loop keeps the rev")
+        by_id = {item["local_id"]: item for item in first["items"]}
+        entry = by_id["T47"]["evidence"][0]
+        self.assertEqual(entry["eid"], needs.evidence_id("kinsim:T47", entry))
+        retargeted = json.loads(json.dumps(first))
+        next(item for item in retargeted["items"] if item["local_id"] == "T47")["evidence"][0]["target"] = "/x/else.md"
+        self.assertNotEqual(needs.evidence_revision(retargeted), first["evidence_rev"])
 
     def test_mount_is_registered(self) -> None:
         import importlib.util

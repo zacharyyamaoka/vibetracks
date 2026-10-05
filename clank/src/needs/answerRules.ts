@@ -172,7 +172,62 @@ export function isNoteOnly(draft: AnswerDraft | null | undefined): boolean {
 export function noteBlockLines(note: string): string[] {
   const longest = Math.max(0, ...(note.match(/`+/g) ?? []).map((run) => run.length))
   const fence = '`'.repeat(Math.max(3, longest + 1))
-  return ['- **Note:**', `  ${fence}text`, ...note.split('\n').map((line) => `  ${line}`), `  ${fence}`]
+  return ['- **Note:**', `  ${fence}text`, ...markdownLines(note).map((line) => `  ${line}`), `  ${fence}`]
+}
+
+/**
+ * `text` cut at every line ending CommonMark recognises: LF, CR and CRLF (spec §2.1).
+ *
+ * WHY all three and not just LF (Codex audit 2026-10-05, round 2 finding 3): a parser ends a line at a lone CR too, so
+ * a note "a\rb" split on LF alone put `b` at column 0, outside the list item, and it escaped the fenced block. Every
+ * physical line must get the indent, whatever ended it.
+ */
+export function markdownLines(text: string): string[] {
+  return text.split(/\r\n|\r|\n/)
+}
+
+/** A lone UTF-16 surrogate: not encodable as UTF-8, so it cannot survive a clipboard or a UTF-8 file as typed. */
+const LONE_SURROGATE = /[\uD800-\uDBFF](?![\uDC00-\uDFFF])|(?<![\uD800-\uDBFF])[\uDC00-\uDFFF]/
+
+/**
+ * True when Markdown cannot give `text` back character for character: CommonMark turns every CR and CRLF into LF and
+ * NUL into U+FFFD, and a lone surrogate cannot be written as UTF-8. Everything else survives a fenced block exactly
+ * (answers.check.mjs measures it with markdown-it).
+ */
+export function markdownIsLossy(text: string): boolean {
+  return /[\r\0]/.test(text) || LONE_SURROGATE.test(text)
+}
+
+/** `content` as an inline code span: the one Markdown construct that shows its characters without interpreting
+ * backslashes or markup. The delimiter is one backtick longer than any run inside. */
+export function codeSpan(content: string): string {
+  const longest = Math.max(0, ...(content.match(/`+/g) ?? []).map((run) => run.length))
+  const tick = '`'.repeat(longest + 1)
+  // CommonMark strips one space from each end when both ends have one, and a backtick at an end would merge with the
+  // delimiter; pad only then, so the parsed span is exactly `content`.
+  const pad = /^`|`$/.test(content) || (/^ /.test(content) && / $/.test(content) && content.trim() !== '') ? ' ' : ''
+  return `${tick}${pad}${content}${pad}${tick}`
+}
+
+/**
+ * The compact, byte-exact twin of a text Markdown would change: `exact: "<JSON string>"`, the JSON in a code span so no
+ * Markdown reader unescapes it. JSON.parse of the span gives the text back exactly (CR, CRLF, NUL, edge spaces).
+ *
+ * WHY a JSON line and not a second encoding of the block (Codex round 2 finding 3): a chat or note paste has no JSONL
+ * row to carry the raw string, and a reader must still be able to recover exactly what Zach typed; one line under the
+ * answer does that without making every ordinary answer noisier (it appears only when Markdown would lose something).
+ */
+export function exactLine(text: string, label = 'exact'): string {
+  return `  ${label}: ${codeSpan(JSON.stringify(text))}`
+}
+
+/**
+ * Loop text that must sit on ONE Markdown line (a heading's title, an answer label): returned as typed, or, when it
+ * holds a line ending or a character Markdown cannot carry, as a JSON string in a code span, so it can neither break
+ * the line (and restyle what follows) nor lose a character. Never trimmed.
+ */
+export function inlineExact(text: string): string {
+  return /[\r\n]/.test(text) || markdownIsLossy(text) ? codeSpan(JSON.stringify(text)) : text
 }
 
 // ------------------------------------------------------------------------------------------- stored form
