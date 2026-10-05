@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import type { RoadmapDoc } from './doc'
 import { freshness } from './freshness'
-import { createRoadmapLoader, type RoadmapLoadState } from './loader'
+import { ROADMAP_ART_DEADLINE_MS, ROADMAP_DOC_DEADLINE_MS, createRoadmapLoader, type RoadmapLoadState } from './loader'
 import { createPoller } from './poll'
 
 // A hand-resolved fetch and a recording stand-in for React's setState: the loader's order of events is the whole test.
@@ -11,14 +11,20 @@ const tick = () => new Promise<void>((resolve) => setTimeout(resolve, 0))
 
 interface Call { path: string; signal: AbortSignal; resolve: (body: unknown) => void; reject: (error: Error) => void }
 
-function rig() {
+function rig(deadlines: { art?: number; doc?: number } = {}) {
   const calls: Call[] = []
   let state: RoadmapLoadState = { track: 'grasping', doc: null, loading: true, error: null }
   let publishes = 0
   const load = createRoadmapLoader({
     track: 'grasping',
     artBase: '/art',
-    fetchJson: (path, signal) => new Promise((resolve, reject) => { calls.push({ path, signal, resolve, reject }) }),
+    artDeadlineMs: deadlines.art,
+    docDeadlineMs: deadlines.doc,
+    // Like a real fetch: an aborted signal rejects the request.
+    fetchJson: (path, signal) => new Promise((resolve, reject) => {
+      calls.push({ path, signal, resolve, reject })
+      signal.addEventListener('abort', () => reject(new Error('aborted')))
+    }),
     publish: (next) => {
       publishes += 1
       state = typeof next === 'function' ? next(state) : next
@@ -107,19 +113,29 @@ describe('a failed refresh does not look current (Codex W03)', () => {
 })
 
 describe('art requests belong to the poll cycle (Codex W07)', () => {
-  it('uses the cycle\'s own signal for /art and does not settle while art is pending', async () => {
+  it('does not settle while art is pending, and aborting the cycle aborts both requests', async () => {
     const r = rig()
-    const signal = new AbortController().signal
+    const cycle = new AbortController()
     let settled = false
-    void r.load(false, signal).then(() => { settled = true })
-    expect(r.pending('/roadmap/art')[0]!.signal === signal).toBe(true)
-    expect(r.pending('/roadmap/doc')[0]!.signal === signal).toBe(true)
+    void r.load(false, cycle.signal).then(() => { settled = true })
     r.pending('/roadmap/doc')[0]!.reject(new Error('offline'))
     await tick()
     expect(settled).toBe(false)
-    r.pending('/roadmap/art')[0]!.resolve({ entries: [] })
+    expect(r.pending('/roadmap/art')[0]!.signal.aborted).toBe(false)
+    cycle.abort()
     await tick()
+    expect(r.pending('/roadmap/art')[0]!.signal.aborted).toBe(true)
     expect(settled).toBe(true)
+  })
+
+  it('aborting a cycle with both requests pending aborts both', async () => {
+    const r = rig()
+    const cycle = new AbortController()
+    const settled = r.load(false, cycle.signal)
+    cycle.abort()
+    await settled
+    expect(r.pending('/roadmap/art')[0]!.signal.aborted).toBe(true)
+    expect(r.pending('/roadmap/doc')[0]!.signal.aborted).toBe(true)
   })
 
   it('a failed art fetch keeps the last art list', async () => {
@@ -153,6 +169,91 @@ describe('art requests belong to the poll cycle (Codex W07)', () => {
     expect(art.signal.aborted).toBe(false)
     poller.stop()
     expect(art.signal.aborted).toBe(true)
-    expect(r.pending('/roadmap/doc')[0]!.signal.aborted).toBe(true)
+  })
+})
+
+describe('optional art never gates the document (Codex X04)', () => {
+  it('exports the deadlines: art 10 s, doc 120 s', () => {
+    expect(ROADMAP_ART_DEADLINE_MS).toBe(10_000)
+    expect(ROADMAP_DOC_DEADLINE_MS).toBe(120_000)
+  })
+
+  it('a first successful /doc leaves Loading while /art is still pending', async () => {
+    const r = rig()
+    void r.load(false, new AbortController().signal)
+    r.pending('/roadmap/doc')[0]!.resolve(docBody())
+    await tick()
+    expect(r.state().loading).toBe(false)
+    expect(r.state().doc!.document.generated_at).toBe(GENERATED_AT)
+  })
+
+  it('Codex\'s reproduction: art pending, /doc offline: the warning and error show, and the poller schedules once art times out', async () => {
+    const r = rig({ art: 40 })
+    await r.run(docBody())
+    const timers: Array<{ run: () => void; live: boolean }> = []
+    const poller = createPoller({
+      intervalMs: 30_000,
+      schedule: (run) => { const timer = { run, live: true }; timers.push(timer); return timer },
+      cancel: (handle) => { (handle as { live: boolean }).live = false },
+      load: r.load,
+    })
+    poller.start()
+    r.pending('/roadmap/doc')[1]!.reject(new Error('offline'))
+    await tick()
+    expect(r.state().error).toBe('offline')
+    expect(freshness(r.state().doc!.document).notCurrent!.startsWith("Not current: couldn't refresh")).toBe(true)
+    // The cycle is still open (art pending): no next poll yet, and nothing overlaps.
+    expect(timers.filter((timer) => timer.live)).toHaveLength(0)
+    await new Promise<void>((resolve) => setTimeout(resolve, 80))
+    expect(timers.filter((timer) => timer.live)).toHaveLength(1)
+    poller.stop()
+  })
+
+  it('an art deadline lets the cycle end, silently, and keeps the last art list', async () => {
+    const r = rig({ art: 20 })
+    await r.run(docBody(), ['a.png'])
+    const publishes = r.publishes()
+    const cycle = new AbortController()
+    let settled = false
+    void r.load(true, cycle.signal).then(() => { settled = true })
+    r.pending('/roadmap/doc')[1]!.resolve(docBody())
+    await tick()
+    expect(settled).toBe(false)
+    await new Promise<void>((resolve) => setTimeout(resolve, 50))
+    expect(settled).toBe(true)
+    expect(r.pending('/roadmap/art')[1]!.signal.aborted).toBe(true)
+    expect(cycle.signal.aborted).toBe(false)
+    expect([...r.state().doc!.artNames]).toEqual(['a.png'])
+    expect(r.state().error).toBeNull()
+    expect(r.publishes()).toBe(publishes)
+  })
+
+  it('a doc deadline is a failure: "Not current: couldn\'t refresh the roadmap (timed out …)"', async () => {
+    const r = rig({ doc: 20 })
+    await r.run(docBody())
+    const settled = r.load(false, new AbortController().signal)
+    r.pending('/roadmap/art')[1]!.resolve({ entries: [] })
+    await settled
+    expect(r.state().error!.startsWith('timed out')).toBe(true)
+    expect(freshness(r.state().doc!.document).notCurrent!.startsWith("Not current: couldn't refresh the roadmap (timed out")).toBe(true)
+  })
+
+  it('art that arrives after the document updates the names, once, and only when they changed', async () => {
+    const r = rig()
+    const settled = r.load(false, new AbortController().signal)
+    r.pending('/roadmap/doc')[0]!.resolve(docBody())
+    await tick()
+    expect([...r.state().doc!.artNames]).toEqual([])
+    const before = r.publishes()
+    r.pending('/roadmap/art')[0]!.resolve({ entries: ['a.png'] })
+    await settled
+    expect([...r.state().doc!.artNames]).toEqual(['a.png'])
+    expect(r.publishes()).toBe(before + 1)
+    // The same list next cycle is no news.
+    const again = r.load(false, new AbortController().signal)
+    r.pending('/roadmap/doc')[1]!.resolve(docBody())
+    r.pending('/roadmap/art')[1]!.resolve({ entries: ['a.png'] })
+    await again
+    expect(r.publishes()).toBe(before + 1)
   })
 })
