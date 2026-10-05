@@ -55,6 +55,30 @@ class NotData(ValueError):
     """A construct the curriculum reader does not evaluate: it reads tables, it never runs code."""
 
 
+DIAGNOSTIC_LIMIT = 200  # characters of a stored diagnostic that come from anywhere but this file's own wording
+
+
+def _bounded(text: str) -> str:
+    """``text`` cut to the diagnostic limit, with an explicit ellipsis (never a silent clip)."""
+
+    return text if len(text) <= DIAGNOSTIC_LIMIT else text[:DIAGNOSTIC_LIMIT] + "\u2026"
+
+
+def _diagnostic(error: BaseException) -> str:
+    """An exception as a stored diagnostic, built without rendering any value it carries (Codex X05).
+
+    WHY: ``{error!r}`` of a ``KeyError`` prints its key, and a key can be a nest of shared tuples that is 32 units to
+    build and 458,766 characters to print. A key is named by its type (a short string is quoted, cut), and any other
+    exception's text is cut at the limit.
+    """
+
+    if isinstance(error, KeyError):
+        key = error.args[0] if error.args else None
+        shown = repr(key[:DIAGNOSTIC_LIMIT]) + ("\u2026" if len(key) > DIAGNOSTIC_LIMIT else "") if isinstance(key, str) else f"a {type(key).__name__}"
+        return f"no key {shown}"
+    return _bounded(f"{type(error).__name__}: {error}")
+
+
 @dataclass
 class Constructor:
     """A dataclass the tables call (EnvSpec, ModelSpec, Cell): its fields in order and their defaults."""
@@ -84,6 +108,7 @@ class _TableReader:
     MAX_ITEMS = 20_000            # one range, list, tuple or dict
     MAX_STRING = 20_000           # one string, formatted or repeated
     MAX_INT_BITS = 4_096          # one integer from + or *
+    MAX_TREE = 2 ** 40            # a tree's expanded size is clamped here so it stays a small integer
     ALLOCATION_BUDGET = 1_000_000  # items + characters + integer bytes created over the whole evaluation
     PERCENT_FIELD = re.compile(r"%(?:\([^)]*\))?[#0\- +]*(\*|[0-9]+)?(?:\.(\*|[0-9]*))?[hlL]?([^%]|%)?", re.DOTALL)
     BUILTINS: dict[str, Callable[..., Any]] = {"range": range, "tuple": tuple, "list": list, "dict": dict}
@@ -99,6 +124,7 @@ class _TableReader:
         self.item_lines: list[int] = []
         self.steps = 0
         self.allocated = 0
+        self.tree_sizes: dict[int, tuple[Any, int]] = {}  # id -> (the container, its expanded size); the container keeps the id valid
 
     def _within(self, size: int, limit: int, node: ast.AST, what: str) -> None:
         """Refuse ``what`` of ``size`` (items, characters) when it passes ``limit``; nothing is charged."""
@@ -155,6 +181,30 @@ class _TableReader:
             if size > limit:
                 break
         return size
+
+    # WHY the expanded size of a shared nest is charged before it is compared or hashed (Codex, twice): ``N1 = (N0, N0)``
+    # up to ``N40`` is 80 units to build but ``N40 == M40``, ``{N40: 1}`` or ``N40 in (M40,)`` visits 2**40 nodes, and
+    # python recomputes a tuple's hash every time. The walk is linear in the distinct containers (memoized by identity,
+    # a shared node's size reused), counts a shared node once per occurrence, and is itself remembered across the evaluation.
+    def _tree_size(self, value: Any) -> int:
+        """The nodes ``value`` expands to if every occurrence of a shared container is counted (clamped at MAX_TREE)."""
+
+        if not isinstance(value, (list, tuple, dict)):
+            return 1
+        held = self.tree_sizes.get(id(value))
+        if held is not None:
+            return held[1]
+        children = (item for pair in value.items() for item in pair) if isinstance(value, dict) else value
+        size = min(1 + sum(self._tree_size(child) for child in children), self.MAX_TREE)
+        self.tree_sizes[id(value)] = (value, size)
+        return size
+
+    def _compared(self, values: Iterable[Any], node: ast.AST) -> None:
+        """Charge the expanded size of the containers among ``values``, which are about to be compared or hashed."""
+
+        total = sum(self._tree_size(value) for value in values if isinstance(value, (list, tuple, dict)))
+        if total:
+            self._allocate(total, self.MAX_ITEMS, node, "a comparison or hash")
 
     def _conversion(self, value: Any, node: ast.AST) -> None:
         """Refuse printing ``value`` (``str``, ``repr``, ``format``, ``%s``) when what it prints would pass MAX_STRING."""
@@ -238,9 +288,12 @@ class _TableReader:
                 spread = self.value(value, scope)
                 if not isinstance(spread, Mapping):
                     raise NotData(f"line {node.lineno}: ** of a non-mapping")
+                self._compared(spread, node)  # update() hashes every key again
                 result.update(spread)
             else:
-                result[self.value(key, scope)] = self.value(value, scope)
+                key_value = self.value(key, scope)
+                self._compared((key_value,), node)
+                result[key_value] = self.value(value, scope)
         return self._sized(result, node)
 
     def _JoinedStr(self, node: ast.JoinedStr, scope: Mapping[str, Any]) -> str:
@@ -262,7 +315,10 @@ class _TableReader:
             raise NotData(f"line {node.lineno}: operator {type(node.op).__name__}")
         left, right = self.value(node.left, scope), self.value(node.right, scope)
         self._bound_binary(node, left, right)
-        result = function(left, right)
+        try:
+            result = function(left, right)
+        except (KeyError, IndexError, TypeError, ValueError, ZeroDivisionError, OverflowError) as error:
+            raise NotData(f"line {node.lineno}: {_diagnostic(error)}") from error
         return self._sized(result, node) if isinstance(node.op, ast.Mod) and isinstance(result, str) else result
 
     def _bound_binary(self, node: ast.BinOp, left: Any, right: Any) -> None:
@@ -303,6 +359,8 @@ class _TableReader:
         left = self.value(node.left, scope)
         for operation, comparator in zip(node.ops, node.comparators):
             right = self.value(comparator, scope)
+            if not isinstance(operation, (ast.Is, ast.IsNot)):
+                self._compared((left, right), node)
             if not self.COMPARE[type(operation)](left, right):
                 return False
             left = right
@@ -332,12 +390,14 @@ class _TableReader:
             try:
                 length = len(range(*key.indices(len(container))))
             except (TypeError, ValueError, OverflowError) as error:
-                raise NotData(f"line {node.lineno}: {error!r}") from error
+                raise NotData(f"line {node.lineno}: {_diagnostic(error)}") from error
             self._allocate(length, self.MAX_STRING if isinstance(container, (str, bytes)) else self.MAX_ITEMS, node, "a slice")
+        if isinstance(container, Mapping):
+            self._compared((key,), node)  # the key is hashed
         try:
             return container[key]
         except (KeyError, IndexError, TypeError) as error:
-            raise NotData(f"line {node.lineno}: {error!r}") from error
+            raise NotData(f"line {node.lineno}: {_diagnostic(error)}") from error
 
     def _iterable(self, value: Any, node: ast.AST) -> list[Any]:
         if isinstance(value, (Mapping, list, tuple, range, str)):
@@ -395,8 +455,12 @@ class _TableReader:
 
     def _DictComp(self, node: ast.DictComp, scope: Mapping[str, Any]) -> dict:
         values: dict[Any, Any] = {}
-        self._comprehension(node.generators, scope,
-                            lambda inner: values.__setitem__(self.value(node.key, inner), self.value(node.value, inner)))
+        def emit(inner: Mapping[str, Any]) -> None:
+            key = self.value(node.key, inner)
+            self._compared((key,), node)
+            values[key] = self.value(node.value, inner)
+
+        self._comprehension(node.generators, scope, emit)
         return self._sized(values, node)
 
     def _Call(self, node: ast.Call, scope: Mapping[str, Any]) -> Any:
@@ -424,6 +488,10 @@ class _TableReader:
                 return built
             size = sum(len(argument) if hasattr(argument, "__len__") else 0 for argument in arguments) + len(keywords)
             self._allocate(size, self.MAX_ITEMS, node, f"a {name}")
+            if name == "dict":  # its keys are hashed: a mapping's again, a sequence's pair by pair
+                self._compared([key for argument in arguments for key in (
+                    argument if isinstance(argument, Mapping) else
+                    [pair[0] for pair in argument if isinstance(pair, (list, tuple)) and pair] if isinstance(argument, (list, tuple)) else [])], node)
             return self.BUILTINS[name](*arguments, **keywords)
         raise NotData(f"line {node.lineno}: a call to {name}")
 
@@ -478,7 +546,7 @@ class _TableReader:
         try:
             value = self.value(node, {})
         except NotData as error:
-            return _unreadable(str(error))
+            return _unreadable(_bounded(str(error)))
         return lambda: value
 
 
@@ -497,7 +565,7 @@ def _parse(path: Path) -> ast.Module:
     try:
         return ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
     except (OSError, SyntaxError, ValueError) as error:
-        raise ProjectionError(f"cannot read {path}: {error}") from error
+        raise ProjectionError(f"cannot read {path}: {_bounded(str(error))}") from error
 
 
 @dataclass
@@ -546,7 +614,7 @@ def read_curriculum(curriculum_path: Path, contracts_path: Path) -> Curriculum:
         try:
             tables[name] = reader.names[name] = reader.value(value, {})
         except (NotData, TypeError, ValueError, ZeroDivisionError, RecursionError) as error:
-            skipped[name] = str(error)
+            skipped[name] = _diagnostic(error) if not isinstance(error, NotData) else _bounded(str(error))
             tables.pop(name, None)
             reader.names.pop(name, None)
     for name in REQUIRED_TABLES:
@@ -598,7 +666,7 @@ def read_frozen_protocols(runner_path: Path, contracts: Mapping[str, Constructor
             try:
                 tables[name], lines[name] = ast.literal_eval(value), statement.lineno
             except (ValueError, TypeError, SyntaxError) as error:
-                raise ProjectionError(f"{runner_path}: {name} is not literal data ({error})") from error
+                raise ProjectionError(f"{runner_path}: {name} is not literal data ({_bounded(str(error))})") from error
     if "DEFAULT_PROTOCOLS" not in tables or "FALLBACK_PROTOCOL" not in tables:
         raise ProjectionError(f"{runner_path} defines no DEFAULT_PROTOCOLS / FALLBACK_PROTOCOL, so no run can be shown frozen")
     protocol = contracts.get("EvalProtocol")
@@ -607,7 +675,7 @@ def read_frozen_protocols(runner_path: Path, contracts: Mapping[str, Constructor
     try:
         seed = protocol.defaults["seed"]()
     except NotData as error:
-        raise ProjectionError(f"contracts.py's EvalProtocol seed: {error}") from error
+        raise ProjectionError(f"contracts.py's EvalProtocol seed: {_bounded(str(error))}") from error
     defaults = {str(family): (str(pair[0]), int(pair[1])) for family, pair in dict(tables["DEFAULT_PROTOCOLS"]).items()}
     fallback = tables["FALLBACK_PROTOCOL"]
     return FrozenProtocols(defaults, (str(fallback[0]), int(fallback[1])), seed, lines)

@@ -422,6 +422,79 @@ def test_formatting_slicing_and_conversion_are_bounded_before_they_build(tmp_pat
     assert set(read.tables) >= {"TIERS", "ENVS", "MODELS", "CELLS", "GATES"}
 
 
+def nest(prefix: str, depth: int) -> str:
+    """``<prefix>0 = "x"`` and ``<prefix>n = (<prefix>n-1, <prefix>n-1)``: ``depth`` levels of one shared tuple."""
+
+    return f'{prefix}0 = "x"\n' + "".join(f"{prefix}{level + 1} = ({prefix}{level}, {prefix}{level})\n" for level in range(depth))
+
+
+@pytest.mark.parametrize("expression", ["{}[N16]", '{"a": 1}[N16]', "[1, 2][N16]", "{N16: 1}[(N16, 1)]"])
+def test_a_diagnostic_never_renders_the_value_it_refuses(tmp_path, expression):
+    """Codex X05: the missing-key error printed its key, 458,766 characters for 32 units charged."""
+
+    bench, _sha = make_bench(tmp_path)
+    curriculum = bench / "src" / "grasp_bench" / "curriculum.py"
+    write(curriculum, curriculum.read_text(encoding="utf-8") + "\n" + nest("N", 16) + f"BIG = {expression}\n")
+    read = read_curriculum(curriculum, bench / "src" / "grasp_bench" / "contracts.py")
+    assert "BIG" not in read.tables and len(read.skipped["BIG"]) <= 300, len(read.skipped["BIG"])
+
+
+def test_a_missing_key_is_named_by_type_and_a_short_key_is_still_shown(tmp_path):
+    bench, _sha = make_bench(tmp_path)
+    curriculum = bench / "src" / "grasp_bench" / "curriculum.py"
+    write(curriculum, curriculum.read_text(encoding="utf-8") + '\n' + nest("N", 3)
+          + 'SHORT = {"a": 1}["b"]\nTUPLE = {}[N3]\nTEMPLATE = "%(k)s" % {}\nLONG = ' + '"' + "k" * 5000 + '"' + '\nGONE = {}[LONG]\n')
+    read = read_curriculum(curriculum, bench / "src" / "grasp_bench" / "contracts.py")
+    assert "'b'" in read.skipped["SHORT"] and "no key" in read.skipped["SHORT"]
+    assert "tuple" in read.skipped["TUPLE"]
+    assert "no key" in read.skipped["TEMPLATE"]  # a KeyError out of printf formatting no longer escapes the reader
+    assert "\u2026" in read.skipped["GONE"] and len(read.skipped["GONE"]) <= 300
+
+
+def test_a_name_longer_than_the_diagnostic_limit_is_cut_with_an_ellipsis(tmp_path):
+    bench, _sha = make_bench(tmp_path)
+    curriculum = bench / "src" / "grasp_bench" / "curriculum.py"
+    write(curriculum, curriculum.read_text(encoding="utf-8") + f"\nBIG = {'n' * 5000}\n")
+    read = read_curriculum(curriculum, bench / "src" / "grasp_bench" / "contracts.py")
+    assert read.skipped["BIG"].endswith("\u2026") and len(read.skipped["BIG"]) <= 300
+
+
+@pytest.mark.parametrize("expression", [
+    "N24 == M24", "N24 != M24", "N24 in (M24,)", "N24 not in [M24]", "{N24: 1}", "{k: 1 for k in (N24,)}", "dict([(N24, 1)])",
+    "dict({N24: 1})", "{}[N24]", "{**{N24: 1}}",
+])
+def test_comparing_and_hashing_a_shared_nest_is_charged_by_its_expanded_size(tmp_path, expression):
+    """Shared tuples cost 2 units a level to build and 2**level to compare or hash (Codex, twice): CPU, then allocation."""
+
+    bench, _sha = make_bench(tmp_path)
+    curriculum = bench / "src" / "grasp_bench" / "curriculum.py"
+    write(curriculum, curriculum.read_text(encoding="utf-8") + "\n" + nest("N", 24) + nest("M", 24) + f"BIG = {expression}\n")
+    started = time.perf_counter()
+    read = read_curriculum(curriculum, bench / "src" / "grasp_bench" / "contracts.py")
+    assert "BIG" not in read.tables and "a comparison or hash of" in read.skipped["BIG"], read.skipped.get("BIG")
+    assert time.perf_counter() - started < 2.0
+
+
+def test_a_very_deep_shared_nest_is_refused_at_once(tmp_path):
+    bench, _sha = make_bench(tmp_path)
+    curriculum = bench / "src" / "grasp_bench" / "curriculum.py"
+    write(curriculum, curriculum.read_text(encoding="utf-8") + "\n" + nest("N", 400) + nest("M", 400)
+          + "A = N400 == M400\nB = {N400: 1}\nC = {}[N400]\nD = f\"{N400!r}\"\n")
+    started = time.perf_counter()
+    read = read_curriculum(curriculum, bench / "src" / "grasp_bench" / "contracts.py")
+    assert not {"A", "B", "C", "D"} & set(read.tables) and all(len(read.skipped[name]) <= 300 for name in "ABCD")
+    assert time.perf_counter() - started < 2.0
+
+
+def test_comparing_small_containers_still_reads(tmp_path):
+    bench, _sha = make_bench(tmp_path)
+    curriculum = bench / "src" / "grasp_bench" / "curriculum.py"
+    write(curriculum, curriculum.read_text(encoding="utf-8") + "\n" + nest("N", 4) + nest("M", 4)
+          + 'FINE = (N4 == M4, N3 in (M3, 1), "x" in ("x", "y"), {"k": 1}["k"], {(1, 2): 3}[(1, 2)], dict([((1, 2), 3)]), (1, 2) != (1, 3))\n')
+    read = read_curriculum(curriculum, bench / "src" / "grasp_bench" / "contracts.py")
+    assert read.tables["FINE"] == (True, True, True, 1, 3, {(1, 2): 3}, True)
+
+
 @pytest.mark.parametrize("expression", [
     '",".join(["a", "b"])', '"abc".replace("b", "x", 3)', "sorted([3, 1])", "set([1, 2])", "len([1])", "str(1)", "repr(1)",
     'format(1, "5")', "[1, 2].copy()", "[x for x in range(3)][::0]",
