@@ -28,12 +28,15 @@ import re
 import subprocess
 import time
 from pathlib import Path
-from urllib.parse import quote
+from urllib.parse import quote, urlsplit
 
 from playwright.async_api import Page, async_playwright
 
 # Zach's own dashboard (4380/4381) and the Dashboard lane (4390/4391): never driven by a recorder, even headlessly.
 PORTS_NEVER_DRIVEN = {4380, 4381, 4390, 4391}
+#: WHY only these roots (Codex Y03): a recording is megabytes of media; anywhere else it lands in a tracked tree or in
+#: a peer's stash. Both are gitignored halves of a reports/ directory.
+OUT_ROOTS = (Path("/home/bam/vibetracks/reports/media"), Path("/home/bam/bam_ws/reports/media"))
 DASHBOARD = "?vtdash=Agent%20work.vtdash"
 TRACKS = ["kinsim", "rig", "grasping", "detection"]
 API = "/api/plugins/vibetracks/roadmap/doc?track="
@@ -561,10 +564,15 @@ def main() -> int:
     parser.add_argument("--width", type=int, default=1400)
     parser.add_argument("--height", type=int, default=900)
     args = parser.parse_args()
-    port = int(args.url.rstrip("/").rsplit(":", 1)[1].split("/")[0])
-    if port in PORTS_NEVER_DRIVEN:
-        raise SystemExit(f"refusing port {port}: that is Zach's own dashboard or the Dashboard lane's")
-    out = Path(args.out)
+    # WHY urlsplit and not the last colon (Codex Y02): "http://127.0.0.1:4380/path:4400/" is port 4380.
+    split = urlsplit(args.url)
+    if split.hostname not in ("127.0.0.1", "localhost") or split.port is None:
+        raise SystemExit(f"refusing {args.url}: the recorder drives only a local lane with an explicit port")
+    if split.port in PORTS_NEVER_DRIVEN:
+        raise SystemExit(f"refusing port {split.port}: that is Zach's own dashboard or the Dashboard lane's")
+    out = Path(args.out).resolve()
+    if not any(out == root or root in out.parents for root in OUT_ROOTS):
+        raise SystemExit(f"refusing --out {out}: recordings go under {' or '.join(map(str, OUT_ROOTS))}")
     out.mkdir(parents=True, exist_ok=True)
     summary = asyncio.run(record(args.url, out, args.width, args.height))
     (out / "hero.json").write_text(json.dumps(summary, indent=2))
