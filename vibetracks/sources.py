@@ -51,6 +51,20 @@ WORKTRACK_SOURCES: dict[str, str] = {
     # Names agreed with the roadmap session (its grasping/detection projectors read these); aliases of the above.
     "grasp_bench_dir": "{grasping_bench_dir}",
     "detection_dir": "/home/bam/bam_ws/.claude/worktrees/hyperspectral-synthetic-data-ddb809/docs/hyperspectral",
+    # Appended 2026-10-04: every other file the adapters read, so each note can declare all of its inputs and a change
+    # to any of them reruns the adapter (build.py caches on the declared sources only). Worktree-resident paths hang
+    # off the key of their folder ({rig_loop_dir}, {detection_repo}, {grasping_bench_dir}), so a move is still one line.
+    "rig_triage": "{rig_loop_dir}/triage.json",
+    "rig_roadmap": "{rig_loop_dir}/ROADMAP.md",
+    "rig_deployments_cache": "/archive/datasets/bam_rig/cache/runs",
+    "rig_audits_dir": "{reports_media_dir}/audits",
+    "grasping_out_dir": "{grasping_bench_dir}/out",
+    "detection_logs_dir": "{detection_repo}/logs",
+    "detection_wandb_dir": "{detection_repo}/wandb",
+    "detection_compile_results": "{detection_repo}/compile_results.py",
+    "detection_queue_script": "{detection_repo}/run_repro_queue.sh",
+    "detection_plan_note": "/home/bam/zach_brain/Projects/BAM Robotics/Notes/Hyperspectral — KPIs and Curriculum Roadmap (2026-10-04).md",
+    "detection_reports_dir": "/home/bam/bam_ws/reports",
 }
 _REFERENCE = re.compile(r"^\{(?P<key>[a-z0-9_]+)\}")
 

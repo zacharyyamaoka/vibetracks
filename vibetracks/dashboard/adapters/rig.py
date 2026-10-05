@@ -14,11 +14,14 @@ Inputs, declared in workspace/tracks/rig.md ``vibe-sources`` (the build watches 
   ``kpis_day_<id>.json``): the contract's own KPI values per session and per day, for the can12/can16 children and
   for the rig's twin-gap KPI.
 
-Read beside them, NOT declared (so the build does not rerun when only these change; ``gaps`` in the lane report asks
-for keys): ``triage.json`` and ``ROADMAP.md`` next to loop-status (the full questions and the disk stop line), and the
-bam_deployments run cache ``/archive/datasets/bam_rig/cache/runs`` (``rig_deployments_cache`` in ``sources`` or
-``sources.json`` overrides it): one record per run, for the run evidence, the held conditions and the twin sessions
-the frozen fixture predates.
+- ``rig_triage`` / ``rig_roadmap``: ``triage.json`` and ``ROADMAP.md`` next to loop-status (the full questions and
+  the disk stop line).
+- ``rig_deployments_cache``: the bam_deployments run cache ``/archive/datasets/bam_rig/cache/runs``, one record per
+  run, for the run evidence, the held conditions and the twin sessions the frozen fixture predates.
+- ``rig_audits_dir``: bam_ws ``reports/media/audits``, listed only to link each package's audit write-ups.
+
+Nothing else is opened (``READS``; tests/test_dashboard_adapter_reads.py). A key the note does not declare is read as
+missing, never looked up elsewhere: the build would not notice that file change.
 
 Truth rules (PROJECTION.md): every number names its file; missing is null with a note, never zero; a change resting on
 n = 1 reads "unconfirmed · repeat needed"; a day floor is a descriptive band; elapsed hours are wall clock.
@@ -36,13 +39,18 @@ from pathlib import Path
 from typing import Any, Iterable
 
 from .bam_loops import BAM_WS_ROOT, N1_WORD, AuditFiles, BamLoopsAdapter, Evidence, MediaIndex, _kpi, _value, change_status
-from .base import not_reporting, skeleton
+from .base import local_day, local_time, not_reporting, rung, skeleton
 
-#: The bam_deployments run cache: one ``<bundle>/<run>.json`` per run, written by ``bam_deployments scan``.
-#: WHY a documented default and not a sources.py key: sources.py is shared by five lanes and this lane may not edit
-#: it. ``sources["rig_deployments_cache"]`` (declared in the note) or the sources.json key overrides it.
-DEPLOYMENTS_CACHE_DEFAULT = "/archive/datasets/bam_rig/cache/runs"
+#: The bam_deployments run cache: one ``<bundle>/<run>.json`` per run, written by ``bam_deployments scan``
+#: (sources.py ``rig_deployments_cache``).
 CACHE_KEY = "rig_deployments_cache"
+#: Every sources.py key this adapter opens, and what it is to the loop (base.py READ_ROLES).
+READS = {"rig_loop_status": "heartbeat", "rig_events": "heartbeat", "rig_ladder": "heartbeat",
+         "rig_triage": "heartbeat", "rig_roadmap": "heartbeat", "deployments_fixtures_dir": "input",
+         CACHE_KEY: "input", "rig_audits_dir": "evidence"}
+#: The run cache's records sit in bundle folders (``runs/<bundle>/<run>.json``): the build stamps it two levels deep,
+#: so a rewritten record reruns the adapter, not only a new bundle.
+DEPTH = {CACHE_KEY: 2}
 
 DEG = 57.29577951308232
 COUNT_KEYS = ("real_runs", "sim_runs", "aborted_runs")
@@ -122,7 +130,7 @@ def _stamp(path: str | None, now: datetime) -> dict[str, Any]:
 
 
 def _hm(moment: datetime) -> str:
-    return moment.strftime("%m-%d %H:%M")
+    return local_time(moment)
 
 
 def _age(moment: datetime, now: datetime) -> str:
@@ -214,15 +222,10 @@ class Ticks:
 # --------------------------------------------------------------------------------------------- deployments data
 
 
-def _cache_dir(sources: dict[str, str]) -> str:
-    if sources.get(CACHE_KEY):
-        return sources[CACHE_KEY]
-    try:
-        from ...sources import load_sources
+def _cache_dir(sources: dict[str, str]) -> str | None:
+    """The run cache, only when the note declares it: an undeclared input would change without a rebuild."""
 
-        return load_sources().get(CACHE_KEY) or DEPLOYMENTS_CACHE_DEFAULT
-    except Exception:  # pragma: no cover - a broken sources file must not take the adapter down
-        return DEPLOYMENTS_CACHE_DEFAULT
+    return sources.get(CACHE_KEY) or None
 
 
 @dataclass
@@ -270,10 +273,12 @@ class Deployments:
         records: dict[str, list[dict[str, Any]]] = defaultdict(list)
         newest = None
         try:
+            if cache is None:
+                raise FileNotFoundError
             bundles = sorted((entry for entry in os.scandir(cache) if entry.is_dir()), key=lambda e: e.name)
         except OSError:
             bundles = []
-            problems.append(f"run cache {cache} missing")
+            problems.append(f"{CACHE_KEY} not declared in vibe-sources" if cache is None else f"run cache {cache} missing")
         for bundle in bundles:
             for entry in sorted(os.scandir(bundle.path), key=lambda e: e.name):
                 if not entry.name.endswith(".json"):
@@ -380,7 +385,7 @@ class Deployments:
         for name in names:
             stamp = self.stamps.get(name)
             if stamp and stamp.get("modified"):
-                parts.append(f"{name} written {stamp['modified'][5:16].replace('T', ' ')} ({stamp['age_h']} h before this build)")
+                parts.append(f"{name} written {local_time(stamp['modified'])} ({stamp['age_h']} h before this build)")
             else:
                 parts.append(f"{name} missing")
         return "; ".join(parts)
@@ -418,11 +423,11 @@ def _disk_readings(events: Iterable[dict[str, Any]]) -> list[dict[str, Any]]:
     return readings
 
 
-def _disk_limit(loop_dir: Path, triage: dict[str, Any] | None) -> tuple[float | None, str | None]:
+def _disk_limit(roadmap: str | None, triage: dict[str, Any] | None) -> tuple[float | None, str | None]:
     """The disk stop line: ROADMAP.md's preflight ("`/` under 92%"), else triage T1's title ("halt at 92%")."""
 
     try:
-        text = (loop_dir / "ROADMAP.md").read_text(encoding="utf-8")
+        text = Path(roadmap).read_text(encoding="utf-8") if roadmap else ""
     except OSError:
         text = ""
     match = re.search(r"under\s+(\d{1,3})\s*%", text)
@@ -478,11 +483,10 @@ def build_track(work_track: Any, sources: dict[str, str]) -> dict[str, Any]:
     tick_block = status.get("tick") or {}
     if not isinstance(tick_block.get("n"), int):
         return not_reporting(work_track, "loop-status.json has no tick.n")
-    loop_dir = Path(status_path).parent
     events, bad_lines, events_error = _read_events(sources.get("rig_events"))
     ladder, ladder_error = _read_json(sources.get("rig_ladder"))
     ladder = ladder if isinstance(ladder, dict) else None
-    triage, _ = _read_json(str(loop_dir / "triage.json"))
+    triage, _ = _read_json(sources.get("rig_triage"))
     triage = triage if isinstance(triage, dict) else None
     deployments = Deployments.load(sources, now)
 
@@ -494,7 +498,8 @@ def build_track(work_track: Any, sources: dict[str, str]) -> dict[str, Any]:
     moved_rate = rate.get("rungs_moved_per_tick") if isinstance(rate.get("rungs_moved_per_tick"), list) else []
     ev = Evidence()
     media = MediaIndex()
-    audits_dir = AuditFiles(BAM_WS_ROOT / "reports" / "media" / "audits")
+    # WHY no default folder: an undeclared folder can change without the build noticing (ADAPTERS.md).
+    audits_dir = AuditFiles(Path(sources["rig_audits_dir"]) if sources.get("rig_audits_dir") else None)
     events_src = sources.get("rig_events")
     ladder_src = sources.get("rig_ladder")
 
@@ -602,7 +607,7 @@ def build_track(work_track: Any, sources: dict[str, str]) -> dict[str, Any]:
     else:
         twin_status = {"word": "not measured", "tone": "muted"}
     kpis.append(_kpi(
-        "twin_gap", "Frontier gate · twin fidelity gap (held-out)", "S2", "deg", "lower", twin_values,
+        "twin_gap", "Twin fidelity gap (held-out)", "S2", "deg", "lower", twin_values,
         target={"value": gate, "kind": "gate", "label": f"TW2 gate ≤ {gate}°"} if gate is not None else None,
         baseline={"iteration": ids[ticks.place(readings[0]["start"])[0]], "label": f"twin {readings[0]['version']}",
                   "value": readings[0]["gap"]} if readings else None,
@@ -621,7 +626,7 @@ def build_track(work_track: Any, sources: dict[str, str]) -> dict[str, Any]:
         tick = ticks.ticks[n]
         if n == ticks.loop_current and isinstance(rate.get("days_since_real_row"), int):
             days_values.append(_value(it, rate["days_since_real_row"],
-                                      note=f"loop-status rate.days_since_real_row ({status.get('generated_at', '')[:16].replace('T', ' ')})"))
+                                      note=f"loop-status rate.days_since_real_row ({local_time(status.get('generated_at'))})"))
         elif tick.events and last_real:
             stamp = tick.last.date()
             gap = (stamp - date.fromisoformat(last_real)).days
@@ -736,7 +741,7 @@ def build_track(work_track: Any, sources: dict[str, str]) -> dict[str, Any]:
     ))
 
     # ---------------------------------------------------------------- health: disk, from the loop's own prose
-    limit, limit_source = _disk_limit(loop_dir, triage)
+    limit, limit_source = _disk_limit(sources.get("rig_roadmap"), triage)
     disk = _disk_readings(events)
     disk_by_tick: dict[int, list[dict[str, Any]]] = defaultdict(list)
     for reading in disk:
@@ -774,7 +779,7 @@ def build_track(work_track: Any, sources: dict[str, str]) -> dict[str, Any]:
         "open_questions", "Open questions", "S7", "questions", "lower", open_values,
         status={"word": f"{len(needs_you)} open · {no_default} with no default", "tone": "warn" if no_default else "muted"},
         note=f"From {needs_source}. A question with no default holds its work until you answer it.",
-        provenance=_prov(str(loop_dir / "triage.json"), "/items/*/status", "items with status open, now"),
+        provenance=_prov(sources.get("rig_triage"), "/items/*/status", "items with status open, now"),
     ))
 
     # ---------------------------------------------------------------- evidence per tick
@@ -858,7 +863,7 @@ def build_track(work_track: Any, sources: dict[str, str]) -> dict[str, Any]:
         if tick.of("audit"):
             count = len(tick.of("audit"))
             parts.append(f"{count} audit" + ("s" if count != 1 else ""))
-        iterations.append({"id": it, "label": it, "date": (tick.started or tick.first).date().isoformat(),
+        iterations.append({"id": it, "label": it, "date": local_day(tick.started or tick.first),
                            "marker": " · ".join(parts),
                            "provenance": _prov(events_src, f"/wave={tick.n}",
                                                None if tick.started else "no wave_started row; dated by its first event")})
@@ -886,16 +891,18 @@ def build_track(work_track: Any, sources: dict[str, str]) -> dict[str, Any]:
             links.append({"label": "Deployments dashboard report", "kind": "media", "media": report_id})
     if status_links.get("dashboard"):
         links.append({"label": "Deployments dashboard (Clank)", "kind": "command", "value": status_links["dashboard"]})
-    links.append({"label": "Roadmap (ROADMAP.md)", "kind": "path", "value": str(loop_dir / "ROADMAP.md")})
+    if sources.get("rig_roadmap"):
+        links.append({"label": "Roadmap (ROADMAP.md)", "kind": "path", "value": sources["rig_roadmap"]})
 
     track = skeleton(work_track, unit="tick")
-    inputs = [{"key": key, **_stamp(sources.get(key), now)} for key in ("rig_loop_status", "rig_events", "rig_ladder")]
+    inputs = [{"key": key, **_stamp(sources.get(key), now)} for key in ("rig_loop_status", "rig_events", "rig_ladder",
+                                                                         "rig_triage", "rig_roadmap")]
     inputs += [{"key": f"deployments · {name}", **stamp} for name, stamp in deployments.stamps.items()]
-    inputs.append({"key": "triage.json (undeclared)", **_stamp(str(loop_dir / "triage.json"), now)})
     track.update(
         summary=summary,
         state=state,
         iteration={"unit": "tick", "label": f"tick {ticks.loop_current}" + (f" ({phase})" if phase else "")},
+        rung=_rung(ladder),
         iterations=iterations,
         north_star="rungs_green",
         kpis=kpis,
@@ -912,6 +919,37 @@ def build_track(work_track: Any, sources: dict[str, str]) -> dict[str, Any]:
     if needs_count is not None:
         track["needs_you_count"] = needs_count
     return track
+
+
+def _rung(ladder: dict[str, Any] | None) -> dict[str, Any] | None:
+    """The ladder's current rungs and the next ones, from ladder.json (base.rung).
+
+    Current: the rungs ladder.json marks ``partial``, the ones being built, by axis ("LIVE · LV1, LV2, LV3 partial").
+    With none partial, the frontier: each unfinished axis's lowest rung not green. Next: each axis's lowest rung that
+    is neither green nor partial. WHY ladder.json and not loop-status ``where``: ``where`` is a per-tick projection
+    that lags the ladder (it still said CS2 partial after CS2 turned green).
+    """
+
+    axes = [axis for axis in (ladder or {}).get("axes") or [] if isinstance(axis, dict)]
+    partial: list[str] = []
+    frontier: list[str] = []
+    upcoming: list[str] = []
+    for axis in axes:
+        rungs = [r for r in axis.get("rungs") or [] if isinstance(r, dict) and isinstance(r.get("id"), str)]
+        name = str(axis.get("id") or axis.get("title") or "?")
+        building = [r["id"] for r in rungs if r.get("status") == "partial"]
+        if building:
+            partial.append(f"{name} · {', '.join(building)} partial")
+        lowest = next((r["id"] for r in rungs if r.get("status") != "green"), None)
+        if lowest:
+            frontier.append(f"{name} {lowest}")
+        after = next((r["id"] for r in rungs if r.get("status") not in ("green", "partial")), None)
+        if after:
+            upcoming.append(after)
+    if not axes:
+        return None
+    current = " · ".join(partial) if partial else ("frontier " + ", ".join(frontier) if frontier else "every rung green")
+    return rung(current, ", ".join(upcoming) or None, "ladder.json")
 
 
 def _episode_line(ladder: dict[str, Any] | None) -> str | None:

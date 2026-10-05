@@ -6,7 +6,7 @@ vibe-status: running
 vibe-priority: 2
 vibe-owner: hardware rig loop session
 vibe-adapter: rig
-vibe-sources: [rig_loop_status, rig_events, rig_ladder, deployments_fixtures_dir]
+vibe-sources: [rig_loop_status, rig_events, rig_ladder, deployments_fixtures_dir, rig_triage, rig_roadmap, rig_deployments_cache, rig_audits_dir]
 vibe-roadmap:
   projector: rig
   sources: [rig_loop_dir]

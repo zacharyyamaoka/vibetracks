@@ -131,3 +131,23 @@ export function lastMoved(projection: Projection, track: Track): Moved {
   if (!moved) return { text: 'unknown', detail: 'no dated iteration', stale: false, unknown: true }
   return { text: relativeDay(moved.date, projection.as_of), detail: track.iteration.label, stale: false, unknown: false }
 }
+
+export interface Rung {
+  /** The rung or tier the loop works on now, in the loop's own words ("Tier 2 · MuJoCo physics"). */
+  current: string
+  /** What the loop says comes next ("SN2, RB1, OB1, BT2"); null when it does not say. */
+  next: string | null
+  /** The file key or name it was read from ("kinsim_status", "ladder.json"). */
+  source: string
+}
+
+/** The track's `rung` (PROJECTION contract, 2026-10-04), or null when the adapter does not know. A malformed value
+ * reads as unknown, never as a half-filled rung. */
+export function rungOf(track: Track): Rung | null {
+  const raw = field(track, 'rung')
+  if (!isObject(raw)) return null
+  const current = str(raw.current)
+  const source = str(raw.source)
+  if (current === null || source === null) return null
+  return { current, next: str(raw.next), source }
+}

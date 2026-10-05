@@ -7,20 +7,23 @@ What this loop has today, honestly: a fresh PLAN (the H0-H9 ladder in ``ladder_d
 2026-10-04) and a STALE run history (the SpectralWaste Table IV repro queue of 2026-07-10/11). No loop agent has
 started, so there is no loop-status, ladder status or run ledger to read. The adapter therefore reads:
 
-- ``detection_queue_log`` (declared): ``logs/queue.log``, START/DONE lines per config run. It is lossy: the main queue
-  held it open with ``>`` while ``run_retry.sh`` appended with ``>>``, so the queue's later writes overwrote some retry
-  START lines. The per-run ``logs/<tag>.log`` files beside it fill those gaps.
-- the per-run logs (``logs/<tag>.log``: epoch lines, NaN losses, the W&B run id) and ``wandb/run-<YYYYMMDD_HHMMSS>-<id>``
-  directory names (a run's start time when queue.log lost its START line);
-- ``compile_results.py`` (the 12 Table IV paper targets, parsed with ``ast``, never executed);
-- ``detection_ladder`` (``ladder_data.py``: rungs and the H1 tolerance, parsed with ``ast``, never imported: it is an
-  untracked file in a worktree, and importing would execute it);
-- the vault plan note's ``## Needs you`` list (the only place the open decisions and their defaults are written down);
-- the roadmap report and loop work order in bam_ws ``reports/`` (evidence media, listed only if they exist).
+- ``detection_queue_log``: ``logs/queue.log``, START/DONE lines per config run. It is lossy: the main queue held it
+  open with ``>`` while ``run_retry.sh`` appended with ``>>``, so the queue's later writes overwrote some retry START
+  lines. The per-run ``logs/<tag>.log`` files beside it fill those gaps.
+- ``detection_logs_dir``: the per-run logs (``logs/<tag>.log``: epoch lines, NaN losses, the W&B run id). Required:
+  without them no run's validity is known, so the track is not reporting rather than calling runs valid.
+- ``detection_wandb_dir``: ``wandb/run-<YYYYMMDD_HHMMSS>-<id>`` directory names (a run's start time when queue.log lost
+  its START line);
+- ``detection_compile_results``: ``compile_results.py`` (the 12 Table IV paper targets, parsed with ``ast``, never
+  executed); ``detection_queue_script``: ``run_repro_queue.sh`` (its ``DATA=`` line, for the drive check);
+- ``detection_ladder`` (``ladder_data.py``: rungs, the KPI table and the H1 tolerance, parsed with ``ast``, never
+  imported: it is an untracked file in a worktree, and importing would execute it);
+- ``detection_plan_note``: the vault plan note's ``## Needs you`` list (the only place the open decisions and their
+  defaults are written down);
+- ``detection_reports_dir``: bam_ws ``reports/``, listed only for the roadmap report and loop work order (evidence).
 
-Only ``detection_queue_log`` is declared in the note today. Every other input is located from a declared key when the
-note declares it, else from ``vibetracks.sources.load_sources()`` or the documented default below, so the build's cache
-does not see those files change (the gaps the lane reported: declare ``detection_ladder``, add a plan-note key).
+Every input comes from the note's ``vibe-sources`` and nowhere else (``READS``): a key the note does not declare is read
+as missing, because the build would not notice that file change.
 
 Iterations are runs (unit ``session``): one per config run of the repro queue, ordered by start time, plus one for the
 plan written on 2026-10-04. Truth rules (PROJECTION.md) hold throughout: every number names its file, missing values
@@ -37,12 +40,15 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any
 
-from .base import skeleton
+from .base import local_time, not_reporting, skeleton
+from .base import rung as make_rung
 
-#: The vault plan note: the only file that records this track's open decisions with their defaults.
-#: WHY a documented default and not a sources.py key: sources.py is shared by five lanes and this lane may not edit
-#: it. ``detection_plan_note`` in ~/.local/share/vibetracks/sources.json (or the note's vibe-sources) overrides it.
-DEFAULT_PLAN_NOTE = "/home/bam/zach_brain/Projects/BAM Robotics/Notes/Hyperspectral — KPIs and Curriculum Roadmap (2026-10-04).md"
+#: Every sources.py key this adapter opens, and what it is to the loop (base.py READ_ROLES). WHY the plan, the ladder
+#: and the scripts are "input" and not "heartbeat": the loop has never started, and a plan written today must not make
+#: a run history last touched in July read as a live loop.
+READS = {"detection_queue_log": "heartbeat", "detection_logs_dir": "heartbeat", "detection_wandb_dir": "heartbeat",
+         "detection_compile_results": "input", "detection_queue_script": "input", "detection_ladder": "input",
+         "detection_plan_note": "input", "detection_reports_dir": "evidence"}
 #: Reports the planning session wrote for this track, searched in the bam_ws ``reports/`` directory (newest wins).
 REPORT_GLOBS = (("detection-roadmap-report", "hyperspectral-roadmap-*.html", "report", "Hyperspectral roadmap report"),
                 ("detection-work-order", "hyperspectral-loop-work-order-*.md", "text", "Loop work order (brief for the loop agent)"))
@@ -85,7 +91,7 @@ def _mtime(path: Path) -> datetime | None:
 
 
 def _hm(moment: datetime | None) -> str:
-    return moment.strftime("%m-%d %H:%M") if moment else "unknown time"
+    return local_time(moment, missing="unknown time")
 
 
 def _pts(fraction: float | None) -> float | None:
@@ -121,20 +127,11 @@ def _module_assignments(path: Path, names: tuple[str, ...]) -> dict[str, Any]:
     return found
 
 
-def _locate(sources: dict[str, str], key: str, default: str | None) -> Path | None:
-    """A declared key's path, else the machine's sources map, else the documented default."""
+def _locate(sources: dict[str, str], key: str) -> Path | None:
+    """A declared key's path, or None. WHY no fallback to the machine's sources map: an input the note does not declare
+    can change without the build rerunning this adapter, so the row would silently go stale."""
 
-    if sources.get(key):
-        return Path(sources[key])
-    try:
-        from ...sources import load_sources
-
-        mapped = load_sources().get(key)
-    except Exception:  # a broken local override must not take the track down
-        mapped = None
-    if mapped:
-        return Path(mapped)
-    return Path(default) if default else None
+    return Path(sources[key]) if sources.get(key) else None
 
 
 def _provenance(source: str | Path | None, derived: str) -> dict[str, Any]:
@@ -165,6 +162,32 @@ def read_ladder(ladder: Path) -> dict[str, Any]:
             match = TOLERANCE.search(str(rung.get("gate") or "")) or TOLERANCE.search(str(rung.get("gate_short") or ""))
             tolerance = float(match.group("tol")) if match else None
     return {"rungs": rungs, "kpis": found.get("KPIS") or [], "tolerance": tolerance}
+
+
+def frontier_rung(ladder: dict[str, Any]) -> dict[str, Any] | None:
+    """The rung the plan says the loop is on: the first ``H<n>`` in ladder_data.KPIS' S2 "Frontier gate" row's
+    *today* column ("H1: 2 of 12 configs reproduced"). WHY that row and not the lowest rung id: no rung status is
+    stored yet (H0 and H1 both need nothing), and that row is where the plan itself names the current rung."""
+
+    by_id = {row["id"]: row for row in ladder.get("rungs") or []}
+    for kpi in ladder.get("kpis") or []:
+        if isinstance(kpi, (list, tuple)) and len(kpi) >= 4 and str(kpi[0]).startswith("S2"):
+            match = RUNG_ID.search(str(kpi[3]))
+            if match and match.group(0) in by_id:
+                return by_id[match.group(0)]
+    return None
+
+
+def _rung(ladder: dict[str, Any], frontier_row: dict[str, Any] | None, progress: str | None) -> dict[str, Any] | None:
+    """``track.rung``: the frontier rung, and the rungs whose ``needs_rungs`` name it (what the ladder says comes
+    after it), in ladder_data.py's own short names."""
+
+    if frontier_row is None:
+        return None
+    current = " · ".join(part for part in (frontier_row["id"], frontier_row.get("short"), progress) if part)
+    after = [f"{row['id']} {row.get('short') or ''}".strip() for row in ladder.get("rungs") or []
+             if frontier_row["id"] in (row.get("needs_rungs") or [])]
+    return make_rung(current, ", ".join(after) or None, "ladder_data.py (RUNGS, KPIS S2) + queue.log")
 
 
 def read_needs(plan_note: Path) -> list[dict[str, Any]]:
@@ -210,11 +233,9 @@ def _clean_markdown(text: str) -> str:
     return re.sub(r"\s+", " ", text).strip()
 
 
-def read_runs(queue_log: Path) -> list[dict[str, Any]]:
-    """Every config run the repro queue left: queue.log events merged with the per-run logs beside it."""
+def read_runs(queue_log: Path, logs_dir: Path, wandb_dir: Path | None) -> list[dict[str, Any]]:
+    """Every config run the repro queue left: queue.log events merged with the per-run logs in ``logs_dir``."""
 
-    logs_dir = queue_log.parent
-    repo = logs_dir.parent
     runs: dict[str, dict[str, Any]] = {}
 
     def run(tag: str) -> dict[str, Any]:
@@ -243,8 +264,7 @@ def read_runs(queue_log: Path) -> list[dict[str, Any]]:
             run(log.stem)
 
     wandb_starts: dict[str, datetime] = {}
-    wandb_dir = repo / "wandb"
-    if wandb_dir.is_dir():
+    if wandb_dir is not None and wandb_dir.is_dir():
         for child in wandb_dir.iterdir():
             match = WANDB_DIR.match(child.name)
             if match:
@@ -291,20 +311,18 @@ def read_runs(queue_log: Path) -> list[dict[str, Any]]:
     return ordered
 
 
-def _data_path(repo: Path) -> str | None:
+def _data_path(script: Path | None) -> str | None:
     """The SpectralWaste data path the queue script trains from (its ``DATA=`` line)."""
 
-    script = repo / "run_repro_queue.sh"
     try:
-        match = re.search(r"^DATA=(\S+)", script.read_text(encoding="utf-8"), re.M)
+        match = re.search(r"^DATA=(\S+)", script.read_text(encoding="utf-8"), re.M) if script else None
     except OSError:
         return None
     return match.group(1).strip("'\"") if match else None
 
 
 def _reports_dir(sources: dict[str, str]) -> Path | None:
-    media = _locate(sources, "reports_media_dir", None)
-    return media.parent if media else None
+    return _locate(sources, "detection_reports_dir")
 
 
 # --------------------------------------------------------------------------------------------- the track
@@ -330,23 +348,22 @@ def _run_outcome(entry: dict[str, Any], paper: float | None, tolerance: float | 
 
 
 def build_track(work_track: Any, sources: dict[str, str]) -> dict[str, Any]:
-    queue_log = Path(sources["detection_queue_log"]) if sources.get("detection_queue_log") else _locate(sources, "detection_queue_log", None)
+    queue_log = _locate(sources, "detection_queue_log")
+    logs_dir = _locate(sources, "detection_logs_dir")
     track = skeleton(work_track, unit="session")
-    if queue_log is None or not queue_log.is_file():
-        track["state"] = {"word": "Not reporting", "tone": "muted",
-                          "detail": f"queue log missing · {queue_log}", "since": None}
-        track["summary"] = f"not reporting · the repro queue log {queue_log} is missing"
-        track["needs_you_count"] = {"open": None, "blocking": None}
-        return track
+    missing = [key for key, path in (("detection_queue_log", queue_log), ("detection_logs_dir", logs_dir)) if path is None]
+    if missing:
+        return not_reporting(work_track, f"{' and '.join(missing)} not declared in vibe-sources")
+    if not queue_log.is_file():
+        return not_reporting(work_track, f"the repro queue log {queue_log} is missing")
 
-    repo = queue_log.parent.parent
-    compile_results = repo / "compile_results.py"
+    compile_results = _locate(sources, "detection_compile_results")
     try:
-        paper = read_paper_targets(compile_results)
+        paper = read_paper_targets(compile_results) if compile_results else {}
     except (OSError, SyntaxError):
         paper = {}
     configs = [tag for tag in paper if re.match(r"^\d\d_", tag)]
-    ladder_path = _locate(sources, "detection_ladder", None)
+    ladder_path = _locate(sources, "detection_ladder")
     ladder: dict[str, Any] = {"rungs": [], "kpis": [], "tolerance": None}
     ladder_mtime = None
     if ladder_path and ladder_path.is_file():
@@ -356,7 +373,7 @@ def build_track(work_track: Any, sources: dict[str, str]) -> dict[str, Any]:
         except (OSError, SyntaxError):
             pass
     tolerance = ladder["tolerance"]
-    plan_path = _locate(sources, "detection_plan_note", DEFAULT_PLAN_NOTE)
+    plan_path = _locate(sources, "detection_plan_note")
     needs: list[dict[str, Any]] | None = None
     plan_mtime = None
     if plan_path and plan_path.is_file():
@@ -366,7 +383,7 @@ def build_track(work_track: Any, sources: dict[str, str]) -> dict[str, Any]:
         except OSError:
             needs = None
 
-    runs = read_runs(queue_log)
+    runs = read_runs(queue_log, logs_dir, _locate(sources, "detection_wandb_dir"))
 
     # ---- iterations: one per run, plus the plan, in time order
     iterations: list[dict[str, Any]] = []
@@ -543,7 +560,7 @@ def build_track(work_track: Any, sources: dict[str, str]) -> dict[str, Any]:
     s1_target = max((value_ for tag, (_, value_) in paper.items() if value_ is not None and TAG.match(tag)
                      and "hyper" in TAG.match(tag).group("input") and tag in configs), default=None)
     s1_label = next((label for tag, (label, value_) in paper.items() if tag in configs and value_ == s1_target), None)
-    paper_src = str(compile_results)
+    paper_src = str(compile_results) if compile_results else None
     ns = len(configs)
     current_frontier = len(reproduced)
     first_run = runs[0] if runs else None
@@ -556,14 +573,14 @@ def build_track(work_track: Any, sources: dict[str, str]) -> dict[str, Any]:
 
     hsi_runs = [run for run in runs if run["hyper"]]
     kpis = [
-        kpi("hsi_test_miou", "North star · best valid hyperspectral test mIoU (E3)", "S1", "mIoU pts", "higher",
+        kpi("hsi_test_miou", "Best valid hyperspectral test mIoU (E3)", "S1", "mIoU pts", "higher",
             {"value": s1_target, "kind": "gate", "label": f"paper best {s1_target:.1f} ({s1_label})"} if s1_target else None,
             (f"{_pts(best_hsi[0]):.1f} · unconfirmed · repeat needed", "muted") if best_hsi else
             (f"no valid value · {len(hsi_runs)} hyperspectral runs, none valid", "warn"),
             "Counts only finished runs with finite losses and no sanitized or skipped batches. Real SpectralWaste test "
             "split, 6 classes, background excluded (Table IV).", queue_src,
             "running best of valid hyperspectral-input runs; test/miou from queue.log DONE × 100; validity from logs/<tag>.log"),
-        kpi("h1_reproduced", "Frontier gate · H1 Table IV configs reproduced", "S2", "configs", "higher",
+        kpi("h1_reproduced", "H1 Table IV configs reproduced", "S2", "configs", "higher",
             {"value": ns, "kind": "scope", "label": f"of {ns} configs (H1 gate: all within ±{tolerance:g} mIoU)"}
             if ns and tolerance is not None else None,
             (f"{current_frontier} of {ns} · 1 seed each: unconfirmed · repeat needed", "muted") if ns and tolerance is not None
@@ -576,22 +593,22 @@ def build_track(work_track: Any, sources: dict[str, str]) -> dict[str, Any]:
                 (run for run in reversed(runs) if run["test"] is not None), None)) else "no finished run", "muted"),
             "Each run is a different config with its own paper target (in each point's note); single seed.", queue_src,
             "queue.log DONE test/miou × 100"),
-        kpi("guardrails", "Guardrails · frozen-suite regressions, worst-class IoU, latency", "S3", "rows", "lower", None,
+        kpi("guardrails", "Frozen-suite regressions, worst-class IoU, latency", "S3", "rows", "lower", None,
             ("not emitted", "muted"), "Planned (ladder_data.KPIS S3); no file records any guardrail yet.", str(ladder_path),
             "nothing to read"),
-        kpi("valid_runs", "Delivery · valid runs of runs started", "S4", "runs", "higher", None,
+        kpi("valid_runs", "Valid runs of runs started", "S4", "runs", "higher", None,
             (f"{valid} valid of {started} started", "warn" if started and valid < started else "muted"),
             "Valid = DONE rc=0 with a test score, finite losses every epoch, zero sanitized or skipped batches.",
             queue_src, "queue.log START/DONE plus logs/<tag>.log, cumulative in start order"),
-        kpi("nan_runs", "Evidence trust · runs with a NaN loss", "S5", "runs", "lower",
+        kpi("nan_runs", "Runs with a NaN loss", "S5", "runs", "lower",
             {"value": 0, "kind": "gate", "label": "zero numerical faults (H1 gate)"},
             (f"{nan_runs} of {started} runs", "warn" if nan_runs else "muted"),
             "Single seed and test-used-for-selection are the plan's other S5 findings; they are not logged as data.",
             queue_src, "epoch lines in logs/<tag>.log with a non-finite train or val loss, cumulative"),
-        kpi("run_hours", "Cost · wall-clock hours per run", "S6", "h elapsed", "info", None,
+        kpi("run_hours", "Wall-clock hours per run", "S6", "h elapsed", "info", None,
             (f"{sum(1 for run in runs if run['done'] and run['start'])} runs timed · GPU h and peak RAM not metered", "muted"),
             "Wall-clock START→DONE, never agent-hours or GPU hours.", queue_src, "queue.log DONE − START (or the W&B run dir time)"),
-        kpi("needs_you", "Needs you · open decisions (plan)", "S7", "questions", "lower",
+        kpi("needs_you", "Open decisions (plan)", "S7", "questions", "lower",
             {"value": 0, "kind": "gate", "label": "empty (plan S7; at most 3 at a time)"},
             ((f"{len(needs)} open · {sum(1 for need in needs if need['blocks'])} blocking a rung", "warn" if needs else "muted")
              if needs is not None else ("plan note unreadable", "muted")),
@@ -601,17 +618,23 @@ def build_track(work_track: Any, sources: dict[str, str]) -> dict[str, Any]:
 
     # ---- state, summary
     now = datetime.now()
-    data_path = _data_path(repo)
+    data_path = _data_path(_locate(sources, "detection_queue_script"))
     drive = None
     if data_path:
         drive = "data drive mounted" if os.path.isdir(data_path) else "data drive not mounted"
-        drive += f" (checked {now.strftime('%m-%d %H:%M')})"
+        drive += f" (checked {local_time(now)})"
     in_progress = [run for run in runs if run["done"] is None and run["log_mtime"]
                    and (now - run["log_mtime"]).total_seconds() < work_track.stall_hours * 3600]
     after_plan = [run for run in runs if plan_when and run["start"] and run["start"] > plan_when]
     last_activity = max((moment for run in runs for moment in (run["done"], run["start"], run["log_mtime"]) if moment),
                         default=None)
-    frontier = (f"H1 frontier {current_frontier} of {ns} reproduced" if ns and tolerance is not None else "H1 frontier unknown")
+    frontier_row = frontier_rung(ladder)
+    frontier_id = frontier_row["id"] if frontier_row else None
+    if frontier_id == "H1" and ns and tolerance is not None:
+        progress = f"{current_frontier} of {ns} reproduced"
+    else:
+        progress = None  # only H1's gate metric (configs reproduced) is computed from these files
+    frontier = (f"{frontier_id} frontier" + (f" {progress}" if progress else "")) if frontier_id else "frontier unknown (ladder_data.py unreadable)"
     if in_progress:
         word, tone, since = "Running", "ok", _iso(in_progress[-1]["start"])
         detail = f"run {in_progress[-1]['idx']} · {in_progress[-1]['epochs']} epochs logged · {frontier}"
@@ -638,6 +661,7 @@ def build_track(work_track: Any, sources: dict[str, str]) -> dict[str, Any]:
                           "label": (f"{current['label']} · loop not started" if word == "Planned" and current else
                                     current["label"] if current else "none reported")}
     track["iterations"] = iterations
+    track["rung"] = _rung(ladder, frontier_row, progress)
     track["kpis"] = kpis
     track["north_star"] = "hsi_test_miou"
     track["needs_you"] = needs or []
@@ -645,10 +669,9 @@ def build_track(work_track: Any, sources: dict[str, str]) -> dict[str, Any]:
         # WHY null and not 0: the plan note could not be read, so the open decisions are unknown (truth rule 2).
         track["needs_you_count"] = {"open": None, "blocking": None}
     track["evidence"] = {"by_iteration": evidence_by_iteration, "by_kpi": by_kpi}
-    track["links"] = [
-        {"label": "Repro queue log", "kind": "path", "value": queue_src},
-        {"label": "Compile the Table IV comparison", "kind": "command", "value": f"python3 {compile_results}"},
-    ]
+    track["links"] = [{"label": "Repro queue log", "kind": "path", "value": queue_src}]
+    if compile_results:
+        track["links"].append({"label": "Compile the Table IV comparison", "kind": "command", "value": f"python3 {compile_results}"})
     project = next((run["wandb_url"].rsplit("/runs/", 1)[0] for run in runs if run["wandb_url"]), None)
     if project:
         track["links"].append({"label": "W&B project", "kind": "path", "value": project})

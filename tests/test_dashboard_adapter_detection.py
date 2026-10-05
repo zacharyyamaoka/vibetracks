@@ -17,6 +17,7 @@ from pathlib import Path
 
 from vibetracks.dashboard.adapters import base, detection
 from vibetracks.dashboard.registry import WorkTrack
+from vibetracks.sources import load_sources
 
 LIVE_QUEUE = Path("/home/bam/spectralwaste-segmentation/logs/queue.log")
 
@@ -30,11 +31,13 @@ PAPER = """PAPER = {
 """
 
 LADDER = '''RUNGS = [
-    dict(id="H0", short="Plumbing ruler", gate="coupons 100%"),
-    dict(id="H1", short="Published ruler", gate="All 12 Table IV configs within ±2 test mIoU of the paper."),
-    dict(id="H2", short="Real class spectra", gate="spectra"),
+    dict(id="H0", short="Plumbing ruler", needs_rungs=[], gate="coupons 100%"),
+    dict(id="H1", short="Published ruler", needs_rungs=[], gate="All 12 Table IV configs within ±2 test mIoU of the paper."),
+    dict(id="H2", short="Real class spectra", needs_rungs=[], gate="spectra"),
+    dict(id="H4", short="Sim → real", needs_rungs=["H1", "H2"], gate="lift"),
+    dict(id="H7", short="HSI → RGB student", needs_rungs=["H1"], gate="student"),
 ]
-KPIS = [("S1 North star", "a", "b", "c", "d"), ("S2 Frontier gate", "a", "b", "c", "d")]
+KPIS = [("S1 North star", "a", "b", "c", "d"), ("S2 Frontier gate", "a", "b", "H1: 2 of 12 configs reproduced", "d")]
 '''
 
 PLAN = """# Plan
@@ -118,11 +121,17 @@ class Fixture:
         reports = root / "reports"
         (reports / "media").mkdir(parents=True)
         (reports / "hyperspectral-roadmap-2026-10-04.html").write_text("<html></html>", encoding="utf-8")
-        self.reports_media = reports / "media"
+        self.reports = reports
+        self.repo = repo
 
     def sources(self) -> dict[str, str]:
-        return {"detection_queue_log": str(self.queue_log), "detection_ladder": str(self.ladder),
-                "detection_plan_note": str(self.plan), "reports_media_dir": str(self.reports_media)}
+        """Every key detection.READS names, as the track note declares them."""
+
+        return {"detection_queue_log": str(self.queue_log), "detection_logs_dir": str(self.queue_log.parent),
+                "detection_wandb_dir": str(self.repo / "wandb"),
+                "detection_compile_results": str(self.repo / "compile_results.py"),
+                "detection_queue_script": str(self.repo / "run_repro_queue.sh"), "detection_ladder": str(self.ladder),
+                "detection_plan_note": str(self.plan), "detection_reports_dir": str(self.reports)}
 
 
 class DetectionAdapterTest(unittest.TestCase):
@@ -241,6 +250,46 @@ class DetectionAdapterTest(unittest.TestCase):
         self.assertEqual(track["state"]["word"], "Running")
         self.assertIn("run 04", track["state"]["detail"])
 
+    def test_the_rung_is_the_frontier_the_plan_names(self) -> None:
+        track = self.build()
+        self.assertEqual(track["rung"], {"current": "H1 · Published ruler · 2 of 4 reproduced",
+                                         "next": "H4 Sim → real, H7 HSI → RGB student",
+                                         "source": "ladder_data.py (RUNGS, KPIS S2) + queue.log"})
+        self.assertIn("H1 frontier 2 of 4 reproduced", track["state"]["detail"])
+        self.assertIsNone(self.build_fresh(ladder=False)["rung"])  # no ladder: the rung is unknown, never guessed
+
+    def build_fresh(self, **kwargs) -> dict:
+        with tempfile.TemporaryDirectory() as tmp:
+            track = detection.build_track(work_track(), Fixture(Path(tmp), **kwargs).sources())
+        self.assertEqual(base.problems(track), [])
+        return track
+
+    def test_human_times_are_local_with_a_zone(self) -> None:
+        detail = self.build()["state"]["detail"]
+        self.assertRegex(detail, r"last run 07-11 00:07 [A-Z]{3,4}")
+        self.assertRegex(detail, r"checked \d\d-\d\d \d\d:\d\d [A-Z]{3,4}")
+
+    def test_kpi_labels_do_not_repeat_their_group_header(self) -> None:
+        kpis = self.build()["kpis"]
+        for kpi in kpis:
+            self.assertFalse(kpi["label"].lower().startswith(base.SLOT_NAMES[kpi["slot"]].lower()), kpi["label"])
+        self.assertEqual(next(k for k in kpis if k["id"] == "hsi_test_miou")["label"],
+                         "Best valid hyperspectral test mIoU (E3)")
+
+    def test_only_declared_inputs_are_read(self) -> None:
+        # The per-run logs decide every run's validity: without them declared the row must not call any run valid.
+        fixture = Fixture(self.root)
+        sources = fixture.sources()
+        del sources["detection_logs_dir"]
+        track = detection.build_track(work_track(), sources)
+        self.assertEqual(track["state"]["word"], "Not reporting")
+        self.assertIn("detection_logs_dir not declared", track["summary"])
+        # an undeclared plan note is unknown (null), never looked up at its default path
+        sources = fixture.sources()
+        del sources["detection_plan_note"]
+        track = detection.build_track(work_track(), sources)
+        self.assertEqual(track["needs_you_count"], {"open": None, "blocking": None})
+
     def test_a_missing_queue_log_is_not_reporting(self) -> None:
         track = detection.build_track(work_track(), {"detection_queue_log": str(self.root / "nope" / "queue.log")})
         self.assertEqual(base.problems(track), [])
@@ -252,7 +301,8 @@ class DetectionAdapterTest(unittest.TestCase):
 @unittest.skipUnless(LIVE_QUEUE.is_file(), f"live queue log missing: {LIVE_QUEUE}")
 class DetectionLiveSmokeTest(unittest.TestCase):
     def test_live_track_is_sound_and_reads_the_july_queue(self) -> None:
-        track = detection.build_track(work_track(), {"detection_queue_log": str(LIVE_QUEUE)})
+        paths = load_sources()
+        track = detection.build_track(work_track(), {key: paths[key] for key in detection.READS})
         self.assertEqual(base.problems(track), [])
         first = track["iterations"][0]
         self.assertEqual(first["id"], "01")

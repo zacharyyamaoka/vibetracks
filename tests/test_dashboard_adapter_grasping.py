@@ -119,8 +119,9 @@ class FixtureTest(unittest.TestCase):
         self.curriculum.write_text(CURRICULUM, encoding="utf-8")
         self.ledger = root / "out" / "ledger" / "runs.jsonl"
         self.ledger.write_text("".join(json.dumps(r) + "\n" for r in ROWS) + "not json\n", encoding="utf-8")
-        self.sources = {"grasping_ledger": str(self.ledger), "grasping_curriculum": str(self.curriculum)}
         self.out = root / "out"
+        self.sources = {"grasping_ledger": str(self.ledger), "grasping_curriculum": str(self.curriculum),
+                        "grasping_out_dir": str(self.out)}
 
     def tearDown(self) -> None:
         self.tmp.cleanup()
@@ -225,6 +226,24 @@ class FixtureTest(unittest.TestCase):
         self.assertEqual(list(track["media"]), ["grasping:gallery"])
         self.assertEqual(track["media"]["grasping:gallery"]["bytes"], 13)
         self.assertEqual(track["links"][0], {"label": "Grasp bench gallery", "kind": "media", "media": "grasping:gallery"})
+
+    def test_gallery_is_linked_only_from_the_declared_out_dir(self) -> None:
+        (self.out / "gallery.html").write_text("<html></html>", encoding="utf-8")
+        del self.sources["grasping_out_dir"]
+        self.assertNotIn("media", self.build())  # never found beside the ledger: the build would not see it change
+
+    def test_the_rung_is_the_frontier_tier_not_the_latest_phase(self) -> None:
+        track = self.build()
+        # The newest phase is "T1 · seed 1" (a re-run of tier 1); the loop stands at tier 2, whose stage1 is still open.
+        self.assertEqual(track["iteration"]["label"], "T1 · seed 1")
+        self.assertEqual(track["rung"]["current"], "Tier 2 · MuJoCo physics")
+        self.assertEqual(track["rung"]["current"], track["state"]["word"])
+        self.assertTrue(track["rung"]["source"].startswith("curriculum.py"))
+        self.assertEqual(base.problems(track), [])
+
+    def test_human_times_are_local_with_a_zone(self) -> None:
+        self.assertRegex(self.build()["state"]["detail"],
+                         r"last run started \d\d-\d\d \d\d:\d\d [A-Z]{3,4} · ledger written \d\d-\d\d \d\d:\d\d [A-Z]{3,4}")
 
     def test_missing_ledger_is_not_reporting(self) -> None:
         self.ledger.unlink()

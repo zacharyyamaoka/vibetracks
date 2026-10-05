@@ -6,7 +6,7 @@ vibe-status: running
 vibe-priority: 1
 vibe-owner: Kinematic Sim (AGENT) session
 vibe-adapter: kinsim
-vibe-sources: [kinsim_status, kinsim_events, kinsim_runs, kinsim_loop_dir]
+vibe-sources: [kinsim_status, kinsim_events, kinsim_runs, kinsim_loop_dir, reports_media_dir]
 vibe-roadmap:
   projector: kinsim
   sources: [kinsim_curriculum_dir, kinsim_home]

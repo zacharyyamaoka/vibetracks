@@ -115,17 +115,22 @@ class Fixture:
         }
 
     def sources(self) -> dict[str, str]:
-        return {"kinsim_status": str(self.home / "status.json"), "kinsim_events": str(self.home / "loop_events.jsonl"),
-                "kinsim_runs": str(self.home / "runs.jsonl"), "kinsim_loop_dir": str(self.loop)}
+        """Every key kinsim.READS names, as the track note declares them (the reports folder included)."""
 
-    def build(self) -> dict:
+        return {"kinsim_status": str(self.home / "status.json"), "kinsim_events": str(self.home / "loop_events.jsonl"),
+                "kinsim_runs": str(self.home / "runs.jsonl"), "kinsim_loop_dir": str(self.loop),
+                "reports_media_dir": str(self.reports)}
+
+    def build(self, sources: dict[str, str] | None = None) -> dict:
         (self.home / "status.json").write_text(json.dumps(self.status))
         (self.home / "loop_events.jsonl").write_text("".join(json.dumps(e) + "\n" for e in self.events))
         (self.home / "runs.jsonl").write_text("".join(json.dumps(r) + "\n" for r in self.runs))
+        sources = self.sources() if sources is None else sources
+        # WHY a poisoned sources file: the adapter must read only what it is handed, never the machine's map.
         overrides = self.root / "sources.json"
-        overrides.write_text(json.dumps({"reports_media_dir": str(self.reports)}))
+        overrides.write_text(json.dumps({"reports_media_dir": "/nonexistent/poisoned"}))
         with mock.patch.dict(os.environ, {"VIBETRACKS_SOURCES": str(overrides)}):
-            return kinsim.build_track(work_track(list(self.sources())), self.sources())
+            return kinsim.build_track(work_track(list(sources)), sources)
 
 
 def kpi(track: dict, kpi_id: str) -> dict:
@@ -189,7 +194,7 @@ class KinsimAdapterTest(unittest.TestCase):
     def test_frontier_gate_reads_the_ledger_and_says_n_is_small(self) -> None:
         track = self.fx.build()
         frontier = kpi(track, "frontier_feasible")
-        self.assertEqual(frontier["label"], "Frontier gate · BT2 feasible")
+        self.assertEqual(frontier["label"], "BT2 feasible")  # the page prints "Frontier gate" above it
         self.assertEqual(series(track, "frontier_feasible"), [None, None, 40.0])
         self.assertFalse(frontier["values"][1]["measured"])
         self.assertEqual(frontier["values"][2]["n"], 1)
@@ -232,6 +237,38 @@ class KinsimAdapterTest(unittest.TestCase):
         self.assertEqual(track["state"]["since"], "2026-10-02T06:00:00+00:00")
         self.assertEqual(track["summary"], "Wave 2 closed; 4 of 6 rungs green or done (+2: OB0, RB0); "
                                            "frontier BT2 at 40 % feasible; 2 questions open, 1 blocking a rung.")
+
+    def test_rung_between_waves_is_the_frontier_and_next_is_the_wave_plan(self) -> None:
+        track = self.fx.build()
+        self.assertEqual(track["rung"], {"current": "Frontier · BT2", "next": None,
+                                         "source": "kinsim_status (frontier) · curriculum.json (wave plan)"})
+        self.assertIn("frontier: BT2", track["state"]["detail"])
+        self.assertRegex(track["state"]["detail"], r"wave 2 closed \d\d-\d\d \d\d:\d\d [A-Z]{3,4}")
+        plan = json.loads(json.dumps(CURRICULUM))
+        for row in plan["rungs"]:
+            if row["rung_id"] in ("BT2", "LT"):
+                row["wave"] = 3
+        (self.fx.loop / "curriculum.json").write_text(json.dumps(plan))
+        self.assertEqual(self.fx.build()["rung"]["next"], "Wave 3 · LT, BT2")  # still open, planned for wave 3
+
+    def test_rung_while_running_is_the_waves_own_targets(self) -> None:
+        plan = json.loads(json.dumps(CURRICULUM))
+        for row in plan["rungs"]:
+            row["wave"] = {"BT2": 3, "LT": 4}.get(row["rung_id"], row["wave"])
+        (self.fx.loop / "curriculum.json").write_text(json.dumps(plan))
+        self.fx.events.append(ev("2026-10-02T07:00:00+00:00", 3, "wave_started", "wave-3", "running", "wave 3 preflight"))
+        track = self.fx.build()
+        self.assertEqual(track["state"]["word"], "Running")
+        self.assertEqual(track["rung"]["current"], "Wave 3 · BT2")
+        self.assertEqual(track["rung"]["next"], "Wave 4 · LT")
+        self.assertEqual(base.problems(track), [])
+
+    def test_wave_reports_come_only_from_the_declared_folder(self) -> None:
+        sources = self.fx.sources()
+        del sources["reports_media_dir"]
+        track = self.fx.build(sources)
+        self.assertNotIn("kinsim.wave2.report", track["media"])
+        self.assertNotIn("Wave 2 report", [link["label"] for link in track["links"]])
 
     def test_paused_loop_reads_paused(self) -> None:
         self.fx.events.append(ev("2026-10-02T07:00:00+00:00", 2, "loop_paused", "disk", "paused",
@@ -276,7 +313,7 @@ class KinsimLiveSmokeTest(unittest.TestCase):
     def test_live_track_matches_the_fold(self) -> None:
         from vibetracks.sources import load_sources
 
-        keys = ["kinsim_status", "kinsim_events", "kinsim_runs", "kinsim_loop_dir"]
+        keys = list(kinsim.READS)
         paths = load_sources()
         track = kinsim.build_track(work_track(keys), {key: paths[key] for key in keys})
         self.assertEqual(base.problems(track), [])

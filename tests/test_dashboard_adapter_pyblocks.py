@@ -135,6 +135,21 @@ class FixtureTest(unittest.TestCase):
         self.assertEqual(track["state"]["word"], "Measuring")
         self.assertNotIn("account weekly limit", track["state"]["detail"])
 
+    def test_rung_is_null_because_the_board_files_name_none(self) -> None:
+        track = self.build()
+        self.assertIn("rung", track)
+        self.assertIsNone(track["rung"])  # M1 lives only in prose; the page says "no rung reported", never a guess
+
+    def test_human_times_are_local_with_a_zone(self) -> None:
+        detail = self.build()["state"]["detail"]
+        self.assertRegex(detail, r"reset due 10-06 \d\d:\d\d [A-Z]{3,4}")
+        self.assertRegex(detail, r"10-01 \d\d:\d\d [A-Z]{3,4}")
+
+    def test_an_undeclared_board_dir_is_not_reporting(self) -> None:
+        track = pyblocks.build_track(work_track(), {})
+        self.assertEqual(track["state"]["word"], base.NOT_REPORTING)
+        self.assertIn("pyblocks_board_dir is not declared", track["summary"])
+
     def test_evidence_and_media_only_for_existing_files(self) -> None:
         track = self.build()
         self.assertEqual(set(track["media"]), {"pyblocks.board-bbbbbbb"})

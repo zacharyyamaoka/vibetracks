@@ -6,7 +6,7 @@ vibe-status: running
 vibe-priority: 3
 vibe-owner: grasp-bench session
 vibe-adapter: grasping
-vibe-sources: [grasping_ledger, grasping_curriculum]
+vibe-sources: [grasping_ledger, grasping_curriculum, grasping_out_dir]
 vibe-roadmap:
   projector: grasping
   sources: [grasp_bench_dir]

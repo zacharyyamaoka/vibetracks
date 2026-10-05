@@ -6,6 +6,11 @@ Inputs (the note's ``vibe-sources``; docs/dashboard/ADAPTERS.md, section ``grasp
   number on the row comes from here.
 - ``grasping_curriculum``: ``grasp_bench/src/grasp_bench/curriculum.py``, the roadmap as code: TIERS, ENVS, MODELS,
   CELLS (wave1 / wave2 / needs / later / ref), GATES (Wilson-LB thresholds) and PUBLISHED_AP.
+- ``grasping_out_dir``: ``grasp_bench/out``, checked only for the bench's own gallery files to link (evidence).
+
+The rung (``track.rung``) is the frontier tier, the lowest tier whose wave-1 cells are not all measured on the frozen
+protocol or whose gates are not all beaten, never the tier of the newest run: the loop measures ahead (tier 5 cells
+ran while tier 2's gates were still open), so "latest" and "current" are different rungs here.
 
 Derivations mirror the bench's own gallery.py (``headline_runs``, ``is_frozen_protocol``, ``clears_gate``,
 ``env_verdict``) so the dashboard and the bench's gallery agree on which envs are beaten; the live smoke test in
@@ -29,7 +34,10 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
-from .base import not_reporting, skeleton
+from .base import local_time, not_reporting, rung, skeleton
+
+#: Every sources.py key this adapter opens, and what it is to the loop (base.py READ_ROLES).
+READS = {"grasping_ledger": "heartbeat", "grasping_curriculum": "heartbeat", "grasping_out_dir": "evidence"}
 
 # --------------------------------------------------------------------------------------------------------------------
 # Mirrors of the bench's frozen protocol (grasp_bench/runner.py DEFAULT_PROTOCOLS, contracts.EvalProtocol.seed).
@@ -270,9 +278,10 @@ def _parse_time(text: str | None) -> datetime | None:
     return moment if moment.tzinfo else moment.replace(tzinfo=timezone.utc)
 
 
-def _local(text: str | None, fmt: str = "%m-%d %H:%M") -> str | None:
-    moment = _parse_time(text)
-    return moment.astimezone().strftime(fmt) if moment else None
+def _local(text: str | None) -> str:
+    """A ledger or file time a person reads, local with its zone ("10-04 18:34 PDT"); naive ledger stamps are UTC."""
+
+    return local_time(_parse_time(text))
 
 
 def _mtime_iso(path: Path) -> str | None:
@@ -372,6 +381,20 @@ def frontier_tier(snap: Snapshot, cur: Curriculum) -> int | None:
         if any(cell.id not in snap.wave1_frozen for cell in cells) or any(env_id not in snap.beaten for env_id in gated):
             return tier
     return None
+
+
+def _rung(cur: Curriculum, tier: int | None, runs: list[Run]) -> dict[str, Any] | None:
+    """The frontier tier and the tier after it, in curriculum.py's own names (base.rung)."""
+
+    tiers = sorted({cur.envs[cell.env].tier for cell in cur.wave1() if cell.env in cur.envs})
+    if not runs or not tiers:
+        return None
+    if tier is None:
+        return rung(f"Wave 1 complete · tiers {tiers[0]}–{tiers[-1]}", None, "curriculum.py + runs.jsonl")
+    following = next((t for t in tiers if t > tier), None)
+    return rung(f"Tier {tier} · {cur.tier_name(tier)}",
+                f"Tier {following} · {cur.tier_name(following)}" if following is not None else None,
+                "curriculum.py (TIERS, wave-1 CELLS, GATES) + runs.jsonl")
 
 
 def hardest_gated_env(cur: Curriculum) -> str | None:
@@ -561,14 +584,16 @@ def build_track(work_track: Any, sources: dict[str, str]) -> dict[str, Any]:
 
     # ---- the bench's gallery as media, on the latest phase (only files that exist)
     media: dict[str, Any] = {}
-    out_dir = ledger_file.parent.parent
+    # WHY the declared folder and not ledger.parent.parent: a gallery rebuilt without a new ledger row must still rerun
+    # the adapter, and the build only watches what the note declares.
+    out_dir = Path(sources["grasping_out_dir"]) if sources.get("grasping_out_dir") else None
     gallery_refs = []
     for media_id, name, kind, mime, label in (
             ("grasping:gallery", "gallery.html", "html", "text/html", "Grasp bench gallery"),
             ("grasping:gallery-preview", "gallery-preview.html", "html", "text/html", "Gallery preview (HTML)"),
             ("grasping:gallery-preview-png", "gallery-preview.png", "image", "image/png", "Gallery preview (PNG)")):
-        file = out_dir / name
-        if file.is_file():
+        file = out_dir / name if out_dir is not None else None
+        if file is not None and file.is_file():
             media[media_id] = {"id": media_id, "kind": kind, "label": label, "path": str(file), "mime": mime,
                                "bytes": file.stat().st_size}
             gallery_refs.append((media_id, kind, label, file))
@@ -873,6 +898,7 @@ def build_track(work_track: Any, sources: dict[str, str]) -> dict[str, Any]:
             summary += f" · {len(needs)} download approvals open"
         track["summary"] = summary
     track["iteration"] = {"unit": "wave", "label": all_phases[-1].label if all_phases else "none reported"}
+    track["rung"] = _rung(cur, tier, runs)
 
     # ---- links + provenance
     bench_dir = curriculum_file.parent.parent.parent

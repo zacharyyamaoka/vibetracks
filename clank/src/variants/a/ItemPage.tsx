@@ -76,7 +76,8 @@ export function ItemPage({ projection, track, item, title, nav, mediaUrl }: {
             <StatusWord word={item.status} tone={evidenceStatusTone(item.status)} bare />
           </>
         ) : null}
-        {item.when ? ` · ${item.when.replace('T', ' ').slice(0, 16)}` : ''}
+        {/* WHY the raw stamp as a title: the line shows it to the minute; the stored value (seconds, zone) stays one hover away. */}
+        {item.when ? <span title={item.when}>{` · ${item.when.replace('T', ' ').slice(0, 16)}`}</span> : ''}
         {iteration ? ` · ${iteration.label}` : ''}
       </p>
 

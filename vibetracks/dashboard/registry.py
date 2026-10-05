@@ -13,7 +13,8 @@ selects ``note["vibe-track"] == "worktrack"`` notes in its source folder (``trac
 - ``vibe-owner``: a label for the session or agent. Liveness never comes from it.
 - ``vibe-adapter``: the module ``vibetracks/dashboard/adapters/<name>.py`` that builds the track (ADAPTERS.md).
 - ``vibe-sources``: keys of ``vibetracks/sources.py`` ``load_sources()``, the files the adapter reads.
-- ``vibe-heartbeat`` (optional): the subset of those keys whose mtime says the loop is alive; default all of them.
+- ``vibe-heartbeat`` (optional): the subset of those keys whose mtime says the loop is alive. Default: the keys the
+  adapter's ``READS`` marks ``heartbeat`` (build.py), else all of them.
 - ``vibe-stall-hours`` (optional): quiet for longer than this and the track reads stale; default 24.
 - ``vibe-roadmap``: ``{projector, sources}`` for the roadmap session, or null ("No roadmap reported yet").
 - ``vibe-children``: ids of deployments drawn inside this track and never on the home page (rig: can12, can16).
@@ -77,6 +78,9 @@ class WorkTrack:
     heartbeat: list[str] = field(default_factory=list)
     stall_hours: float = DEFAULT_STALL_HOURS
     purpose: str = ""
+    #: True when the note sets ``vibe-heartbeat`` itself; otherwise the build narrows the default to the adapter's
+    #: ``heartbeat`` reads, so a shared folder an adapter only lists for media never makes a quiet loop look alive.
+    heartbeat_declared: bool = False
 
     @property
     def archived(self) -> bool:
@@ -220,6 +224,7 @@ def _work_track(path: Path, content: str, frontmatter: dict[str, Any], body: str
     if heartbeat is None:
         problem(f"{keys['heartbeat']} must be a list of sources.py keys; every source counts instead")
         heartbeat = []
+    heartbeat_declared = bool(heartbeat)
     heartbeat = heartbeat or list(sources)
 
     stall_hours = DEFAULT_STALL_HOURS
@@ -258,7 +263,10 @@ def _work_track(path: Path, content: str, frontmatter: dict[str, Any], body: str
         revision=note_revision(content),
         heartbeat=heartbeat,
         stall_hours=stall_hours,
-        purpose=first_paragraph(body),
+        # WHY the whole paragraph (limit=None): the default cuts near 240 characters with no mark, which hid the end
+        # of every purpose ("Its live fold is stat"). The page clamps it with an explicit ellipsis and a "more" toggle.
+        purpose=first_paragraph(body, limit=None),
+        heartbeat_declared=heartbeat_declared,
     )
 
 

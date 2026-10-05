@@ -19,10 +19,24 @@ track. The full contract, with each track's source map, is docs/dashboard/ADAPTE
   ``purpose``: whatever an adapter puts there is overwritten.
 - Raising, returning a non-dict, or returning a track that ``problems`` rejects all yield an honest
   "not reporting · <reason>" track. An adapter never takes the dashboard down.
+- A track may carry ``rung`` ``{current, next, source}`` (or null): the rung the loop is on now and what it says comes
+  next, in the loop's own words (PROJECTION.md). The current rung is the FRONTIER, the lowest rung not yet passed,
+  never merely the newest thing measured.
+- Every adapter module exports ``READS``: ``{sources.py key: role}`` for every file or folder it opens, with role
+  ``heartbeat`` (the loop's own output: its mtime says the loop moved), ``input`` (read for numbers or words, but
+  written by someone else: a plan, a script, a cache) or ``evidence`` (a shared folder listed only to find media to
+  link). The note must declare every one of them in ``vibe-sources`` (tests/test_dashboard_adapter_reads.py opens
+  every adapter under an audit hook and fails on a read outside them). Without ``vibe-heartbeat`` the build's
+  liveness watches only the ``heartbeat`` keys.
+- A declared folder is watched one level deep (its entries' mtimes). An adapter that reads files one folder further
+  down exports ``DEPTH = {key: 2}`` so the build stamps that folder two levels deep; the reads test holds every
+  adapter to exactly that depth.
+- Every time a person reads goes through ``local_time`` ("10-04 17:55 PDT"); machine fields stay ISO with offsets.
 """
 
 from __future__ import annotations
 
+from datetime import date, datetime
 from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:  # pragma: no cover - typing only; registry imports nothing from here
@@ -33,6 +47,61 @@ NOT_REPORTING = "Not reporting"
 TONES = ("ok", "warn", "risk", "stale", "muted")
 DIRECTIONS = ("higher", "lower", "info", "count")
 UNITS = ("wave", "tick", "session", "day")
+#: What a declared source is to its adapter (``READS``); see the module docstring.
+READ_ROLES = ("heartbeat", "input", "evidence")
+#: The page's KPI group headers (clank/src/shared/model.ts SLOT_NAMES). A KPI label never repeats its own header:
+#: the page prints the header above the row, so "North star · best …" would read "North star / North star · best …".
+SLOT_NAMES = {"S1": "North star", "S2": "Frontier gate", "S3": "Guardrails", "S4": "Delivery rate",
+              "S5": "Evidence trust", "S6": "Cost", "S7": "Needs you & health"}
+RUNG_KEYS = ("current", "next", "source")
+
+
+def local_time(moment: datetime | str | None, fmt: str = "%m-%d %H:%M", *, missing: str = "time not recorded") -> str:
+    """A time a person reads: this machine's local time with its zone abbreviation, ``"10-04 17:55 PDT"``.
+
+    Accepts an aware datetime, an ISO string (``Z`` allowed) or a naive datetime/string, which is taken as this
+    machine's local time (the loops' own naive stamps, a ``date`` in a shell log, are written here). An adapter that
+    knows a naive stamp is UTC makes it aware before calling. WHY one helper: the rows mixed "UTC" (kinsim, grasping,
+    pyblocks), "-07:00" (rig, detection) and bare clock times, so two rows a few minutes apart read hours apart.
+    """
+
+    if isinstance(moment, str):
+        try:
+            moment = datetime.fromisoformat(moment.strip().replace("Z", "+00:00"))
+        except ValueError:
+            return missing
+    if not isinstance(moment, datetime):
+        return missing
+    local = moment.astimezone()  # a naive datetime is read as local time by astimezone()
+    zone = local.strftime("%Z") or local.strftime("UTC%z")
+    return f"{local.strftime(fmt)} {zone}"
+
+
+def local_day(moment: datetime | str | None) -> str | None:
+    """The local calendar day (``YYYY-MM-DD``) of a stamp, for iteration dates; None when there is no stamp.
+
+    WHY local and not the stamp's own day: a UTC stamp at 01:00 on 10-05 is the evening of 10-04 here, and a column
+    dated the 5th beside a state line saying 10-04 17:55 PDT would contradict it.
+    """
+
+    if isinstance(moment, str):
+        try:
+            moment = datetime.fromisoformat(moment.strip().replace("Z", "+00:00"))
+        except ValueError:
+            return None
+    if isinstance(moment, datetime):
+        return moment.astimezone().date().isoformat()
+    if isinstance(moment, date):
+        return moment.isoformat()
+    return None
+
+
+def rung(current: str | None, next_: str | None, source: str) -> dict[str, Any] | None:
+    """The ``rung`` field: None when the loop's files do not name a current rung (the page then says so)."""
+
+    if not current:
+        return None
+    return {"current": current, "next": next_ or None, "source": source}
 
 
 def skeleton(work_track: "WorkTrack", *, unit: str = "tick") -> dict[str, Any]:
@@ -46,6 +115,7 @@ def skeleton(work_track: "WorkTrack", *, unit: str = "tick") -> dict[str, Any]:
         "summary": "",
         "state": {"word": NOT_REPORTING, "tone": "muted", "detail": None, "since": None},
         "iteration": {"unit": unit, "label": "none reported"},
+        "rung": None,  # null = the adapter does not know the loop's current rung; the page says so
         "iterations": [],
         "north_star": None,
         "kpis": [],
@@ -126,4 +196,22 @@ def problems(track: Any) -> list[str]:
     media = track.get("media")
     if media is not None and not isinstance(media, dict):
         found.append("media must be {id: MediaEntry}")
+    found.extend(rung_problems(track.get("rung")))
+    return found
+
+
+def rung_problems(value: Any) -> list[str]:
+    """What is wrong with a ``rung`` field (absent and null are fine: the adapter does not know)."""
+
+    if value is None:
+        return []
+    if not isinstance(value, dict) or set(value) != set(RUNG_KEYS):
+        return ["rung must be {current, next, source} or null"]
+    found = []
+    if not isinstance(value["current"], str) or not value["current"].strip():
+        found.append("rung.current must be a non-empty string")
+    if value["next"] is not None and (not isinstance(value["next"], str) or not value["next"].strip()):
+        found.append("rung.next must be a non-empty string or null")
+    if not isinstance(value["source"], str) or not value["source"].strip():
+        found.append("rung.source must name the file it was read from")
     return found

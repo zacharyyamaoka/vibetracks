@@ -10,6 +10,9 @@ Inputs (all in MEDIA, written by the headless drive; none of them is hand-typed 
     drive-facts.json        what the real lane showed: home rows, each track page's state, order and KPI rows, rename
     evidence-facts.json     the L3 evidence item, the wave-4 report, CAN 16 and the rig's deployments
     source-checks.json      KPIs recomputed straight from each loop's own files vs what the projection shows
+    fixwave-facts.json      the fix-wave verifier's measurements (verify-fixwave.mjs): rung cells, purposes, labels,
+                            headers, switcher rects, the reload fan-out, the detection scroll positions
+    timescan-facts.json     every clock time on the home, iteration and item pages without a zone, or in UTC
     projection-*.json       the projection the backend served at check time (sources, freshness, roadmap declaration)
     *.webp / hero-live-tracks.mp4 / .gif   the captures
 
@@ -29,6 +32,8 @@ import sys
 from datetime import datetime
 from pathlib import Path
 
+from PIL import Image
+
 MEDIA = Path("/home/bam/vibetracks/reports/media/vibetracks-live-tracks-2026-10-04")
 FB_DIR = Path("/home/bam/vibetracks/reports/media/dashboard-prior-art-2026-10-03")
 OUT = Path("/home/bam/vibetracks/reports/media/vibetracks-live-tracks-2026-10-04.html")
@@ -39,6 +44,8 @@ sys.path.insert(0, str(FB_DIR))
 import report_feedback as FB  # noqa: E402
 
 FACTS = json.loads((MEDIA / "drive-facts.json").read_text())
+FW = json.loads((MEDIA / "fixwave-facts.json").read_text())
+TS = json.loads((MEDIA / "timescan-facts.json").read_text())
 EV = json.loads((MEDIA / "evidence-facts.json").read_text())
 CHECKS = json.loads((MEDIA / "source-checks.json").read_text())
 PROJ_PATH = sorted(MEDIA.glob("projection-*.json"))[-1]
@@ -74,9 +81,11 @@ def inline_md(s: str) -> str:
 def fig(name: str, label: str, cap: str, cls: str = "") -> str:
     """A still with a two-tier caption: bold label (what it is), then the dim line (what to notice)."""
     alt = f"{label}"
+    with Image.open(MEDIA / name) as image:  # WHY the real size: the fix-wave crops are not 1440x900
+        width, height = image.size
     return (
         f'<figure class="cell {cls}"><button class="zoom" type="button" aria-label="Open {esc(alt)} full size">'
-        f'<img width="1440" height="900" alt="{esc(alt)}" src="{data_uri(MEDIA / name, "image/webp")}"></button>'
+        f'<img width="{width}" height="{height}" alt="{esc(alt)}" src="{data_uri(MEDIA / name, "image/webp")}"></button>'
         f'<figcaption><b>{inline_md(label)}</b><span class="cap">{inline_md(cap)}</span></figcaption></figure>'
     )
 
@@ -84,7 +93,8 @@ def fig(name: str, label: str, cap: str, cls: str = "") -> str:
 def fmt_time(iso: str | None) -> str:
     if not iso:
         return "—"
-    return datetime.fromisoformat(iso).strftime("%m-%d %H:%M")
+    # WHY astimezone + %Z: the report holds itself to the dashboard's rule, local time with its zone name.
+    return datetime.fromisoformat(iso).astimezone().strftime("%m-%d %H:%M %Z")
 
 
 def age(h: float | None) -> str:
@@ -110,7 +120,7 @@ GAPS = {
         "The loop checkout resolves through the agent worktree wave-3-handoff-af2b9b.",
     ],
     "rig": [
-        "triage.json, ROADMAP.md and the run cache are read but not declared in vibe-sources, so changing only them does not rebuild.",
+        "Fix wave: triage.json, ROADMAP.md, the run cache (watched two levels deep) and the audits folder are now declared; nothing else is opened.",
         "kpis_session/kpis_day fixtures are frozen at 10-02 23:13 and miss twin V1-f2308e5f (filled from deployments.json + the run cache).",
         "Tick 2 has no events and tick 4 no wave_started row; 6 package landings and 2 greens are placed by ladder.json times.",
         "Everything lives on the unmerged worktree rig-loop-work-continue-cb3c52.",
@@ -122,14 +132,14 @@ GAPS = {
         "The 1 s latency limit comes from Zach's deck, not curriculum.py; sim latency excludes camera capture.",
     ],
     "detection": [
-        "Only queue.log is declared; ladder_data.py, compile_results.py, per-run logs, wandb/ and the vault plan note are read from defaults.",
+        "Fix wave: ladder_data.py, compile_results.py, per-run logs, wandb/, the queue script, the plan note and the reports folder are now declared; with nothing declared it opens nothing.",
         "Rung status is not stored as data anywhere, so there is no 'rungs green' KPI; the frontier is derived (H1 2 of 12).",
         "Needs-you reflects the 10-04 plan note; the Windows answer in the daily note is not read.",
         "ladder_data.py is untracked in a worktree and could be lost to a sweep or stash -u.",
     ],
     "pyblocks": [
         "The loop writes no status file and no questions: needs-you is 'not reported', never 0.",
-        "The INT stop (account limit, reset 10-06 08:00) is a dated constant attributed to the 10-04 discovery; it drops itself when a newer window lands.",
+        "The INT stop (account limit, reset 10-06 08:00 PDT) is a dated constant attributed to the 10-04 discovery; it drops itself when a newer window lands.",
         "The board series stops at b07c38b (10-01); the 10-02 numbers exist only in an HTML summary's prose and are not emitted.",
         "No roadmap is declared (vibe-roadmap: null).",
     ],
@@ -142,7 +152,8 @@ def roadmap_source(t: dict) -> str:
         return "none declared (<code>vibe-roadmap: null</code>)"
     return (f"declared: projector <code>{esc(rm.get('projector'))}</code> over "
             + ", ".join(f"<code>{esc(s)}</code>" for s in rm.get("sources", []))
-            + "<br><span class=\"warnt\">not rendered: widget is a stub in this lane, /roadmap answers 404</span>")
+            + "<br><span class=\"warnt\">widget not rendered: a stub in this lane, /roadmap answers 404</span>"
+            + (f"<br>rung shown from <code>track.rung</code>: {esc(t['rung']['current'])}" if t.get("rung") else ""))
 
 
 def track_table() -> str:
@@ -243,71 +254,134 @@ def kinsim_kpi_text() -> str:
     )
 
 
+def _fix_rows() -> list[tuple[str, str, bool, str]]:
+    """(id, issue, fixed, measured evidence) for the nine findings of the integration check, read from the verifier's JSON."""
+    home = {r["id"]: r for r in FW["home"]}
+    pages = FW["pages"]
+    g = home["grasping"]
+    rung_src = ", ".join(f"{tid} {home[tid]['rungSource']}" for tid in ORDER)
+    utc_lines = [tid for tid, f in pages.items() if f["times"]["text"]["utc"]]
+    offset_lines = [tid for tid, f in pages.items() if any("−07:00" in b for b in f["times"]["text"]["bare"])]
+    # Only the page's own evidence timestamps ("2026-10-05 03:28"); times inside quoted loop prose are the loop's words.
+    l3_bare = sum(1 for k, v in TS.items() if "/" in k for b in v["text"]["bare"] if re.search(r"20\d\d-\d\d-\d\d \d\d:\d\d", b))
+    tog = FW["toggle"]["rig"]
+    t900 = FW["toggleAt900"]
+    purp = ", ".join(f"{tid} {pages[tid]['purpose']['len']}" for tid in ORDER)
+    repeats = sum(len(f["labelRepeats"]) for f in pages.values())
+    cut = sum(len(f["headCut"]) for f in pages.values())
+    cut_ok = all(h["shown"].endswith("…") and h["title"] for f in pages.values() for h in f["headCut"])
+    det = FW["detectionScroll"]
+    left_cut = sum(len(d["leftCut"]) for d in det)
+    positions = sorted({d["scrollLeft"] for d in det})
+    over = {k: v["overlap"] for k, v in pages.items()}
+    over["home"] = FW["overlap"]["home"]
+    hits = [k for k, v in over.items() if v["lastRowHits"] or v["anyContentHits"]]
+    rl = FW["reload"]
+    return [
+        ("a", "Grasping's home row contradicted itself; rung cell showed the newest phase", g["rung"].startswith(g["status"].split(" 30 of")[0]),
+         f"Grasping: status '{g['status'].split(' 30 of')[0]}', rung '{g['rung']}'. Rung cell source per row: {rung_src} "
+         "(pyblocks has no rung and says 'latest wave: v5-#10 · b07c38b · no roadmap declared')."),
+        ("b", "Every human-facing time in local time with a zone", False,
+         f"Adapter text is fixed (state details read '10-04 17:55 PDT'). But the page's own 'since …' formatter still prints the "
+         f"source's zone: {', '.join(utc_lines)} say 'since … UTC' and {', '.join(offset_lines)} say '… −07:00', so kinsim's line reads "
+         f"'wave 4 closed 10-04 17:55 PDT … since 10-05 00:55 UTC'. The iteration and item pages print {l3_bare} clock times with no "
+         "zone at all (evidence timestamps on the 7 tracks' newest iteration and item pages), UTC ones among them (grasping runs '2026-10-05 03:28' = 10-04 20:28 PDT)."),
+        ("c", "Purpose whole in the projection, clamped to 3 lines with more/less", True,
+         f"Purposes {purp} characters, identical to the rendered text. Rig at 1440: {tog['closed']['lines']} lines + '{tog['closed']['toggle']}' "
+         f"→ {tog['open']['lines']} lines + '{tog['open']['toggle']}' (aria-expanded {tog['open']['expanded']}) → back to {tog['closedAgain']['lines']}. "
+         f"At 900 px kinsim and pyblocks grow the toggle too ({t900['kinsim']['toggle']}, {t900['pyblocks']['toggle']})."),
+        ("d", "No KPI label repeats its group header", repeats == 0,
+         f"{repeats} repeats across the 5 track pages and CAN 12 / CAN 16, read from the rendered group rows."),
+        ("e", "Scorecard headers: visible ellipsis + title; no clipped header when Detection scrolls", cut_ok and left_cut == 0,
+         f"{cut} cut markers, every one ends in '…' with the whole marker in its title. Detection at scrollLeft {positions}: "
+         f"{left_cut} headers cut at the sticky KPI column (getBoundingClientRect)."),
+        ("f", "Switcher no longer covers the last row at max scroll", not hits,
+         "At max scroll the switcher (" + ", ".join(map(str, over["home"]["switcher"])) + ") intersects nothing on home or any of the "
+         f"7 track pages; home's last row ends at y {over['home']['lastRow'][3]}, kinsim's at {over['kinsim']['lastRow'][3]}."),
+        ("g", "Reload also reloads the roadmap", rl["roadmapReloadCalls"] == rl["rowsMounted"],
+         f"The stub's reload() was patched in flight to count calls: one Reload click = {rl['projectionRequests']} projection request + "
+         f"{rl['roadmapReloadCalls']} roadmap reload() calls ({rl['rowsMounted']} rows mounted). No /roadmap network request, because the stub fetches nothing."),
+        ("h", "Two stale tests updated, not deleted", True,
+         "test_stub_adapters_… became test_real_adapters_with_nothing_declared_… (asserts not reporting, the missing input named, no numbers, "
+         "needs null); the snapshot-children test split into 'drawn live' and 'a child no adapter draws falls back to the snapshot'. Both stronger."),
+        ("i", "Every file an adapter reads is declared in its note", True,
+         "READS equals vibe-sources key for key on all five; an audit hook over every open/listdir finds nothing outside the declared paths. "
+         "Re-run here: dropping any one key is caught except 3 keys nested inside another declared folder (grasping_out_dir, "
+         "detection_queue_log, pyblocks_windows), as the lane reported. bam_loops still reads its frozen snapshot, which is not a track adapter."),
+    ]
+
+
+FIXES = _fix_rows()
+
+
+def fix_table() -> str:
+    rows = "".join(
+        f'<tr><td class="num">{esc(i)}</td><td>{esc(issue)}</td>'
+        f'<td class="{"okt" if ok else "badt"}">{"fixed" if ok else "NOT FIXED"}</td><td class="small">{esc(ev)}</td></tr>'
+        for i, issue, ok, ev in FIXES)
+    return ('<div class="tablewrap"><table class="grid"><thead><tr><th></th><th>Issue from the integration check</th><th>Verdict</th>'
+            '<th>Measured on the live lane after a backend restart</th></tr></thead><tbody>' + rows + "</tbody></table></div>")
+
+
 ISSUES = [
-    ("Roadmap is a stub on every track", "The Roadmap section says 'Roadmap widget pending (roadmap session)' on all five "
-     "pages, and the home's **Current rung → next** cell falls back to the current iteration plus 'roadmap not reported yet'. "
-     "The real widget exists on branch `claude/vibetracks-roadmap` (b19d6a3, worktree `/home/bam/vibetracks-roadmap`) but is "
-     "not in this lane, and `GET /api/plugins/vibetracks/roadmap/<id>` answers 404 for all five. This is the largest gap "
-     "against the brief ('the roadmap for what is next and what is the current rung')."),
-    ("Grasping's home row contradicts itself", "Status reads **Tier 2 · MuJoCo physics** (the frontier: lowest tier with an "
-     "unbeaten gate) while Current rung reads **T5 · Live sim with a simulated camera** (the newest phase the ledger touched). "
-     "The fallback cell shows the latest iteration, not the frontier. It goes away once the roadmap widget supplies current/next."),
-    ("Mixed time zones in state lines", "Kinsim, Grasping and Pyblocks say 'since … UTC'; Rig and Detection say '… −07:00'. "
-     "The adapters emit different zones and the page renders them as given. Recommend local time everywhere, in the adapters."),
-    ("Purpose text cut at 280 characters by the build", "`vibetracks/notes.py first_paragraph` cuts with no mark "
-     "(kinsim ends 'Its live fold is stat…'). Variant A adds the ellipsis and the note path on hover; the fix belongs in the build."),
-    ("Detection labels repeat their group", "KPI labels start with 'North star ·', 'Frontier gate ·', 'Delivery ·' under group "
-     "headers of the same name, so the north-star line reads 'North star — North star · best valid…'. Adapter labels."),
-    ("Wide scorecards clip their left header", "Detection has 8 iterations; the scorecard scrolls to the latest and the first "
-     "visible column's header is cut at the scroll edge. Minor."),
-    ("Review chrome covers content", "The temporary 'Proposal A/B/C' switcher (and the Needs-you N1–N5 switcher on the needs "
-     "page) float over the bottom-right Status column. Expected to go when a variant is chosen."),
-    ("Needs page count differs from the row", "Kinsim's needs link opens the other workflow's N1 page reading '1 of 3' while the "
-     "row says 11 open · 1 blocking. Possibly deliberate (items whose default is already in force); flagged to that workflow, "
-     "not checked here."),
-    ("Clank shell errors (not the dashboard)", "One '[clank] workspace autosave failed … Bad Request' (400 POST /api/fs/write) "
-     "during the drive, plus the shell's usual .clank/*.json 404s and fs mkdir 409s. No error came from the dashboard code."),
-    ("Two stale shared tests", "`python3 -m pytest tests` → 171 passed, 2 failed, both in tests/test_dashboard_live_build.py and "
-     "both pinning the pre-live stub/snapshot state (kinsim stub summary; rig children from the snapshot). Owner to update."),
-    ("Most of the lane is untracked", "The five adapters, their tests, live.ts, rename.tsx and the needs code are untracked in "
-     "/home/bam/vibetracks-dashboard. A peer's `git stash -u` in that checkout would take them."),
-    ("Undeclared inputs and worktree-hosted sources", "Rig, Detection and Grasping read files their notes do not declare (no "
-     "rebuild when only those change), and kinsim, rig and grasping read from agent worktrees a sweep could delete."),
+    ("Times: the page still mixes zones (owner: UI lane, variant A + shared)", "The adapters now write '10-04 17:55 PDT', but four UI "
+     "formatters print ISO stamps as given. `columns.ts formatSince` keeps the source's zone ('since 10-05 00:55 UTC' beside "
+     "'17:55 PDT'; '−07:00' on rig and detection). `shared/EvidenceList.tsx`, `ItemPage.tsx` and the home footer slice "
+     "`when.replace('T',' ').slice(0,16)`, which drops the zone: grasping's runs read '2026-10-05 03:28', eight hours ahead of the "
+     "gallery beside them at '2026-10-04 19:14'. Fix: one shared formatter, local time with the zone name (Intl, timeZoneName "
+     "'short'), used by all four (variants B and C have the same slice)."),
+    ("Roadmap widget is a stub (expected)", "Every Roadmap section says 'Roadmap widget pending (roadmap session)' and "
+     "`GET /api/plugins/vibetracks/roadmap/<id>` answers 404. That is expected until branch `claude/vibetracks-roadmap` "
+     "(now ddd9bca) merges. Until then the home rung cell uses each loop's own `rung` (four tracks) and is honest where there is none."),
+    ("The fix wave is uncommitted", "The adapters and UI are in commit 0942c17, but the fix wave is 32 modified files plus 6 "
+     "untracked ones (clamp.tsx, roadmapReload.tsx, the reads test, the needs files) in /home/bam/vibetracks-dashboard. A peer's "
+     "`git stash -u` there would take them."),
+    ("Purpose drops markdown characters", "`notes.first_paragraph` deletes every `*`, `_` and backtick. Today only backticks go "
+     "(kinsim's `status.json` loses its code marks), but an identifier like loop_events would read loopevents. Owner: Python lane."),
+    ("Sources in agent worktrees", "Kinsim, rig and grasping still read from agent worktrees a sweep could delete. The row would "
+     "then say 'not reporting', truthfully."),
+    ("Small things", "rig.py's docstring cites tests/test_dashboard_adapter_reads.py, which does not exist (the test is "
+     "test_dashboard_adapters_live.py). Kinsim's W4 'from' line has an empty separator ('loop_events.jsonl · · events'). Variants "
+     "B and C still use the right-aligned line-clamp with no visible ellipsis."),
+    ("Needs page count differs from the row", "Kinsim's needs link opens the other workflow's page; its count rules belong to "
+     "that workflow and were not checked here."),
+    ("Clank shell errors (not the dashboard)", "The shell's usual .clank/*.json 404s and fs mkdir 409s. No error came from the "
+     "dashboard code, and no window error fired."),
 ]
 
+
+NFIXED = sum(1 for f in FIXES if f[2])
 
 DECISION = f"""
 <ul>
   <li><strong>Done and proved:</strong>
     <ul>
-      <li>Home shows exactly the five work tracks in priority order, no deployments: {esc(FACTS['home']['header'])}.</li>
-      <li>Every track page drove headless in the real lane: title → state → needs link → Key KPIs → Roadmap
-          (rig adds Deployments after Roadmap); measured with getBoundingClientRect.</li>
+      <li>{NFIXED} of {len(FIXES)} findings of the integration check are fixed, measured on the live lane after a backend restart
+          (table above). Grasping's row now reads Tier 2 in both cells; four rows show the loop's own current rung → next.</li>
+      <li>Home still shows exactly the five work tracks: {esc(FACTS['home']['header'])}.</li>
       <li>{len(CHECKS)} KPI values on five tracks plus CAN 16 recomputed from the loops' own files: all match.</li>
-      <li>Rename by double-click and back by ⋯ menu: two POSTs to <code>/tracks/pyblocks/title</code>, <code>vibe-id</code> unchanged,
-          the note's sha256 identical afterwards ({esc(FACTS['rename']['before']['sha'][:12])}…).</li>
-      <li>L3: the W4 iteration, the BT2 promotion run (418/1000) and the Wave 4 report open; Back climbs one level per press.</li>
-      <li>Typecheck clean (whole clank project); 171 of 173 tests pass (2 stale, above).</li>
+      <li>Rename round trip: two POSTs to <code>/tracks/pyblocks/title</code>, <code>vibe-id</code> unchanged, sha256 identical
+          afterwards ({esc(FACTS['rename']['before']['sha'][:12])}…), in the drive and again in the hero recording.</li>
+      <li>205 tests pass; typecheck clean; 0 window errors and 0 dashboard console errors.</li>
     </ul></li>
   <li><strong>Left:</strong>
     <ul>
-      <li>Land the roadmap widget into this lane (blocked on you, below), then re-drive the Roadmap section and the home's rung cell.</li>
-      <li>Update the two stale tests; declare the undeclared inputs in the track notes and sources.py (owners: the adapter lanes).</li>
-      <li>Codex audit of this integration (not run in this pass).</li>
+      <li><b>Times (not fixed).</b> One shared UI formatter for every ISO stamp: local time with the zone name. Owner: UI lane.
+          Next, not blocked.</li>
+      <li>Roadmap widget: merge <code>claude/vibetracks-roadmap</code>, then re-drive the Roadmap section and the rung cell. Blocked on you.</li>
+      <li>Codex audit of the fix wave (not run in this pass).</li>
     </ul></li>
   <li><strong>Needs you</strong> (each has a default that keeps work moving if you say nothing):
     <ol>
-      <li><b>Merge the roadmap widget</b> (<code>claude/vibetracks-roadmap</code> b19d6a3) into <code>claude/vibetracks-dashboard</code>?
-          Recommendation: yes, it is what makes 'current rung → next' real. Default: nothing is merged; the section keeps saying pending.</li>
-      <li><b>Commit the lane</b> on <code>claude/vibetracks-dashboard</code> so a peer's stash cannot take the untracked adapters and UI?
-          Recommendation: yes. Default: left uncommitted, as this task's rules require.</li>
-      <li><b>One time zone</b>: local time in every state line? Recommendation: local. Default: each adapter keeps its own zone.</li>
+      <li><b>Merge the roadmap widget</b> (<code>claude/vibetracks-roadmap</code>, now ddd9bca) into <code>claude/vibetracks-dashboard</code>?
+          Recommendation: yes; it is what replaces the stub. Default: nothing is merged; the section keeps saying pending, which is expected.</li>
+      <li><b>Commit the fix wave</b> on <code>claude/vibetracks-dashboard</code> so a peer's stash cannot take it?
+          Recommendation: yes, once the time formatter lands. Default: left uncommitted, as this task's rules require.</li>
       <li><b>Durable homes for loop files</b> now in agent worktrees (rig loop, grasp ledger, kinsim loop dir)?
           Recommendation: a stable path per loop. Default: unchanged; a sweep would turn a row 'not reporting', honestly.</li>
     </ol></li>
-  <li><strong>Deliberately not done:</strong> no git commits, no vault edits, nothing fixed outside <code>clank/src/variants/a/</code>
-      (and nothing changed there in this pass); the Needs-you files and the roadmap widget were not touched; the Clank lane was
-      left running; only the vibetracks plugin backend was restarted.</li>
+  <li><strong>Deliberately not done:</strong> this pass is a verifier: no product code changed, no commits, no vault edits. Only the
+      vibetracks plugin backend was restarted; the Clank lane was left running. The rename was reverted and checked byte-identical.</li>
 </ul>
 """
 
@@ -460,7 +534,7 @@ def build() -> str:
     k = TRACK_PAGE["kinsim"]
     rn = FACTS["rename"]
     posts = FACTS.get("posts", [])
-    gen = datetime.fromisoformat(PROJ["generated_at"]).strftime("%Y-%m-%d %H:%M") + " PDT"
+    gen = datetime.fromisoformat(PROJ["generated_at"]).astimezone().strftime("%Y-%m-%d %H:%M %Z")
     star = {tid: TRACK_PAGE[tid]["kpis"][0]["cells"] for tid in ORDER}
 
     hero = f"""
@@ -468,7 +542,7 @@ def build() -> str:
   <video controls autoplay muted loop playsinline preload="auto" aria-label="Hero: home, Kinematic Sim, roadmap, back, rig, CAN 16, rename">
     <source src="{data_uri(MEDIA / 'hero-live-tracks.mp4', 'video/mp4')}" type="video/mp4"></video>
   <img id="hero-gif" class="gif hidden" alt="Hero as a GIF" src="{data_uri(MEDIA / 'hero-live-tracks.gif', 'image/gif')}">
-  <figcaption><b>Home → Kinematic Sim → Roadmap → back → Rig → CAN 16 → rename (24 s, 1.25× speed)</b>
+  <figcaption><b>Home → Kinematic Sim → Roadmap → back → Rig → CAN 16 → rename (21 s, 1.25× speed, re-recorded after the fix wave)</b>
   <span class="cap">Recorded headless from the running lane at http://127.0.0.1:4390 on live data. The blue dot is the pointer.
   The rename at the end was reverted through the ⋯ menu right after the recording; the note came back byte-identical.</span></figcaption>
 </figure>"""
@@ -477,7 +551,7 @@ def build() -> str:
         '<div class="g1">'
         + fig("01-home.webp", "Home: one row per work track",
               f"{FACTS['home']['header']}. Columns: Status (state word + clamped detail), Progress (north star + sparkline), "
-              "Current rung → next (falls back to the current iteration until a roadmap reports), Last moved (the build's "
+              "Current rung → next (the loop's own rung from its status file; Pyblocks has none and says 'latest wave … · no roadmap declared'), Last moved (the build's "
               "heartbeat, 'stale' past the 24 h stall rule), Needs you (blocking · open; 'not reported' when unknown, never 0). "
               "CAN 12 and CAN 16 are not on this page.")
         + "</div>" + home_rows()
@@ -545,6 +619,28 @@ def build() -> str:
   <li>The two requests: {''.join(f'<code class="blk">POST {esc(p)}</code>' for p in posts)}</li>
 </ul>"""
 
+    fw = fix_table() + """
+<h3>Before and after</h3>""" + '<div class="g2">' + "".join([
+        fig("fw-home-before-crop.webp", "Before: home rows",
+            "Rung cells showed the newest iteration plus 'roadmap not reported yet'; Grasping read 'T1 · seed 1' beside a Tier 2 status."),
+        fig("fw-home-after.webp", "After: home rows",
+            "Each loop's own current rung and next; Grasping reads Tier 2 in both cells; Pyblocks says it has no rung instead of guessing."),
+        fig("fw-detection-before.webp", "Before: Detection scorecard scrolled",
+            "The first visible header was cut at the sticky column ('gForm…', 'egFormer-B0 RGB:') with no mark."),
+        fig("fw-detection-after.webp", "After: the same scorecard at scrollLeft 92",
+            "Columns snap to the sticky edge; every cut header ends in '…' with the whole marker on hover; the right edge fades while more scrolls."),
+        fig("fw-rig-purpose-closed.webp", "Rig purpose, closed", "The whole 406-character paragraph, clamped to three lines by CSS with a visible '…' and 'more'."),
+        fig("fw-rig-purpose-open.webp", "Rig purpose, open", "Four lines and 'less'; aria-expanded follows."),
+        fig("fw-home-maxscroll.webp", "Home at max scroll", "The review switcher sits below the last row and the Reload line."),
+        fig("fw-kinsim-maxscroll.webp", "Kinematic Sim at max scroll", "The switcher clears the links block at the bottom of the page."),
+    ]) + "</div>" + """
+<h3>Still wrong: times</h3>""" + '<div class="g1">' + "".join([
+        fig("fw-kinsim-stateline.webp", "Kinematic Sim state line",
+            "'wave 4 closed 10-04 17:55 PDT' and 'since 10-05 00:55 UTC' are the same moment in two zones on one line."),
+        fig("fw-grasping-iteration-times.webp", "Grasping, latest wave: evidence times",
+            "The gallery reads local '2026-10-04 19:14'; the runs read '2026-10-05 03:28', which is UTC with the zone dropped (10-04 20:28 PDT)."),
+    ]) + "</div>"
+
     page = f"""<!doctype html>
 <html lang="en"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
@@ -553,37 +649,39 @@ def build() -> str:
 <body><div class="wrap">
 
 <header class="top">
-  <div class="date">2026-10-04 · integration check</div>
+  <div class="date">2026-10-04 · integration check, re-verified after the fix wave</div>
   <h1>Vibe Tracks: your five work tracks, live</h1>
-  <p class="verdict">The home page now shows only your five work tracks, all on live loop data. Each track page shows its key KPIs
-  and a roadmap section, and you can rename a track while its id stays fixed. The catch: the roadmap section is still a stub on
-  every track. The real widget is on an unmerged branch, so 'current rung → next' falls back to the current iteration.</p>
-  <p class="built">Drove the running lane headless at {esc(gen)}. {len(CHECKS)} of {len(CHECKS)} KPI values matched when recomputed
-  from the loops' own files. Rename round-trip left the note byte-identical. Typecheck clean; 171 of 173 tests pass (2 stale).
-  Nothing committed. This page is about 3 MB, so open it in the browser, not the desktop preview.</p>
+  <p class="verdict">{NFIXED} of {len(FIXES)} issues from the integration check are fixed and measured. Home shows each loop's real
+  current rung → next, and Grasping's row no longer contradicts itself. Not fixed: times. The adapters now write local time, but the
+  page still prints some times in UTC or with no zone. The roadmap widget is still a stub until its branch merges, as expected.</p>
+  <p class="built">Restarted the vibetracks backend and drove the running lane headless at {esc(gen)}.
+  {sum(c["match"] for c in CHECKS)} of {len(CHECKS)} KPI values matched when recomputed from the loops' own files. The rename
+  round trip left the note byte-identical. Typecheck clean; 205 of 205 tests pass. Nothing committed. This page is over the desktop
+  preview's size cap, so open it in the browser.</p>
   <div class="launch"><pre id="launch-cmd">{esc(LAUNCHER)}</pre><button id="copy-launch" type="button">Copy</button></div>
 </header>
 
 <nav class="toc" aria-label="Sections">
-  <a href="#watch">Watch</a><a href="#home">Home</a><a href="#pages">Track pages</a><a href="#drill">Drill-down</a>
+  <a href="#watch">Watch</a><a href="#fixwave">Fix wave</a><a href="#home">Home</a><a href="#pages">Track pages</a><a href="#drill">Drill-down</a>
   <a href="#tracks">Per track</a><a href="#checks">Numbers checked</a><a href="#rename">Rename</a><a href="#live">Live vs stale</a>
   <a href="#issues">Issues</a><a href="#decide">Decide</a>
 </nav>
 
 {section("watch", "Watch first", "One recorded walk through the real app: pick a track, read its KPIs, open the roadmap section, go back, open the rig and CAN 16, rename a track.", hero, 1)}
-{section("home", "Home: the work tracks", "One calm row per top-level track, in registry priority order. It adapts to however many track notes exist, so a sixth track is one new note.", home, 2)}
-{section("pages", "Each track page", "Title (renamable) → one state line → Needs you → purpose → Key KPIs → Roadmap. The rig adds its deployments under the roadmap.", pages, 3)}
-{section("drill", "Drilling in: KPIs, roadmap, needs, evidence", "Kinsim end to end, then the rig's deployments.", drill, 4)}
-{section("tracks", "Per track: sources, freshness, KPIs, roadmap, gaps", f"Read from the projection the backend served at {esc(gen)} (<code>{esc(PROJ_PATH.name)}</code>). File times are local.", track_table(), 5)}
-{section("checks", "Numbers checked against the source files", "Each value recomputed by a separate script (<code>crosscheck.py</code> in the media folder) straight from the loop's own files, not from the adapter, then compared with what the dashboard served.", checks_table(), 6)}
-{section("rename", "Renaming a track", "", rename, 7)}
-{section("live", "What is live, what is stale, and why", "", live_status(), 8)}
-{section("issues", "Issues found (not fixed here)", "No product code was changed in this pass (only this report builder was added); these are for their owners.", '<ol class="issues">' + ''.join(f'<li><b>{esc(t)}</b>{inline_md(d)}</li>' for t, d in ISSUES) + '</ol>', 9)}
+{section("fixwave", "What changed in the fix wave", "Each finding of the integration check, re-measured independently after the Python and UI lanes reported done. The verifier did not write the fixes.", fw, 2)}
+{section("home", "Home: the work tracks", "One calm row per top-level track, in registry priority order. It adapts to however many track notes exist, so a sixth track is one new note.", home, 3)}
+{section("pages", "Each track page", "Title (renamable) → one state line → Needs you → purpose → Key KPIs → Roadmap. The rig adds its deployments under the roadmap.", pages, 4)}
+{section("drill", "Drilling in: KPIs, roadmap, needs, evidence", "Kinsim end to end, then the rig's deployments.", drill, 5)}
+{section("tracks", "Per track: sources, freshness, KPIs, roadmap, gaps", f"Read from the projection the backend served at {esc(gen)} (<code>{esc(PROJ_PATH.name)}</code>). File times are local, with their zone.", track_table(), 6)}
+{section("checks", "Numbers checked against the source files", "Each value recomputed by a separate script (<code>crosscheck.py</code> in the media folder) straight from the loop's own files, not from the adapter, then compared with what the dashboard served.", checks_table(), 7)}
+{section("rename", "Renaming a track", "", rename, 8)}
+{section("live", "What is live, what is stale, and why", "", live_status(), 9)}
+{section("issues", "Issues still open", "The verifier changed no product code; these are for their owners. Fixed issues moved to the fix-wave table above.", '<ol class="issues">' + ''.join(f'<li><b>{esc(t)}</b>{inline_md(d)}</li>' for t, d in ISSUES) + '</ol>', 10)}
 
 <section id="decide">
   <h2>Decision surface</h2>
   <div class="decide">{DECISION}</div>
-  {FB.ui(REPORT_NAME, noun="section", total=9)}
+  {FB.ui(REPORT_NAME, noun="section", total=10)}
 </section>
 
 <footer class="end">Generated by docs/dashboard/build_live_report.py from the drive's JSON in {esc(MEDIA)}.</footer>

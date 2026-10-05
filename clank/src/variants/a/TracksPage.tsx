@@ -21,11 +21,13 @@ import {
   northStar,
   topLevelTracks,
 } from '../../shared'
-import { RoadmapWidget, useRoadmap } from '../../roadmap'
+import { useLayoutEffect, useRef } from 'react'
+import { RoadmapWidget } from '../../roadmap'
 import { trendDomain } from './columns'
-import { isReporting, lastMoved, needsCount, registryOf } from './live'
+import { isReporting, lastMoved, needsCount, registryOf, rungOf } from './live'
 import { openRung, type Nav } from './nav'
 import { TrackMenu, TrackName, type Renamer } from './rename'
+import { useRegisteredRoadmap } from './roadmapReload'
 
 export function TracksPage({ projection, title, nav, showDeltas, reload, backend, renamer }: {
   projection: Projection
@@ -89,7 +91,7 @@ export function TracksPage({ projection, title, nav, showDeltas, reload, backend
       )}
 
       <p className="vt-a-foot vt-small vt-faint">
-        {projection.source.live ? 'Live' : 'Snapshot'} · read {projection.generated_at.replace('T', ' ').slice(0, 16)}
+        {projection.source.live ? 'Live' : 'Snapshot'} · read <span title={projection.generated_at}>{projection.generated_at.replace('T', ' ').slice(0, 16)}</span>
         {projection.source.live ? '' : ` · snapshot of ${formatDay(projection.as_of)}`} ·{' '}
         <button type="button" className="vt-btn vt-a-link" onClick={reload} data-testid="vt-a-reload">
           Reload
@@ -182,12 +184,22 @@ export function ProgressCell({ track, showDeltas }: { track: Track; showDeltas: 
   )
 }
 
-/** Where the loop is on its roadmap and what comes next: the roadmap widget's own calm answer when the track's roadmap
- * has loaded (one source for that sentence, never a second derivation here); otherwise the track's current iteration,
- * and a grey word for why there is no roadmap line. */
+/** Where the loop is on its roadmap and what comes next, from the best source there is, in this order:
+ *   (a) the roadmap widget's own calm answer when the track's roadmap document has loaded (one source for that
+ *       sentence, never a second derivation here);
+ *   (b) the track's `rung`, which the adapter read from the loop's own status file, in the loop's own words;
+ *   (c) the newest iteration, labelled "latest <unit>" so it can never read as the current rung, and a grey word for
+ *       why there is no rung line. */
 function RungCell({ track, nav, backend }: { track: Track; nav: Nav; backend: PluginBackend }) {
-  const roadmap = useRoadmap(backend, track.id)
+  const roadmap = useRegisteredRoadmap(backend, track.id)
   const declared = Boolean(registryOf(track)?.roadmap)
+  const widgetBox = useRef<HTMLSpanElement>(null)
+  // WHY the widget's text as the cell's title: the home row clamps the widget's sentence to two lines, so its whole
+  // text must stay one hover away (truthful rendering); the widget is another session's, so read what it drew.
+  useLayoutEffect(() => {
+    const box = widgetBox.current
+    if (box) box.title = (box.textContent ?? '').replace(/\s+/g, ' ').trim()
+  })
   if (roadmap.doc !== null) {
     const widget = {
       track: track.id,
@@ -201,23 +213,33 @@ function RungCell({ track, nav, backend }: { track: Track; nav: Nav; backend: Pl
       loading: roadmap.loading,
     }
     return (
-      <span className="vt-a-rungcell" onClick={(event) => event.target instanceof HTMLButtonElement && event.stopPropagation()}>
+      <span ref={widgetBox} className="vt-a-rungcell" onClick={(event) => event.target instanceof HTMLButtonElement && event.stopPropagation()}>
         <RoadmapWidget {...widget} />
       </span>
     )
   }
-  const current = track.iterations.length ? track.iteration.label : null
+  const rung = rungOf(track)
+  if (rung) {
+    return (
+      <span className="vt-a-two" data-testid="vt-a-rung" data-rung-source="track" title={[rung.current, `next: ${rung.next ?? 'not reported'}`, `from ${rung.source}`].join('\n')}>
+        <span className="vt-a-clamp-2">{rung.current}</span>
+        <small className="vt-a-clamp-2">{rung.next !== null ? `next: ${rung.next}` : 'next not reported'}</small>
+      </span>
+    )
+  }
+  const latest = track.iterations.length ? track.iterations[track.iterations.length - 1] : null
   const why = roadmap.loading
     ? 'loading roadmap…'
     : roadmap.error
       ? 'roadmap could not load'
       : declared
-        ? 'roadmap not reported yet'
+        ? 'rung not reported yet'
         : 'no roadmap declared'
+  const label = latest ? `latest ${track.iteration.unit}: ${track.iteration.label}` : null
   return (
-    <span className="vt-a-two" title={roadmap.error ?? undefined}>
-      {current ? <span>{current}</span> : <span className="vt-faint">—</span>}
-      <small>{current ? `current ${track.iteration.unit} · ${why}` : why}</small>
+    <span className="vt-a-two" data-testid="vt-a-rung" data-rung-source="iteration" title={[label, why, roadmap.error].filter(Boolean).join('\n') || undefined}>
+      {label ? <span className="vt-a-clamp-2">{label}</span> : <span className="vt-faint">—</span>}
+      <small>{why}</small>
     </span>
   )
 }

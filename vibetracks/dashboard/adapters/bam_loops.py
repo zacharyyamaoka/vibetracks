@@ -29,6 +29,7 @@ from pathlib import Path
 from typing import Any, Callable
 
 from ...sources import load_sources
+from .base import local_time
 
 ADAPTER_ID = "bam_loops"
 SNAPSHOT_SCHEMA = "dashboard-prior-art/real-data/1"
@@ -42,6 +43,9 @@ AUDITS_DIR = Path(_SOURCES["reports_media_dir"]) / "audits"
 BAM_WS_ROOT = Path("/home/bam/bam_ws")
 
 N1_WORD = "unconfirmed · repeat needed"
+#: When TW1 turned green, from the rig's loop_events.jsonl (rung_status_changed TW1, written with a -07:00 offset); the
+#: snapshot carries the time without its offset, so it is pinned here once instead of printed as a bare "23:01".
+TW1_GREEN_AT = "2026-10-02T23:01:00-07:00"
 
 
 # --------------------------------------------------------------------------------------------- small helpers
@@ -172,9 +176,11 @@ class MediaIndex:
 class AuditFiles:
     """Audit write-ups under reports/media/audits, matched to a subject by exact file name pattern only."""
 
-    def __init__(self, directory: Path = AUDITS_DIR):
+    def __init__(self, directory: Path | None = AUDITS_DIR):
+        """``directory`` None = no audit folder declared: match nothing, read nothing."""
+
         try:
-            self.names = sorted(p.name for p in directory.iterdir() if p.suffix == ".md")
+            self.names = sorted(p.name for p in directory.iterdir() if p.suffix == ".md") if directory else []
         except OSError:
             self.names = []
         self.directory = directory
@@ -378,7 +384,7 @@ class BamLoopsAdapter:
             else:
                 bt1_values.append(_value(it, None, note="no BT1 reading under ruler a2-v2 (pinned in W3)"))
         kpis.append(_kpi(
-            "bt1_feasible", "Frontier gate · BT1 feasible", "S2", "%", "higher", bt1_values,
+            "bt1_feasible", "BT1 feasible", "S2", "%", "higher", bt1_values,
             target={"value": 100, "kind": "gate", "label": "gate 100 % feasible"},
             baseline=None,
             status={"word": "below gate · single reading", "tone": "muted"},
@@ -504,9 +510,9 @@ class BamLoopsAdapter:
         ))
         disk = k["disk_and_pause"]
         disk_values = [_value("start", None, note="not recorded"),
-                       _value("W1", disk[0]["df_pct"], note=f"df at the wave 2 preflight, {disk[0]['ts'][:16]} UTC (after W1 closed)"),
-                       _value("W2", disk[1]["df_pct"], note=f"df at the wave 3 preflight, {disk[1]['ts'][:16]} UTC (after W2 closed)"),
-                       _value("W3", disk[2]["df_pct_actual"], note=f"actual at the pause, {disk[2]['ts'][:16]} UTC (df prints {disk[2]['df_pct_printed']} %)")]
+                       _value("W1", disk[0]["df_pct"], note=f"df at the wave 2 preflight, {local_time(disk[0]['ts'])} (after W1 closed)"),
+                       _value("W2", disk[1]["df_pct"], note=f"df at the wave 3 preflight, {local_time(disk[1]['ts'])} (after W2 closed)"),
+                       _value("W3", disk[2]["df_pct_actual"], note=f"actual at the pause, {local_time(disk[2]['ts'])} (df prints {disk[2]['df_pct_printed']} %)")]
         kpis.append(_kpi(
             "disk_pct", "Disk used on /", "S7", "%", "lower", disk_values,
             target={"value": 91.0, "kind": "limit", "label": "stop line 91.0 % actual (df prints 92 %)"},
@@ -684,19 +690,19 @@ class BamLoopsAdapter:
         twin = next(kp for kp in can12["kpis"] if kp["key"] == "twin_fidelity_gap")
         sessions = can12["periods"]["session"]["rows"]
         twin_readings = [(sessions[i][0], sessions[i][1], v) for i, v in enumerate(twin["session"]) if v is not None]
-        tick1_start = ticks[1]["started"][:16]
+        tick1_start = local_time(ticks[1]["started"])
         tw2_values = []
         for n, it in enumerate(ids):
             if n == 1:
                 (_, v0_t, v0), (_, v1_t, v1) = twin_readings[0], twin_readings[-1]
-                tw2_values.append(_value(it, v1, n=15, note=f"V1 {v1}° at 10-02 {v1_t[11:16]}, after V0 {v0}° at {v0_t[11:16]}; both inside tick 1 "
-                                                         f"(started {tick1_start[5:].replace('T', ' ')}, TW1 green 23:01)"))
+                tw2_values.append(_value(it, v1, n=15, note=f"V1 {v1}° at {local_time(v1_t)}, after V0 {v0}° at {local_time(v0_t)}; both inside "
+                                                         f"tick 1 (started {tick1_start}, TW1 green {local_time(TW1_GREEN_AT)})"))
             elif n == current:
                 tw2_values.append(_value(it, None, note="no new reading; R3 (TW2) in Codex audit"))
             else:
                 tw2_values.append(_value(it, None, note="no reading in this tick" if ticks.get(n) else "no event recorded for this tick"))
         kpis.append(_kpi(
-            "tw2_twin_gap", "Frontier gate · TW2 twin gap (held-out)", "S2", "deg", "lower", tw2_values,
+            "tw2_twin_gap", "TW2 twin gap (held-out)", "S2", "deg", "lower", tw2_values,
             target={"value": 0.8, "kind": "gate", "label": "TW2 gate ≤ 0.8°"},
             baseline={"iteration": "T1", "label": "V0 untuned twin", "value": twin_readings[0][2]},
             status={"word": "under gate · audit running", "tone": "muted"},
@@ -777,7 +783,7 @@ class BamLoopsAdapter:
             in_tick = [d for d in r["disk_events"] if self._tick_of(d["ts"], ticks, current) == n]
             if in_tick:
                 last = in_tick[-1]
-                disk_values.append(_value(it, last["df_pct"], note=f"df {last['ts'][5:16].replace('T', ' ')}" + (f" · {last['note']}" if last.get("note") else "")))
+                disk_values.append(_value(it, last["df_pct"], note=f"df {local_time(last['ts'])}" + (f" · {last['note']}" if last.get("note") else "")))
             else:
                 disk_values.append(_value(it, None, note="no disk reading in this tick"))
         kpis.append(_kpi(

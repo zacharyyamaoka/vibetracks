@@ -174,6 +174,10 @@ export interface Track {
   }
   links: Link[]
   provenance: Provenance
+  /** Where the loop is on its own ladder, in the loop's own words, read by the adapter from `source` (a file key or
+   * name). `next` is null when the loop does not say. null or absent: the adapter does not know, and the UI says so.
+   * A fallback only: when the track's roadmap document is present, the roadmap widget answers instead. */
+  rung?: { current: string; next: string | null; source: string } | null
 }
 
 export interface Projection {

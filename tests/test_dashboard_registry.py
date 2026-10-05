@@ -12,7 +12,7 @@ from pathlib import Path
 
 from vibetracks.dashboard import registry
 from vibetracks.errors import RevisionConflict, UnknownFeature, VibeTracksError
-from vibetracks.notes import note_revision
+from vibetracks.notes import first_paragraph, note_revision
 
 REPO = Path(__file__).resolve().parents[1]
 WORKSPACE = REPO / "workspace"
@@ -197,6 +197,37 @@ class RenameTest(unittest.TestCase):
             with self.subTest(track_id=track_id):
                 with self.assertRaises(UnknownFeature):
                     registry.rename_title(self.ws.root, track_id, "New", self.revision)
+
+
+class FirstParagraphLimitTest(unittest.TestCase):
+    """notes.first_paragraph's one optional parameter: the default is unchanged for every other caller."""
+
+    BODY = "# Title\n\n" + "\n".join(f"Line {n} " + "word " * 12 for n in range(12)) + "\n\nSecond paragraph.\n"
+
+    def test_default_still_stops_near_240_and_cuts_at_280(self) -> None:
+        text = first_paragraph(self.BODY)
+        self.assertLessEqual(len(text), 280)
+        self.assertEqual(text, first_paragraph(self.BODY, limit=240))
+        self.assertTrue(text.startswith("Line 0 "))
+
+    def test_none_keeps_the_whole_first_paragraph(self) -> None:
+        text = first_paragraph(self.BODY, limit=None)
+        self.assertGreater(len(text), 280)
+        self.assertTrue(text.rstrip().endswith("Line 11 " + "word " * 11 + "word"))
+        self.assertNotIn("Second paragraph", text)
+
+    def test_registry_purpose_is_never_cut(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            ws = Path(tmp)
+            (ws / "tracks").mkdir()
+            (ws / "Agent work.vtdash").write_text(json.dumps({"registry": "Work tracks.vibetrack"}), encoding="utf-8")
+            (ws / "Work tracks.vibetrack").write_text(DESCRIPTOR, encoding="utf-8")
+            body = self.BODY.split("\n\n", 1)[1]
+            (ws / "tracks" / "long.md").write_text(note("long", "Long").split("---\n\n", 1)[0] + "---\n\n" + body,
+                                                   encoding="utf-8")
+            track = registry.load_registry(ws)[0]
+        self.assertEqual(track.purpose, first_paragraph(body, limit=None))
+        self.assertGreater(len(track.purpose), 280)
 
 
 if __name__ == "__main__":

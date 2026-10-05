@@ -2,8 +2,8 @@
 
     python3 -m unittest tests/test_dashboard_live_build.py      (from the repo root)
 
-Adapters here live in a throwaway package on sys.path, so these tests never depend on the five real adapters, which
-other lanes are about to replace.
+Adapters here mostly live in a throwaway package on sys.path, so the build's own rules are tested apart from the five
+real adapters; ``RealWorkspaceTest`` then builds the checked-in registry with the real ones.
 """
 
 from __future__ import annotations
@@ -72,6 +72,8 @@ def build_children(work_track, sources):
     child["state"] = {"word": "Live", "tone": "ok", "detail": None, "since": None}
     return [child, dict(child, id="not-declared")]
 '''
+# An adapter that reads a loop file and a shared folder: READS marks the folder evidence, so it never counts as liveness.
+SHARED = GOOD.replace("CALLS = []", 'CALLS = []\nREADS = {"status": "heartbeat", "shared": "evidence"}')
 BOOM = "def build_track(work_track, sources):\n    raise RuntimeError('loop file torn')\n"
 BAD = "def build_track(work_track, sources):\n    return {'summary': 3}\n"
 NO_ENTRY = "VALUE = 1\n"
@@ -101,10 +103,12 @@ class LiveBuildTest(unittest.TestCase):
         self.package_dir = root / "pkgs" / self.package
         self.package_dir.mkdir(parents=True)
         (self.package_dir / "__init__.py").write_text("", encoding="utf-8")
-        for name, source in (("good", GOOD), ("boom", BOOM), ("bad", BAD), ("noentry", NO_ENTRY)):
+        for name, source in (("good", GOOD), ("boom", BOOM), ("bad", BAD), ("noentry", NO_ENTRY), ("shared", SHARED)):
             (self.package_dir / f"{name}.py").write_text(source, encoding="utf-8")
         sys.path.insert(0, str(root / "pkgs"))
-        self.paths = {"status": str(self.status), "missing": str(root / "nope.json")}
+        self.shared = root / "reports"
+        self.shared.mkdir()
+        self.paths = {"status": str(self.status), "missing": str(root / "nope.json"), "shared": str(self.shared)}
         self.builder = build_module.LiveBuilder(self.ws, root / "home", sources=lambda: dict(self.paths),
                                                 clock=lambda: self.now, package=self.package)
         # The builder prints an adapter's traceback to stderr (the backend log); keep the test output readable.
@@ -181,13 +185,19 @@ class LiveBuildTest(unittest.TestCase):
             self.assertEqual(base.problems(track), [])
         self.assertIn("boom (adapter error", projection["source"]["todo"])
 
-    def test_stub_adapters_are_valid_not_reporting_tracks(self) -> None:
-        work_track = registry.load_registry(WORKSPACE)[0]
-        for name in ("kinsim", "rig", "grasping", "detection", "pyblocks"):
-            module = importlib.import_module(f"vibetracks.dashboard.adapters.{name}")
+    def test_real_adapters_with_nothing_declared_are_valid_not_reporting_tracks(self) -> None:
+        # WHY {} and not the machine's paths: an adapter may read only what its note declares, so with nothing
+        # declared it must say so (naming the missing input) and claim no numbers, rather than find files elsewhere.
+        # tests/test_dashboard_adapters_live.py proves it also opens nothing.
+        for work_track in registry.load_registry(WORKSPACE):
+            module = importlib.import_module(f"vibetracks.dashboard.adapters.{work_track.adapter}")
             track = module.build_track(work_track, {})
-            self.assertEqual(base.problems(track), [], name)
-            self.assertEqual(track["summary"], "not reporting · adapter pending")
+            self.assertEqual(base.problems(track), [], work_track.id)
+            self.assertEqual(track["state"]["word"], base.NOT_REPORTING, work_track.id)
+            self.assertFalse(track.get("reporting", True), work_track.id)
+            self.assertRegex(track["summary"], r"^not reporting · .*(not declared|lacks)", work_track.id)
+            self.assertEqual((track["kpis"], track["iterations"], track["north_star"], track["rung"]), ([], [], None, None))
+            self.assertEqual(track["needs_you_count"], {"open": None, "blocking": None}, work_track.id)
 
     # ---- cache
     def test_adapter_reruns_only_when_its_inputs_change(self) -> None:
@@ -241,6 +251,28 @@ class LiveBuildTest(unittest.TestCase):
         self.assertIn({"path": "d.md", "error": "vibe-sources key 'not_a_key' is not in sources.py"},
                       projection["registry"]["problems"])
 
+    def test_shared_evidence_folders_never_count_as_liveness(self) -> None:
+        self.write("a.md", note("quiet", "Quiet", "shared", sources="[status, shared]", extra="vibe-stall-hours: 0.5\n"))
+        self.write("b.md", note("pinned", "Pinned", "shared", priority=2, sources="[status, shared]",
+                                extra="vibe-stall-hours: 0.5\nvibe-heartbeat: [shared]\n"))
+        (self.shared / "someone-elses-report.html").write_text("x", encoding="utf-8")  # another fleet, just now
+        os.utime(self.shared / "someone-elses-report.html", (self.now, self.now))
+        projection = self.builder.build()
+        quiet = self.track(projection, "quiet")
+        self.assertEqual(quiet["registry"]["heartbeat"], ["status"])
+        self.assertEqual(quiet["registry"]["sources"], ["status", "shared"])
+        self.assertTrue(quiet["freshness"]["stale"])  # the loop's own file is an hour old: the fresh report is not it
+        self.assertEqual(quiet["state"]["tone"], "stale")
+        pinned = self.track(projection, "pinned")  # a declared vibe-heartbeat always wins over READS
+        self.assertEqual(pinned["registry"]["heartbeat"], ["shared"])
+        self.assertFalse(pinned["freshness"]["stale"])
+        # the folder is still watched for the cache: a new file there reruns the adapter
+        runs = self.builder.adapter_runs
+        (self.shared / "another.html").write_text("y", encoding="utf-8")
+        os.utime(self.shared / "another.html", (self.now + 5, self.now + 5))
+        self.builder.build()
+        self.assertEqual(self.builder.adapter_runs, runs + 2)
+
     # ---- children
     def test_children_are_embedded_under_their_parent_never_top_level(self) -> None:
         self.write("a.md", note("rigx", "Rig", "good", children="[kid, other]"))
@@ -259,7 +291,8 @@ class LiveBuildTest(unittest.TestCase):
 
 @unittest.skipUnless(build_module.SNAPSHOT_ORIGIN.is_file(), f"snapshot not on this machine: {build_module.SNAPSHOT_ORIGIN}")
 class RealWorkspaceTest(unittest.TestCase):
-    """The checked-in registry with the stub adapters: five rows, and rig's deployments from the snapshot."""
+    """The checked-in registry with the real adapters: five rows, rig's deployments drawn live by the rig adapter,
+    and the snapshot fallback for a declared child no adapter draws."""
 
     @classmethod
     def setUpClass(cls) -> None:
@@ -279,15 +312,41 @@ class RealWorkspaceTest(unittest.TestCase):
             self.assertIn("freshness", track)
             self.assertEqual(base.problems(track), [])
 
-    def test_rig_children_come_from_the_snapshot_and_say_so(self) -> None:
+    def test_rig_children_are_drawn_live_by_the_rig_adapter(self) -> None:
         children = [t for t in self.projection["tracks"] if t["parent"] is not None]
         self.assertEqual([(t["id"], t["parent"], t["kind"]) for t in children],
                          [("can12", "rig", "deployment"), ("can16", "rig", "deployment")])
+        rig = next(t for t in self.projection["tracks"] if t["id"] == "rig")
+        for child in children:
+            if not rig["reporting"]:
+                self.skipTest("the rig loop's files are not on this machine")
+            self.assertTrue(child["reporting"], child["state"])
+            self.assertEqual((child["source"]["kind"], child["source"]["live"]), ("live", True))
+            self.assertIsNone(self.projection["source"]["snapshot"])  # nothing fell back to the snapshot
+            self.assertTrue(child["kpis"])
+            self.assertEqual(child["freshness"], rig["freshness"])  # a deployment reads its parent loop's liveness
+            self.assertEqual(base.problems(child), [])
+
+    def test_a_child_no_adapter_draws_falls_back_to_the_snapshot_and_says_so(self) -> None:
+        # The fallback the rig used before its adapter drew can12/can16: still the path for any declared child an
+        # adapter does not return, and a dated snapshot must never read fresh.
+        with tempfile.TemporaryDirectory() as tmp:
+            ws = Path(tmp) / "ws"
+            (ws / "tracks").mkdir(parents=True)
+            (ws / "Agent work.vtdash").write_text(json.dumps({"registry": "Work tracks.vibetrack"}), encoding="utf-8")
+            (ws / "Work tracks.vibetrack").write_text(DESCRIPTOR, encoding="utf-8")
+            (ws / "tracks" / "r.md").write_text(note("rigx", "Rig", "pyblocks", sources="[]", children="[can12, can16]"),
+                                                encoding="utf-8")
+            projection = build_module.LiveBuilder(ws, self.tmp.name).build()
+        children = [t for t in projection["tracks"] if t["parent"] == "rigx"]
+        self.assertEqual([t["id"] for t in children], ["can12", "can16"])
+        self.assertTrue(projection["source"]["snapshot"])
         for child in children:
             self.assertEqual(child["source"]["kind"], "snapshot")
             self.assertFalse(child["source"]["live"])
             self.assertTrue(child["freshness"]["stale"])  # a 10-03 snapshot is never fresh
             self.assertTrue(child["kpis"])
+            self.assertEqual(base.problems(child), [])
 
     def test_every_media_reference_is_in_the_allowlist(self) -> None:
         media = self.projection["media"]

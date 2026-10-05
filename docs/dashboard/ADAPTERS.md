@@ -2,7 +2,7 @@
 
 The dashboard's home page has one row per **work track**, the agent loops Zach runs. Each track is a note in the registry, and each note names an **adapter**: one Python module that reads the loop's own files and returns one `vibetracks-dashboard/1` track (PROJECTION.md). The backend builds the projection **live** from the registry on every `GET /projection`.
 
-This page is the contract for the five adapter lanes. Each lane owns exactly two files: `vibetracks/dashboard/adapters/<id>.py` and `workspace/tracks/<id>.md`. Everything else is shared; if you need a change in it, report it instead of making it.
+This page is the contract for the five adapter lanes. Each lane owns exactly two files: `vibetracks/dashboard/adapters/<id>.py` and `workspace/tracks/<id>.md`. Everything else is shared; if you need a change in it, report it instead of making it (appending a key to `vibetracks/sources.py` is the one exception).
 
 ## The registry
 
@@ -19,31 +19,39 @@ This page is the contract for the five adapter lanes. Each lane owns exactly two
 | `vibe-priority` | a positive integer, the row order (1 first). Anything else sorts last. |
 | `vibe-owner` | a label for the session or agent. It is a label only: liveness comes from file mtimes. |
 | `vibe-adapter` | the module name: `adapters/<name>.py` |
-| `vibe-sources` | `vibetracks/sources.py` keys: the files your adapter reads |
-| `vibe-heartbeat` | optional: the subset of keys whose mtime says the loop is alive (default: every source) |
+| `vibe-sources` | `vibetracks/sources.py` keys: **every** file or folder your adapter opens, the same keys as its `READS` |
+| `vibe-heartbeat` | optional: the subset of keys whose mtime says the loop is alive (default: the keys `READS` marks `heartbeat`, else every source) |
 | `vibe-stall-hours` | optional: quiet longer than this and the row reads stale (default 24) |
 | `vibe-roadmap` | `{projector, sources}` for the roadmap session's `/roadmap` routes, or `null` ("No roadmap reported yet") |
 | `vibe-children` | ids drawn inside this track and never on the home page (rig: `[can12, can16]`) |
 
-The body is two or three lines: what the loop is for and its milestone. The build passes its first paragraph through as `track.purpose`.
+The body is two or three lines: what the loop is for and its milestone. The build passes its whole first paragraph through as `track.purpose`, uncut (the page clamps it with an explicit ellipsis).
 
 ## The interface
 
 ```python
 # vibetracks/dashboard/adapters/<name>.py
-from .base import skeleton, not_reporting
+from .base import local_time, not_reporting, rung, skeleton
+
+READS = {"<key>": "heartbeat" | "input" | "evidence", ...}   # every sources.py key you open
+DEPTH = {"<key>": 2}                                          # optional: a folder whose files sit one level down
 
 def build_track(work_track, sources: dict[str, str]) -> dict: ...
 def build_children(work_track, sources: dict[str, str]) -> list[dict]: ...   # optional, only for vibe-children
 ```
 
+- **`READS`** names every `sources.py` key the adapter opens, with its role: `heartbeat` (the loop's own output: its mtime says the loop moved), `input` (read for numbers or words but written by someone else: a plan, a script, a run cache) or `evidence` (a shared folder listed only to find media to link, like bam_ws `reports/`). The note's `vibe-sources` lists the same keys. Without `vibe-heartbeat`, liveness watches only the `heartbeat` keys, so another fleet writing a shared folder never makes a stopped loop look alive. `tests/test_dashboard_adapters_live.py` runs every adapter under a Python audit hook and fails on any file opened or folder listed outside the declared paths.
+- **`DEPTH`**: a declared folder is stamped one level deep (its entries' mtimes). If your files sit one folder further down (the rig's run cache, `runs/<bundle>/<run>.json`), set `DEPTH = {key: 2}`; the build stamps that folder two levels deep and the reads test holds you to exactly that depth.
+- **Read only what you are handed.** Never fall back to `load_sources()`, a hard-coded path or a file beside a declared one: an input the note does not declare changes without the build rerunning you. A key that is not declared reads as missing (null with a note, or "not reporting" when nothing honest can be said).
+
 - **`work_track`** is the registry row (`registry.WorkTrack`): `id, title, status, priority, owner, adapter, sources, roadmap, children, note_path, revision, heartbeat, stall_hours, purpose`.
-- **`sources`** maps each key in your note's `vibe-sources` to its absolute path. **Only declared keys are passed.** The build caches your output and reruns you only when your note, your module file, or one of those declared files changes (mtime and size; a directory counts its own entries, one level deep). An input you read but did not declare can change without the dashboard noticing. Every key you might need already exists in `vibetracks/sources.py` (`WORKTRACK_SOURCES`, below). Do not edit `sources.py`: the other lanes share it. To point a key somewhere else on this machine, set it in `~/.local/share/vibetracks/sources.json`.
+- **`sources`** maps each key in your note's `vibe-sources` to its absolute path. **Only declared keys are passed.** The build caches your output and reruns you only when your note, your module file, or one of those declared files changes (mtime and size; a directory counts its own entries, one level deep unless `DEPTH` says two). An input you read but did not declare can change without the dashboard noticing. The keys live in `vibetracks/sources.py` (`WORKTRACK_SOURCES`, below). A new input gets a new key **appended** there; never rename or remove one (other sessions read them). A worktree-resident path hangs off its folder's key (`"{rig_loop_dir}/triage.json"`) or uses the `@worktree:<repo>:<branch>:<sub>|<fallback>` form, so a moved worktree is one line. To point a key somewhere else on this machine, set it in `~/.local/share/vibetracks/sources.json`.
 - **Return** a Track (PROJECTION.md). Start from `skeleton(work_track, unit="wave"|"tick"|"session"|"day")`, which has every field present with honest empties, and fill:
   - `state` `{word, tone, detail, since}`, the one calm answer;
   - `summary`, one sentence;
   - `iteration` and `iterations`, the shared x-axis, oldest first;
-  - `kpis` (slot S1 to S7) and `north_star`; every KPI's `values` aligns one to one with `iterations`;
+  - `rung` `{current, next, source}` or null (PROJECTION.md `Rung`): the **frontier**, the lowest rung or tier not yet passed, in the loop's own words, never the newest thing measured. Build it with `base.rung(current, next, source)`;
+  - `kpis` (slot S1 to S7) and `north_star`; every KPI's `values` aligns one to one with `iterations`. A KPI `label` never starts with its slot's group header ("Frontier gate · …", "North star · …"): the page prints the header above it;
   - `needs_you`. The build counts it into `needs_you_count` `{open, blocking}`. Set `needs_you_count` yourself only when the loop reports counts but not the questions;
   - `evidence` `{by_iteration, by_kpi}` and `links`;
   - optionally `media` `{id: MediaEntry}`. The build lifts it into the projection's allowlist and drops it from the track. Prefix ids with your track id, and list only files that exist.
@@ -60,6 +68,8 @@ def build_children(work_track, sources: dict[str, str]) -> list[dict]: ...   # o
 3. If either side of a change rests on n = 1, the change reads `unconfirmed · repeat needed`.
 4. A day floor is a descriptive band, never a verdict.
 5. Elapsed hours are wall-clock hours (`h elapsed`), never agent-hours.
+6. Every time a person reads goes through `base.local_time` ("10-04 17:55 PDT"); never print a bare clock time, a UTC time or a raw offset in a sentence. ISO fields keep their offsets. Iteration dates are `base.local_day`.
+7. Never silently trim or clip a stored string; an abbreviation shows an explicit ellipsis.
 
 ### Working on one
 
@@ -82,7 +92,8 @@ From `docs/dashboard/track-discovery-2026-10-04.json` (`scout:<key>`). Read that
 
 ### `kinsim`: Kinematic Sim (`scout:kinsim`)
 
-- **Keys:** `kinsim_status` (`~/.local/share/bam_curriculum/status.json`, the live fold: `rungs[]`, `you_are_here[]`, `frontier[]`, `blocking_triage[]`), `kinsim_events` (`loop_events.jsonl`: `wave_started` and `wave_finished`, `gate_run`, `rung_status_changed`, `audit`), `kinsim_runs` (`runs.jsonl`, the judged-run ledger), `kinsim_loop_dir` (the current loop checkout, `wave-3-handoff-af2b9b/src/dev/bam_curriculum`: `curriculum.json`, `triage.json`, `ROADMAP.md`). `kinsim_curriculum_dir` is the roadmap session's older checkout; do not rely on it for live state.
+- **Keys:** `kinsim_status` (`~/.local/share/bam_curriculum/status.json`, the live fold: `rungs[]`, `you_are_here[]`, `frontier[]`, `blocking_triage[]`), `kinsim_events` (`loop_events.jsonl`: `wave_started` and `wave_finished`, `gate_run`, `rung_status_changed`, `audit`), `kinsim_runs` (`runs.jsonl`, the judged-run ledger), `kinsim_loop_dir` (the current loop checkout, `wave-3-handoff-af2b9b/src/dev/bam_curriculum`: `curriculum.json`, `triage.json`, `ROADMAP.md`), `reports_media_dir` (evidence: the wave reports to link). `kinsim_curriculum_dir` is the roadmap session's older checkout; do not rely on it for live state.
+- **Rung:** running, the wave's open targets (`curriculum.json` `wave`); otherwise the `status.json` frontier. Next: the next planned wave's open rungs.
 - **Iteration:** the wave (W1 to W4 closed; wave 5 not started).
 - **KPIs:** green rungs of 62; RB0 and SN1 promotion PPM and feasibility; belt-speed frontier BT1 to BT4; packages landed per wave (free text in `wave_finished.detail`, so parse it); the fast regression gate; open triage.
 - **Roadmap:** projector `kinsim` (the roadmap session's).
@@ -90,16 +101,18 @@ From `docs/dashboard/track-discovery-2026-10-04.json` (`scout:<key>`). Read that
 
 ### `rig`: Sim to Real & Trajectory Tracking (`scout:sim2real`)
 
-- **Keys:** `rig_loop_status` (`loop-status.json`, schema `loop-status/1`: `tick`, `where[]`, `next[]`, `needs_you[]`, `rate`), `rig_events` (`loop_events.jsonl`), `rig_ladder` (`ladder.json`, 6 axes), `deployments_fixtures_dir` (the bam_deployments API fixtures). `rig_loop_dir` is the folder.
+- **Keys:** `rig_loop_status` (`loop-status.json`, schema `loop-status/1`: `tick`, `where[]`, `next[]`, `needs_you[]`, `rate`), `rig_events` (`loop_events.jsonl`), `rig_ladder` (`ladder.json`, 6 axes), `rig_triage` (`triage.json`), `rig_roadmap` (`ROADMAP.md`, the disk stop line), `deployments_fixtures_dir` (the bam_deployments API fixtures, input), `rig_deployments_cache` (`/archive/datasets/bam_rig/cache/runs`, input, `DEPTH` 2), `rig_audits_dir` (bam_ws `reports/media/audits`, evidence). `rig_loop_dir` is the folder.
+- **Rung:** the `partial` rungs of `ladder.json` by axis ("LIVE · LV1, LV2, LV3 partial"); next, each axis's lowest missing rung.
 - **Iteration:** the loop tick (`tick.n`, 0 to 4). The deployment KPIs are per session or day.
 - **KPIs:** twin fidelity gap (held-out, deg, gate ≤ 0.8°); twin tracking ratio; real tracking RMS; sim-real gap; floor (descriptive); feedback torque; loop progress rate; rungs green; audit verdicts; needs-you.
-- **Children:** `can12`, `can16`. Until `build_children` exists they come from the snapshot.
+- **Children:** `can12`, `can16`, drawn live by `build_children` from the deployments fixtures and run cache.
 - **Roadmap:** projector `rig`.
 - **Gaps:** there are no per-tick KPI rows (`loop-status` keeps the last 3 values), so rebuild them from events. The deployment KPIs live in `/archive/datasets/bam_rig/cache`.
 
 ### `grasping`: Grasping (`scout:grasping`)
 
-- **Keys:** `grasping_ledger` (`grasp_bench/out/ledger/runs.jsonl`, one CellRun per row, live), `grasping_curriculum` (`curriculum.py`, code-as-roadmap: tiers, models, `GATES`), `grasping_bench_dir`.
+- **Keys:** `grasping_ledger` (`grasp_bench/out/ledger/runs.jsonl`, one CellRun per row, live), `grasping_curriculum` (`curriculum.py`, code-as-roadmap: tiers, models, `GATES`), `grasping_out_dir` (`grasp_bench/out`, evidence: the bench's gallery files). `grasping_bench_dir` is the folder.
+- **Rung:** the frontier tier (the state word says the same); next, the following tier.
 - **Iteration:** a ledger row; the coarser unit is the tier or wave phase.
 - **KPIs:** envs beaten (Wilson lower bound against the gate); wave-1 cells measured of planned; best learned top-1 per env; margin over floors; dataset AP against the oracle and published; latency p50 and p95; the `git_dirty` share.
 - **Roadmap:** `null` for now.
@@ -107,7 +120,8 @@ From `docs/dashboard/track-discovery-2026-10-04.json` (`scout:<key>`). Read that
 
 ### `detection`: Object Detection & Hyperspectral (`scout:detection`)
 
-- **Keys:** `detection_queue_log` (`spectralwaste-segmentation/logs/queue.log`, the July repro queue, the only state), `detection_repo`, `detection_ladder` (`ladder_data.py`, the H0 to H9 plan; untracked).
+- **Keys:** `detection_queue_log` (`spectralwaste-segmentation/logs/queue.log`, the July repro queue), `detection_logs_dir` (the per-run logs, required), `detection_wandb_dir`, `detection_compile_results` and `detection_queue_script` (inputs), `detection_ladder` (`ladder_data.py`, the H0 to H9 plan; untracked; input), `detection_plan_note` (the vault plan's Needs you list; input), `detection_reports_dir` (bam_ws `reports/`, evidence). The plan, ladder and scripts are `input`, not `heartbeat`: a plan written today must not make a July run history read as a live loop.
+- **Rung:** the rung `ladder_data.KPIS` S2 names as today's frontier (H1), with its live progress; next, the rungs that need it (H4, H7).
 - **Iteration:** planned as a loop tick; today only the July training runs exist.
 - **KPIs:** S1 hyperspectral test mIoU (no valid value yet; the CMX run is invalid with a NaN loss; target 58.2); S2 H1 configs reproduced, 2 of 12; S3 to S6 are not emitted anywhere, so list them with gaps that say so.
 - **Roadmap:** `null`.
@@ -115,7 +129,8 @@ From `docs/dashboard/track-discovery-2026-10-04.json` (`scout:<key>`). Read that
 
 ### `pyblocks`: Pyblocks (`scout:pyblocks`)
 
-- **Keys:** `pyblocks_board_dir` (`reports/media/board/<commit7>.json`, the scoreboard per merge window), `pyblocks_windows` (`windows.jsonl`), `pyblocks_repo`.
+- **Keys:** `pyblocks_board_dir` (`reports/media/board/<commit7>.json`, the scoreboard per merge window), `pyblocks_windows` (`windows.jsonl`). `pyblocks_repo` is the folder.
+- **Rung:** null. The board files carry scoreboards, not the milestone the loop is on.
 - **Iteration:** a merge window, keyed by main's commit.
 - **KPIs:** runnable goldens green of 55; easy-18 green; L0 passes; adversarial green of 132; the fast gate; ledgered reds.
 - **Roadmap:** `null` (M1, then M2, then M3, in `final-plan.json`).

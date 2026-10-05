@@ -13,6 +13,9 @@ Inputs (the note's ``vibe-sources``; nothing else is read for a number):
 - ``pyblocks_windows``: ``windows.jsonl``, the integrator's merge-window log (window id, main sha, board totals,
   ``scoreboard --check`` result, ``vs_previous`` prose).
 
+Nothing else is opened (``READS``). ``track.rung`` is null: the board files carry scoreboards, not the milestone or
+rung the loop is on (M1 is named only in prose), so the page says "no rung reported" instead of a guess.
+
 One iteration is one board file (a merge window, keyed by main's commit), oldest first. A windows.jsonl line joins
 its board by main's sha; landings join their window by walking merges.jsonl up to the board's commit.
 """
@@ -25,9 +28,11 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any
 
-from .base import skeleton
+from .base import local_time, not_reporting, skeleton
 
 TRACK_ID = "pyblocks"
+#: Every sources.py key this adapter opens, and what it is to the loop (base.py READ_ROLES).
+READS = {"pyblocks_board_dir": "heartbeat", "pyblocks_windows": "heartbeat"}
 
 # WHY a dated, attributed constant and not a file read: the INT loop's stop (its Claude account hit the weekly
 # limit on 10-01; the limit resets 10-06 08:00) is recorded in no file the loop writes, only in the 2026-10-04
@@ -35,7 +40,9 @@ TRACK_ID = "pyblocks"
 # one the loop stopped after; the first new window drops it, so it can never outlive the stop it describes.
 KNOWN_STOP = {
     "after_window": "v5-#10",
-    "text": "INT loop stopped 10-01 (account weekly limit, reset due 10-06 08:00)",
+    # The discovery's times are this machine's local time (the window it stopped after is 18:10 UTC = 11:10 PDT).
+    "text": "INT loop stopped 10-01 (account weekly limit, reset due {reset})",
+    "reset_at": "2026-10-06T08:00:00-07:00",
     "source": "docs/dashboard/track-discovery-2026-10-04.json scout:pyblocks.freshness (not in the loop's files)",
 }
 
@@ -151,8 +158,7 @@ def _date(stamp: str | None) -> str | None:
 
 
 def _short(stamp: str | None) -> str:
-    moment = _local(stamp)
-    return moment.strftime("%m-%d %H:%M") if moment else "undated"
+    return local_time(_local(stamp), missing="undated")
 
 
 # --------------------------------------------------------------------------------------------------------- helpers
@@ -217,9 +223,9 @@ def build_track(work_track: Any, sources: dict[str, str]) -> dict[str, Any]:
     board_dir = Path(sources["pyblocks_board_dir"]).expanduser() if sources.get("pyblocks_board_dir") else None
     windows_path = Path(sources["pyblocks_windows"]).expanduser() if sources.get("pyblocks_windows") else None
     if board_dir is None:
-        raise KeyError("pyblocks_board_dir not declared in the note's vibe-sources")
+        return not_reporting(work_track, "pyblocks_board_dir is not declared in vibe-sources")
     if windows_path is None:
-        windows_path = board_dir / "windows.jsonl"   # its documented default: it lives in the board dir
+        windows_path = board_dir / "windows.jsonl"   # its documented default: it lives in the declared board dir
     merges_path = board_dir / "merges.jsonl"
 
     track = skeleton(work_track, unit="wave")
@@ -482,7 +488,7 @@ def build_track(work_track: Any, sources: dict[str, str]) -> dict[str, Any]:
     details = []
     if latest_window and window_label == KNOWN_STOP["after_window"]:
         word, tone = "Stopped", "warn"
-        details.append(KNOWN_STOP["text"])
+        details.append(KNOWN_STOP["text"].format(reset=local_time(KNOWN_STOP["reset_at"])))
     else:
         word, tone = "Measuring", "ok"
     details.append(f"last window {window_label or 'none logged'} on {latest_board['commit7']}, {_short(last_at)}")

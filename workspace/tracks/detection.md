@@ -6,7 +6,7 @@ vibe-status: running
 vibe-priority: 4
 vibe-owner: hyperspectral planning session
 vibe-adapter: detection
-vibe-sources: [detection_queue_log]
+vibe-sources: [detection_queue_log, detection_logs_dir, detection_wandb_dir, detection_compile_results, detection_queue_script, detection_ladder, detection_plan_note, detection_reports_dir]
 vibe-roadmap:
   projector: detection
   sources: [detection_dir]

@@ -107,12 +107,13 @@ DIR_SCAN_LIMIT = 5000
 REASON_LIMIT = 240
 
 
-def source_stamp(path: str) -> tuple | None:
+def source_stamp(path: str, depth: int = 1) -> tuple | None:
     """``(kind, newest mtime_ns, size or entry count)`` for a file or directory; None when it does not exist.
 
     WHY a directory's newest entry and not its own mtime: a directory's mtime moves only when an entry is added or
-    removed, so a loop rewriting status.json in place would look idle. One level deep only: a run-media tree has
-    thousands of files and the build runs on every GET.
+    removed, so a loop rewriting status.json in place would look idle. One level deep by default: a run-media tree has
+    thousands of files and the build runs on every GET. An adapter whose files sit one folder further down (the rig's
+    run cache, ``<bundle>/<run>.json``) asks for ``depth`` 2 through its module's ``DEPTH`` map.
     """
 
     try:
@@ -122,18 +123,23 @@ def source_stamp(path: str) -> tuple | None:
     if not stat.S_ISDIR(info.st_mode):
         return ("file", info.st_mtime_ns, info.st_size)
     newest, count = info.st_mtime_ns, 0
-    try:
-        with os.scandir(path) as entries:
-            for entry in entries:
-                count += 1
-                if count > DIR_SCAN_LIMIT:
-                    break
-                try:
-                    newest = max(newest, entry.stat().st_mtime_ns)
-                except OSError:
-                    continue
-    except OSError:
-        pass
+    folders = [(path, 1)]
+    while folders and count <= DIR_SCAN_LIMIT:
+        folder, level = folders.pop()
+        try:
+            with os.scandir(folder) as entries:
+                for entry in entries:
+                    count += 1
+                    if count > DIR_SCAN_LIMIT:
+                        break
+                    try:
+                        newest = max(newest, entry.stat().st_mtime_ns)
+                        if level < depth and entry.is_dir(follow_symlinks=False):
+                            folders.append((entry.path, level + 1))
+                    except OSError:
+                        continue
+        except OSError:
+            pass
     return ("dir", newest, count)
 
 
@@ -195,6 +201,23 @@ def snapshot_freshness(path: str | None, generated_at: str | None, stall_hours: 
     if fresh["stale"]:
         fresh["note"] = f"snapshot of {generated_at[:10]} · {fresh['note']}"
     return fresh
+
+
+def heartbeat_keys(work_track: WorkTrack, module: ModuleType | None) -> list[str]:
+    """The keys whose mtime says this loop moved: the note's ``vibe-heartbeat`` when it sets one, else the declared
+    sources the adapter's ``READS`` marks ``heartbeat`` (a key it does not list counts), else every declared source.
+
+    WHY narrow the default: an adapter also lists shared folders (bam_ws ``reports/``) to find evidence media, and
+    plans or scripts another session writes. Any fleet writing there would otherwise make a stopped loop look alive.
+    """
+
+    if work_track.heartbeat_declared:
+        return list(work_track.heartbeat)
+    reads = getattr(module, "READS", None)
+    if not isinstance(reads, dict):
+        return list(work_track.sources)
+    alive = [key for key in work_track.sources if reads.get(key, "heartbeat") == "heartbeat"]
+    return alive or list(work_track.sources)
 
 
 def _truncate(text: str) -> str:
@@ -422,8 +445,10 @@ class LiveBuilder:
             for key in work_track.sources:
                 if key not in paths:
                     problems.append({"path": Path(work_track.note_path).name, "error": f"vibe-sources key {key!r} is not in sources.py"})
-            stamps = {key: source_stamp(path) for key, path in declared.items()}
             module, module_stamp, reason = self._module(work_track.adapter)
+            depth = getattr(module, "DEPTH", None) or {}
+            stamps = {key: source_stamp(path, int(depth.get(key, 1))) for key, path in declared.items()}
+            work_track = replace(work_track, heartbeat=heartbeat_keys(work_track, module))
             key = (work_track.revision, work_track.adapter, module_stamp, reason, tuple(sorted(stamps.items())))
             cached = self._tracks.get(work_track.id)
             if cached is not None and cached[0] == key:

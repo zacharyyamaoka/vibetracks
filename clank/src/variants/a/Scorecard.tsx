@@ -25,6 +25,7 @@ import {
   northStar,
 } from '../../shared'
 import { buildColumns, cellFor, isRulerChange, missesTarget, trendDomain, unitWord, type Cell, type Column } from './columns'
+import { ClampText } from './clamp'
 
 export interface ScorecardProps {
   track: Track
@@ -36,31 +37,85 @@ export interface ScorecardProps {
   onOpenCell: (kpi: Kpi, column: Column) => void
 }
 
+const WIDE = 108
+const NARROW = 92
+/** Set per scorecard by the fit in Scorecard's effect; WIDE until it runs. */
+const COLUMN_WIDTH = `var(--vt-a-colw, ${WIDE}px)`
+
 export function Scorecard({ track, xAxis, showDeltas, selectedKpi, onOpenColumn, onOpenCell }: ScorecardProps) {
   const columns = useMemo(() => buildColumns(track, xAxis), [track, xAxis])
   const groups = kpisBySlot(track)
   const star = northStar(track)
   const scroller = useRef<HTMLDivElement>(null)
+  const endSpacer = useRef<HTMLDivElement>(null)
   const pinned = useRef(true)
   const latestIndex = columns.length - 1
-  // WHY a wide column for few iterations: kinsim's 4 waves get room for their change markers; CAN 12's 17 sessions
-  // stay compact and scroll.
-  const columnWidth = columns.length <= 6 ? 108 : 92
+  // WHY the column width is fitted, between WIDE and NARROW: kinsim's 4 waves get room for their change markers when the
+  // page is wide, every column shows without a scroll when narrowing them to at least NARROW fits (kinsim at 1440 px
+  // overflowed by 24 px, which hid its first column), and CAN 12's 17 sessions stay compact and scroll.
+  const fitKey = useRef('')
 
   // Open scrolled to the latest column, and stay pinned there while the table settles (fonts, CSS, HMR) until the
   // reader scrolls away themselves.
+  // WHY snap plus an end spacer: the sticky KPI column covers whatever scrolls under it, so a free scroll left the
+  // leftmost visible header half hidden (Detection's 8 columns, integration check 2026-10-04). Snapping every header's
+  // start to the sticky column's edge keeps each visible header whole; the spacer makes the far end of the scroll land
+  // on a column edge too, or the last position (the one the page opens at) would still cut a header.
   useEffect(() => {
     const element = scroller.current
-    if (!element) return
+    const spacer = endSpacer.current
+    if (!element || !spacer) return
     pinned.current = true
-    element.scrollLeft = element.scrollWidth
-    const table = element.firstElementChild
-    if (!table) return
-    const observer = new ResizeObserver(() => {
+    const setColumnWidth = (width: number) => element.style.setProperty('--vt-a-colw', `${width}px`)
+    const columnWidth = () => Number.parseFloat(element.style.getPropertyValue('--vt-a-colw')) || WIDE
+    const align = () => {
+      const table = element.querySelector('table')
+      const heads = Array.from(element.querySelectorAll<HTMLElement>('thead th:not(.vt-a-sticky)'))
+      const columnHeads = Array.from(element.querySelectorAll<HTMLElement>('thead th.vt-a-colhead'))
+      if (!table || heads.length === 0) return
+      // Fit: on a new width or column count start from WIDE, then narrow just enough to fit, never below NARROW. Each
+      // read below forces a synchronous layout, so the whole fit settles inside this one call.
+      const key = `${element.clientWidth}:${columnHeads.length}`
+      if (key !== fitKey.current) {
+        fitKey.current = key
+        setColumnWidth(WIDE)
+      }
+      if (columnHeads.length && table.getBoundingClientRect().width - element.clientWidth > 0.5) {
+        const columnsTotal = columnHeads.reduce((sum, th) => sum + th.getBoundingClientRect().width, 0)
+        const rest = table.getBoundingClientRect().width - columnsTotal
+        const fit = Math.max(NARROW, Math.min(WIDE, Math.floor((element.clientWidth - rest) / columnHeads.length)))
+        if (fit < columnWidth()) setColumnWidth(fit)
+      }
+      const tableLeft = table.getBoundingClientRect().left
+      const stops = heads.map((th) => th.getBoundingClientRect().left - tableLeft)
+      const stickyWidth = stops[0]
+      element.style.scrollPaddingLeft = `${stickyWidth}px`
+      element.style.setProperty('--vt-a-stickyw', `${stickyWidth}px`)
+      const overflow = table.getBoundingClientRect().width - element.clientWidth
+      let pad = 0
+      if (overflow > 0.5) {
+        const stop = stops.map((left) => left - stickyWidth).find((left) => left >= overflow - 0.5)
+        pad = stop === undefined ? 0 : Math.max(0, Math.ceil(stop - overflow))
+      }
+      if (Math.abs((Number.parseFloat(spacer.style.width) || 0) - pad) > 0.5) spacer.style.width = `${pad}px`
       if (pinned.current) element.scrollLeft = element.scrollWidth
+      markMore(element)
+    }
+    align()
+    const table = element.querySelector('table')
+    // WHY a frame later: align resizes the table it observes; doing that inside the observer's own callback is what
+    // raises "ResizeObserver loop completed with undelivered notifications".
+    let frame = 0
+    const observer = new ResizeObserver(() => {
+      cancelAnimationFrame(frame)
+      frame = requestAnimationFrame(align)
     })
-    observer.observe(table)
-    return () => observer.disconnect()
+    if (table) observer.observe(table)
+    observer.observe(element)
+    return () => {
+      cancelAnimationFrame(frame)
+      observer.disconnect()
+    }
   }, [track.id, xAxis])
 
   const tailColumns = 3
@@ -73,6 +128,7 @@ export function Scorecard({ track, xAxis, showDeltas, selectedKpi, onOpenColumn,
       onScroll={(event) => {
         const element = event.currentTarget
         pinned.current = element.scrollLeft + element.clientWidth >= element.scrollWidth - 4
+        markMore(element)
       }}
     >
       <table className="vt-table vt-a-score" aria-label={`${track.title}: KPIs by ${xAxis === 'day' ? 'day' : track.iteration.unit}`}>
@@ -80,7 +136,9 @@ export function Scorecard({ track, xAxis, showDeltas, selectedKpi, onOpenColumn,
           <tr>
             <th className="vt-a-sticky vt-a-kpicol">KPI</th>
             {columns.map((column, index) => (
-              <th key={column.key} className={`vt-a-colhead${index === latestIndex ? ' vt-a-latest' : ''}`} style={{ minWidth: columnWidth, maxWidth: columnWidth + 40 }}>
+              // WHY a fixed width (not only a min): a header's text is cut to fit its box, so the box must not size
+              // itself from that text, or the cut and the column width chase each other.
+              <th key={column.key} className={`vt-a-colhead${index === latestIndex ? ' vt-a-latest' : ''}`} style={{ width: COLUMN_WIDTH, minWidth: COLUMN_WIDTH }}>
                 <button
                   type="button"
                   className="vt-btn vt-a-colbtn"
@@ -89,15 +147,20 @@ export function Scorecard({ track, xAxis, showDeltas, selectedKpi, onOpenColumn,
                   data-testid="vt-a-colhead"
                   data-column={column.key}
                 >
-                  <span className="vt-a-collabel">
-                    {column.label}
-                    {index === latestIndex ? <span className="vt-a-latesttag"> latest</span> : null}
-                  </span>
+                  <ClampText
+                    className="vt-a-collabel"
+                    text={column.label}
+                    lines={2}
+                    after={index === latestIndex ? { text: ' latest', className: 'vt-a-latesttag' } : null}
+                  />
                   <span className="vt-a-colsub">{column.sub}</span>
-                  <span className="vt-a-colmarker">
-                    {isRulerChange(column.marker) ? <span className="vt-a-ruler" title="the measuring ruler changed here">◆ ruler · </span> : null}
-                    {column.marker}
-                  </span>
+                  <ClampText
+                    className="vt-a-colmarker"
+                    text={column.marker}
+                    lines={3}
+                    title={column.marker}
+                    lead={isRulerChange(column.marker) ? { text: '◆ ruler · ', className: 'vt-a-ruler', title: 'the measuring ruler changed here' } : null}
+                  />
                 </button>
               </th>
             ))}
@@ -124,8 +187,15 @@ export function Scorecard({ track, xAxis, showDeltas, selectedKpi, onOpenColumn,
           ))}
         </tbody>
       </table>
+      <div className="vt-a-scroll-end" ref={endSpacer} aria-hidden="true" />
     </div>
   )
+}
+
+/** The right edge always cuts some column while there is more to scroll to; fading that edge says "more this way"
+ * instead of showing a half header as if it were whole. */
+function markMore(element: HTMLElement): void {
+  element.classList.toggle('vt-a-more-right', element.scrollLeft + element.clientWidth < element.scrollWidth - 1)
 }
 
 function GroupRows({ name, kpis, track, columns, latestIndex, star, showDeltas, selectedKpi, onOpenCell, span }: {
@@ -190,7 +260,9 @@ function KpiRow({ kpi, track, columns, latestIndex, isStar, showDeltas, selected
       </td>
       {never ? (
         <td colSpan={columns.length} className="vt-a-never" data-testid="vt-a-never">
-          <span className="vt-faint">
+          {/* WHY sticky: this one sentence spans every column; scrolled, it slid under the KPI column and read as a cut
+              string ("nvalid · NaN loss…"). Pinned beside the KPI column, it stays whole at every scroll position. */}
+          <span className="vt-faint vt-a-never-text">
             Not measured in any {unitWord(track, 1)}
             {kpi.values.find((v) => v.note)?.note ? ` · ${kpi.values.find((v) => v.note)?.note}` : ''}
           </span>

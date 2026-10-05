@@ -7,14 +7,16 @@
 //   (d) the rig's deployments as a quiet sub-list, each opening its own page.
 // Every track (loop or deployment) renders through this one template: "solve the display once".
 
+import { useLayoutEffect, useRef, useState } from 'react'
 import type { PluginBackend } from '@clank/api'
 import type { Projection, Route, Track } from '../../shared'
 import { Breadcrumb, StatusWord, childrenOf, formatKpiValue, formatValue, latestValue, northStar, trackById, valueAt } from '../../shared'
-import { RoadmapWidget, useRoadmap, type RoadmapSettings, type RoadmapWidgetState } from '../../roadmap'
+import { RoadmapWidget, type RoadmapSettings, type RoadmapWidgetState } from '../../roadmap'
 import { evidenceOwningMedia, formatSince, unitWord } from './columns'
 import { isReporting, lastMoved, needsCount, purposeOf, registryOf, sourceKind } from './live'
 import { openRung, type Nav } from './nav'
 import { TrackMenu, TrackName, type Renamer } from './rename'
+import { useRegisteredRoadmap } from './roadmapReload'
 import { Scorecard } from './Scorecard'
 import { ProgressCell } from './TracksPage'
 
@@ -61,14 +63,9 @@ export function TrackPage({ projection, track, title, nav, xAxis, showDeltas, ba
       </p>
       <NeedsLine track={track} nav={nav} />
       {purpose ? (
-        // WHY the ellipsis: the build cuts `purpose` at 280 characters with no mark (vibetracks/notes.py first_paragraph);
-        // a cut must show, and the whole text is one hover away in the note it names.
-        <p className="vt-sub vt-a-purpose" title={registryOf(track)?.note_path ?? undefined}>
-          {purpose}
-          {purpose.length >= 280 ? '…' : ''}
-        </p>
+        <Purpose key={track.id} text={purpose} source={registryOf(track)?.note_path ?? null} />
       ) : isReporting(track) && track.summary ? (
-        <p className="vt-sub vt-a-purpose">{track.summary}</p>
+        <Purpose key={track.id} text={track.summary} source={null} />
       ) : null}
 
       {/* (b) the key KPI rows */}
@@ -180,6 +177,38 @@ export function TrackPage({ projection, track, title, nav, xAxis, showDeltas, ba
   )
 }
 
+/** The track's purpose (the note's whole first paragraph), clamped to three lines with an explicit "more" that opens it
+ * in place and "less" that closes it. No toggle when it fits.
+ * WHY a clamp and not a cut: the build now sends the whole paragraph; the page stays a glance (state, needs, KPIs above
+ * the fold) and the rest of the paragraph is one click away, never dropped. */
+function Purpose({ text, source }: { text: string; source: string | null }) {
+  const box = useRef<HTMLParagraphElement>(null)
+  const [open, setOpen] = useState(false)
+  const [overflows, setOverflows] = useState(false)
+  useLayoutEffect(() => {
+    const element = box.current
+    if (!element || open) return
+    // Measured while clamped: the clamp hides lines, so scrollHeight > clientHeight means there is more to show.
+    const measure = () => setOverflows(element.scrollHeight > element.clientHeight + 1)
+    measure()
+    const observer = new ResizeObserver(measure)
+    observer.observe(element)
+    return () => observer.disconnect()
+  }, [text, open])
+  return (
+    <div className="vt-a-purposebox" data-testid="vt-a-purpose">
+      <p ref={box} className={`vt-sub vt-a-purpose${open ? '' : ' vt-a-clamp-3'}`} title={source ? `from ${source}` : undefined}>
+        {text}
+      </p>
+      {overflows || open ? (
+        <button type="button" className="vt-btn vt-a-link vt-a-more" aria-expanded={open} data-testid="vt-a-purpose-toggle" onClick={() => setOpen(!open)}>
+          {open ? 'less' : 'more'}
+        </button>
+      ) : null}
+    </div>
+  )
+}
+
 /** "Needs you · 2 blocking · 5 open →", opening the track's Needs-you page (#vt?track=<id>&needs=1). */
 function NeedsLine({ track, nav }: { track: Track; nav: Nav }) {
   const count = needsCount(track)
@@ -255,7 +284,7 @@ function parseRoadmapState(raw: string | undefined): RoadmapWidgetState {
 function RoadmapSection({ track, nav, backend, settings }: { track: Track; nav: Nav; backend: PluginBackend; settings: RoadmapSettings }) {
   const route = nav.route
   const open = route.rmopen === '1'
-  const roadmap = useRoadmap(backend, track.id)
+  const roadmap = useRegisteredRoadmap(backend, track.id)
   const setRoute = (patch: Route) => nav.go({ ...route, ...patch }, 'replace')
   // WHY a spread object: `loading` is the real widget's prop (roadmap branch); the stub here does not declare it yet,
   // and a spread passes it to both without a type error.

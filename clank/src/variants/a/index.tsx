@@ -9,7 +9,7 @@
 // width, so the scorecard can show every iteration and the run page can put real and sim video side by side.
 // View options (x axis, deltas) come from the settings page via props.settings; this variant has no toolbar.
 
-import { useEffect, useRef, type ReactNode } from 'react'
+import { useCallback, useEffect, useRef, type ReactNode } from 'react'
 import type { Projection, Track, VariantProps } from '../../shared'
 import { Breadcrumb, evidenceById, iterationById, trackById } from '../../shared'
 import './a.css'
@@ -19,6 +19,7 @@ import { makeNav, type Nav } from './nav'
 import { TrackPage } from './TrackPage'
 import { TracksPage } from './TracksPage'
 import { useRenamer } from './rename'
+import { RoadmapReloadProvider, useRoadmapReloadRegistry } from './roadmapReload'
 
 export const NAME = 'Drill-down pages'
 
@@ -29,7 +30,14 @@ export default function VariantA(props: VariantProps) {
   const xAxis = settings.dashboard.xAxis
   const showDeltas = settings.dashboard.showDeltas
   const track = trackById(projection, route.track)
-  const renamer = useRenamer(backend, projection, reload)
+  // WHY every reload goes through reloadPage: one refresh must cover the whole page, so the projection re-read also
+  // forces each mounted roadmap to re-project (a fresh table under a stale roadmap reads as two different moments).
+  const roadmapReloads = useRoadmapReloadRegistry()
+  const reloadPage = useCallback(() => {
+    reload()
+    for (const reloadRoadmap of roadmapReloads) reloadRoadmap()
+  }, [reload, roadmapReloads])
+  const renamer = useRenamer(backend, projection, reloadPage)
   const cancelRename = renamer.cancel
 
   // WHY scroll to the top on a level change only: a new page starts at its top, but a sideways move inside a page
@@ -47,7 +55,7 @@ export default function VariantA(props: VariantProps) {
     body = route.track ? (
       <Missing title={title} nav={nav} what={`No track “${route.track}” in this projection.`} />
     ) : (
-      <TracksPage projection={projection} title={title} nav={nav} showDeltas={showDeltas} reload={() => reload()} backend={backend} renamer={renamer} />
+      <TracksPage projection={projection} title={title} nav={nav} showDeltas={showDeltas} reload={reloadPage} backend={backend} renamer={renamer} />
     )
   } else if (route.file) {
     body = <FilePage projection={projection} track={track} title={title} nav={nav} mediaUrl={mediaUrl} />
@@ -83,9 +91,11 @@ export default function VariantA(props: VariantProps) {
     )
   }
   return (
-    <div ref={root} className="vt-a" data-testid="vt-variant-a">
-      {body}
-    </div>
+    <RoadmapReloadProvider registry={roadmapReloads}>
+      <div ref={root} className="vt-a" data-testid="vt-variant-a">
+        {body}
+      </div>
+    </RoadmapReloadProvider>
   )
 }
 

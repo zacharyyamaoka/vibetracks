@@ -143,9 +143,12 @@ class RigAdapterTest(unittest.TestCase):
                                                      "trajectory_name": name, "config": "default", "aborted": False,
                                                      "replay_of": f"bench_a/{name}__real__ff_fb",
                                                      "metrics": {"tracking_rms_rad": 0.04, "replay_gap_aligned_rad": 0.011}})
+        (self.loop / "audits").mkdir()
         self.sources = {"rig_loop_status": str(self.loop / "loop-status.json"), "rig_events": str(self.loop / "loop_events.jsonl"),
                         "rig_ladder": str(self.loop / "ladder.json"), "deployments_fixtures_dir": str(self.fixtures),
-                        rig.CACHE_KEY: str(self.cache)}
+                        rig.CACHE_KEY: str(self.cache), "rig_triage": str(self.loop / "triage.json"),
+                        "rig_roadmap": str(self.loop / "ROADMAP.md"), "rig_audits_dir": str(self.loop / "audits")}
+        self.assertEqual(sorted(self.sources), sorted(rig.READS))  # the fixture declares exactly what the note does
         self.work_track = WorkTrack(id="rig", title="Sim to Real", status="running", priority=2, owner=None, adapter="rig",
                                     sources=list(self.sources), roadmap=None, children=["can12", "can16"],
                                     note_path="/tmp/rig.md", revision="r1")
@@ -282,6 +285,35 @@ class RigAdapterTest(unittest.TestCase):
         self.assertIn("video path recorded but no file on disk", notes)
 
 
+    # ---- the rung, local times, and inputs read only when declared
+    def test_rung_is_the_ladders_partial_rungs_and_next_the_lowest_missing(self) -> None:
+        track = self.track()
+        self.assertEqual(track["rung"], {"current": "TWIN · TW2 partial", "next": "A3", "source": "ladder.json"})
+        self.assertEqual(base.problems(track), [])
+
+    def test_rung_without_a_partial_rung_is_the_frontier(self) -> None:
+        ladder = json.loads((self.loop / "ladder.json").read_text(encoding="utf-8"))
+        ladder["axes"][1]["rungs"][0]["status"] = "missing"
+        self.write(self.loop / "ladder.json", ladder)
+        self.assertEqual(self.track()["rung"]["current"], "frontier A A3, TWIN TW2")
+
+    def test_human_times_are_local_with_a_zone(self) -> None:
+        track = self.track()
+        disk = self.kpi(track, "disk_pct")
+        self.assertRegex(disk["status"]["word"], r"at \d\d-\d\d \d\d:\d\d [A-Z]{3,4}")
+        for kpi in track["kpis"]:
+            self.assertFalse(kpi["label"].lower().startswith(base.SLOT_NAMES[kpi["slot"]].lower()), kpi["label"])
+
+    def test_undeclared_inputs_are_missing_not_found_elsewhere(self) -> None:
+        for key in ("rig_triage", "rig_roadmap", rig.CACHE_KEY):
+            del self.sources[key]
+        track = self.track()
+        self.assertEqual(base.problems(track), [])
+        self.assertEqual(track["needs_you_count"], {"open": None, "blocking": None})  # triage unknown, never 0
+        self.assertIsNone(self.kpi(track, "disk_pct")["target"])  # no stop line without ROADMAP.md
+        self.assertIn(f"{rig.CACHE_KEY} not declared in vibe-sources", track["source"]["problems"])
+
+
 LIVE_STATUS = "/home/bam/bam_ws/.claude/worktrees/rig-loop-work-continue-cb3c52/src/dev/bam_rig_loop/loop-status.json"
 
 
@@ -291,7 +323,7 @@ class RigAdapterLiveSmokeTest(unittest.TestCase):
         from vibetracks.sources import load_sources
 
         paths = load_sources()
-        keys = ["rig_loop_status", "rig_events", "rig_ladder", "deployments_fixtures_dir"]
+        keys = list(rig.READS)
         sources = {key: paths[key] for key in keys}
         work_track = WorkTrack(id="rig", title="Sim to Real", status="running", priority=2, owner=None, adapter="rig",
                                sources=keys, roadmap=None, children=["can12", "can16"], note_path="/tmp/rig.md", revision="r")

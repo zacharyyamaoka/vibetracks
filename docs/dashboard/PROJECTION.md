@@ -7,7 +7,7 @@ One JSON document is everything the dashboard shows. The backend builds it **liv
 - **Rename:** `POST /api/plugins/vibetracks/tracks/<id>/title` `{title, revision}` (ADAPTERS.md, "Renaming a track").
 - **Machine paths:** `vibetracks/sources.py` `load_sources()` (the data home, the run-media root, `reports/media`, the loop folders). Override any of them in `~/.local/share/vibetracks/sources.json` (or `$VIBETRACKS_SOURCES`); `~` is expanded.
 - **Extra backend routes:** `clank/backend/mounts.py`, an append-only list of `(prefix, 'module:callable')`, GET only.
-- **Adapters:** one per work track, `vibetracks/dashboard/adapters/<vibe-adapter>.py` (ADAPTERS.md). A track whose adapter is missing, pending or failing is a "Not reporting" row that says why. `vibetracks/dashboard/adapters/bam_loops.py` is the 2026-10-03 snapshot; the live build uses it only for the rig's `can12`/`can16` children until the rig adapter draws them.
+- **Adapters:** one per work track, `vibetracks/dashboard/adapters/<vibe-adapter>.py` (ADAPTERS.md). A track whose adapter is missing, pending or failing is a "Not reporting" row that says why. `vibetracks/dashboard/adapters/bam_loops.py` is the 2026-10-03 snapshot; the rig adapter now draws `can12`/`can16` live, so the live build falls back to the snapshot only for a declared child no adapter returns (marked `source.kind: "snapshot"`, and always stale).
 
 ## Truth rules (hold for every adapter)
 
@@ -16,6 +16,8 @@ One JSON document is everything the dashboard shows. The backend builds it **liv
 3. If either side of a change rests on n = 1, the change reads `unconfirmed · repeat needed`. No status word ever says "regressed".
 4. A day floor is a descriptive band (`target.kind: "descriptive"`), never a verdict threshold.
 5. Elapsed hours are wall-clock hours (`unit: "h elapsed"`), never agent-hours.
+6. Every time a person reads is this machine's local time with its zone abbreviation, `10-04 17:55 PDT` (`adapters/base.py` `local_time`). Machine fields (`since`, `when`, `generated_at`, `freshness.*`) stay ISO strings with their offsets. Iteration `date`s are the local calendar day.
+7. A stored string is never silently trimmed, normalized or clipped. When geometry forces an abbreviation, the page shows an explicit ellipsis and keeps the full value one hover or click away.
 
 ## Top level
 
@@ -39,7 +41,8 @@ One JSON document is everything the dashboard shows. The backend builds it **liv
 | `parent` | string \| null | the loop a deployment belongs to |
 | `summary` | string | one sentence |
 | `state` | `{word, tone, detail, since}` | the one calm answer: `Paused` · warn · "disk 90.36% · stop line 91.0%" |
-| `iteration` | `{unit: "wave"\|"tick"\|"session"\|"day", label}` | what one column is, and the current one ("wave 3") |
+| `iteration` | `{unit: "wave"\|"tick"\|"session"\|"day", label}` | what one column is, and the latest one ("wave 3") |
+| `rung` | `Rung` \| null | optional, top-level loops: where the loop stands on its ladder (below). null or absent = the adapter does not know, and the page says so |
 | `iterations` | `Iteration[]` | the shared x-axis, oldest first. Every KPI's `values` aligns with it one to one. |
 | `north_star` | KPI id \| null | the S1 KPI the glance shows; null when the track reports no KPIs |
 | `kpis` | `Kpi[]` | in slot order S1 to S7 |
@@ -51,9 +54,26 @@ One JSON document is everything the dashboard shows. The backend builds it **liv
 | `needs_you_count` | `{open, blocking}` | live: counted from `needs_you`; both null when the track is not reporting (unknown, never 0) |
 | `freshness` | object | live: `{newest, newest_source, age_h, stall_hours, stale, note, sources: [{key, path, exists, modified, note}]}`. `stale` is null when no source file exists. A stale track's calm state turns `stale`. `age_h` is wall-clock. |
 | `source` | object | live: `{adapter, kind: "live"\|"snapshot"\|"none", live}` for this track |
-| `registry` | object | live, top-level only: the note's `{status, priority, owner, adapter, sources, heartbeat, stall_hours, roadmap, children, note_path, revision}`; `revision` fences a rename |
-| `purpose` | string | live, top-level only: the first paragraph of the track's registry note |
+| `registry` | object | live, top-level only: the note's `{status, priority, owner, adapter, sources, heartbeat, stall_hours, roadmap, children, note_path, revision}`; `revision` fences a rename. `heartbeat` is the effective list: the note's `vibe-heartbeat`, else the sources the adapter's `READS` marks `heartbeat` (ADAPTERS.md) |
+| `purpose` | string | live, top-level only: the whole first paragraph of the track's registry note, never cut (`first_paragraph(body, limit=None)`); the page clamps it with an explicit ellipsis and a "more" toggle |
 | `children` | string[] | live, top-level only: the `vibe-children` ids drawn inside this track |
+
+### `Rung`
+
+`{current: string, next: string | null, source: string}`, validated by `base.problems()` (exactly these three keys).
+
+- `current`: the rung or tier the loop is on now, in the loop's own words ("Tier 2 · MuJoCo physics", "H1 · Published ruler · 2 of 12 reproduced", "LIVE · LV1, LV2, LV3 partial"). It is the **frontier**, the lowest rung or tier not yet passed, never merely the newest thing measured (the grasp bench runs tier-5 cells while tier 2's gates are open).
+- `next`: the rung(s) the loop says come after it ("Wave 5 · RB1, SN2, BT2", "Tier 3 · Real images, offline"), or null when its files do not say.
+- `source`: the file key or file name it was read from ("ladder.json", "curriculum.py …").
+- A fallback only: when the roadmap widget's document is present, the home cell renders the widget and ignores `rung`.
+
+| track | `current` | `next` | read from |
+|---|---|---|---|
+| `kinsim` | running: `Wave N · <the wave's open targets>`; otherwise `Frontier · <status.json frontier>` | the next planned wave's open rungs (`curriculum.json` `wave`), else the rest of the frontier | `status.json`, `curriculum.json` |
+| `rig` | the rungs `ladder.json` marks `partial`, by axis; with none, each axis's lowest non-green rung | each axis's lowest rung neither green nor partial | `ladder.json` |
+| `grasping` | the frontier tier: the lowest tier whose wave-1 cells are not all measured on the frozen protocol or whose gates are not all beaten | the next tier with wave-1 cells | `curriculum.py`, `runs.jsonl` |
+| `detection` | the rung `ladder_data.KPIS` S2 names as today's frontier, with its live progress | the rungs whose `needs_rungs` name it | `ladder_data.py`, `queue.log` |
+| `pyblocks` | null: the board files carry scoreboards, not a milestone or rung | | |
 
 `tone` is one of `ok | warn | risk | stale | muted`. Colour is only for `warn`, `risk` and `stale`; `ok` and `muted` render grey.
 
@@ -72,7 +92,7 @@ One JSON document is everything the dashboard shows. The backend builds it **liv
 | field | type | meaning |
 |---|---|---|
 | `id` | string | unique within the track |
-| `label` | string | "Frontier gate · BT1 feasible" |
+| `label` | string | "BT1 feasible". Never repeats its slot's group header ("Frontier gate · …"): the page prints the header above the row |
 | `slot` | `S1`…`S7` | North star · Frontier gate · Guardrails · Delivery rate · Evidence trust · Cost · Needs you & health |
 | `unit` | string | `rungs`, `points`, `%`, `deg`, `N·m`, `runs`, `packages`, `audits`, `questions`, `days`, `h elapsed`, `×` |
 | `direction` | `higher` \| `lower` \| `info` \| `count` | which way is better; `info` and `count` have no better |

@@ -8,8 +8,9 @@ key ``scout:kinsim``. Every number below is read from the loop's own files, whic
 - ``kinsim_events``  loop_events.jsonl  the wave lifecycle, gate runs, audits, lanes, rung changes, triage, pin moves
 - ``kinsim_runs``    runs.jsonl          the judged-run ledger (bam-ledger/1); a row's wave comes from the
   ``judged_run`` event whose subject is its run_id
-- ``kinsim_loop_dir`` the loop checkout's src/dev/bam_curriculum: curriculum.json (rungs, gates, kpi_weight) and
-  triage.json (the questions for Zach)
+- ``kinsim_loop_dir`` the loop checkout's src/dev/bam_curriculum: curriculum.json (rungs, gates, kpi_weight, the wave
+  each rung is planned for) and triage.json (the questions for Zach)
+- ``reports_media_dir`` bam_ws reports/media, listed only to find the wave reports to link (evidence, not liveness)
 
 The iteration is the wave. ``status.json`` is a snapshot, so the per-wave series is refolded here from the events
 plus the ledger, and the refold's last wave is checked against ``status.json``; when they disagree the fold wins and
@@ -25,11 +26,13 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any
 
-from ...sources import load_sources
 from .bam_loops import N1_WORD, Evidence, MediaIndex, _kpi, _value
-from .base import not_reporting, skeleton
+from .base import local_day, local_time, not_reporting, rung, skeleton
 
 TRACK = "kinsim"
+#: Every sources.py key this adapter opens, and what it is to the loop (base.py READ_ROLES).
+READS = {"kinsim_status": "heartbeat", "kinsim_events": "heartbeat", "kinsim_runs": "heartbeat",
+         "kinsim_loop_dir": "heartbeat", "reports_media_dir": "evidence"}
 
 #: Evidence files the media allowlist may serve, by suffix (the backend's servable set).
 _MEDIA_KIND = {".html": "html", ".md": "text", ".txt": "text", ".json": "text", ".png": "image", ".jpg": "image",
@@ -85,7 +88,7 @@ def _ts(text: Any) -> datetime | None:
 
 
 def _short_ts(text: str | None) -> str:
-    return f"{text[5:10]} {text[11:16]} UTC" if isinstance(text, str) and len(text) >= 16 else "time not recorded"
+    return local_time(text)
 
 
 def _wave_of(event: dict[str, Any]) -> int | None:
@@ -139,9 +142,9 @@ class _Kinsim:
         self.curriculum: dict[str, Any] | None = _read_json(self.curriculum_path)
         self.triage: dict[str, Any] | None = _read_json(self.triage_path)
         self.unreadable = {"loop_events.jsonl": bad_events, "runs.jsonl": bad_runs}
-        # WHY a default path and not a declared source: wave reports and audit write-ups are evidence the page opens,
-        # not inputs any number is derived from, so they need no cache watch (vibetracks/sources.py reports_media_dir).
-        self.reports_dir = Path(load_sources()["reports_media_dir"])
+        # Declared (role "evidence"): a new wave report must rerun the adapter to be linked, but reports/media is
+        # shared by every fleet, so it never counts toward this loop's liveness (build.py heartbeat_keys).
+        self.reports_dir = self.paths.get("reports_media_dir")
         self.media = MediaIndex()
         self.ev = Evidence()
 
@@ -276,7 +279,8 @@ class _Kinsim:
         return refs
 
     def wave_report(self, wave: int) -> str | None:
-        candidates = sorted(self.reports_dir.glob(f"kinematic-curriculum-wave{wave}-*.html")) if self.reports_dir.is_dir() else []
+        candidates = (sorted(self.reports_dir.glob(f"kinematic-curriculum-wave{wave}-*.html"))
+                      if self.reports_dir is not None and self.reports_dir.is_dir() else [])
         if not candidates:
             return None
         return self.media.add(candidates[-1], "html", f"Wave {wave} report", media_id=f"{TRACK}.wave{wave}.report")
@@ -306,6 +310,7 @@ class _Kinsim:
             summary=self.summary(wave, phase, history),
             state=self.state(wave, phase, since),
             iteration={"unit": "wave", "label": f"wave {wave}" if wave else "no wave yet"},
+            rung=self.rung(wave, phase),
             iterations=self.iterations(history),
             north_star="rungs_green" if any(k["id"] == "rungs_green" for k in kpis) else None,
             kpis=kpis,
@@ -359,7 +364,7 @@ class _Kinsim:
                 previous = now
             date = (finished or info["started"] or {}).get("ts")
             out.append({
-                "id": f"W{n}", "label": f"W{n}", "date": date[:10] if isinstance(date, str) else None,
+                "id": f"W{n}", "label": f"W{n}", "date": local_day(date),
                 "marker": " · ".join(parts),
                 "provenance": self.prov(self.events_path, None, f"events with wave {n}: wave_finished detail, pin_move, loop_paused/resumed; rungs from the refold"),
             })
@@ -458,7 +463,7 @@ class _Kinsim:
         rung = self.frontier_rung()
         frontier = ", ".join(self.status.get("frontier", [])) or "not recorded"
         if rung is None:
-            return _kpi("frontier_feasible", "Frontier gate · feasible", "S2", "%", "higher",
+            return _kpi("frontier_feasible", "Frontier rung feasible", "S2", "%", "higher",
                         [_value(i, None, note="no frontier rung has a ledgered promotion reading") for i in self.ids],
                         status={"word": "no reading", "tone": "muted"}, note=f"Frontier: {frontier}.",
                         provenance=self.prov(self.runs_path, "/metrics/feasible_rate"))
@@ -493,7 +498,7 @@ class _Kinsim:
         else:
             word, tone = f"{latest['value']} % · gate met", "ok"
         return _kpi(
-            "frontier_feasible", f"Frontier gate · {rung} feasible", "S2", "%", "higher", values,
+            "frontier_feasible", f"{rung} feasible", "S2", "%", "higher", values,
             target={"value": gate_pct, "kind": "gate", "label": f"gate {gate_pct:g} % feasible"} if gate_pct is not None else None,
             status={"word": word, "tone": tone},
             note=f"{rung} is the frontier rung with the newest ledgered promotion reading. Frontier now: {frontier}. "
@@ -725,7 +730,8 @@ class _Kinsim:
     def state(self, wave: int, phase: str, since: dict[str, Any] | None) -> dict[str, Any]:
         when = (since or {}).get("ts")
         frontier = [r for r in self.status.get("frontier", []) if isinstance(r, str)]
-        nxt = f"next: {', '.join(frontier[:4])}" if frontier else None
+        # WHY the whole list: it used to show the first four with no mark, silently hiding half the frontier.
+        nxt = f"frontier: {', '.join(frontier)}" if frontier else None
         if phase == "running":
             word, tone, detail = "Running", "ok", f"wave {wave} in progress since {_short_ts(when)}"
         elif phase == "between_waves":
@@ -744,6 +750,39 @@ class _Kinsim:
         if any(self.unreadable.values()):
             parts.append("skipped unreadable lines: " + ", ".join(f"{k} {v}" for k, v in self.unreadable.items() if v))
         return {"word": word, "tone": tone, "detail": " · ".join(p for p in parts if p), "since": when}
+
+    def rung(self, wave: int, phase: str) -> dict[str, Any] | None:
+        """The loop's current rung(s) and what it plans next (base.rung).
+
+        Running: the wave's own targets (curriculum.json ``wave`` == the running wave, not yet green or done in
+        status.json). Otherwise the frontier, status.json's list of the lowest rung not yet passed on each axis.
+        Next: the next planned wave's rungs that are still open (curriculum.json), else the rest of the frontier.
+        WHY the frontier and not the rung with the newest reading: the newest reading is what was last measured, not
+        where the loop stands (BT2 was measured last; SN2 and RB1 are just as open).
+        """
+
+        frontier = [r for r in self.status.get("frontier", []) if isinstance(r, str)]
+        if not self.status or (not frontier and phase != "running"):
+            return None
+        open_ = lambda rung_id: (self.rung_rows.get(rung_id) or {}).get("status") not in ("green", "done")  # noqa: E731
+        planned: dict[int, list[str]] = defaultdict(list)
+        for row in (self.curriculum or {}).get("rungs") or []:
+            planned_wave = row.get("wave") if isinstance(row, dict) else None
+            if isinstance(planned_wave, int) and not isinstance(planned_wave, bool) and row.get("rung_id") and open_(row["rung_id"]):
+                planned[planned_wave].append(row["rung_id"])
+        if phase == "running" and planned.get(wave):
+            current, here = f"Wave {wave} · {', '.join(planned[wave])}", set(planned[wave])
+        elif frontier:
+            current, here = f"Frontier · {', '.join(frontier)}", set(frontier)
+        else:
+            return None
+        upcoming = next(((n, planned[n]) for n in sorted(planned) if n > wave and planned[n]), None)
+        if upcoming:
+            nxt = f"Wave {upcoming[0]} · {', '.join(upcoming[1])}"
+        else:
+            rest = [r for r in frontier if r not in here]
+            nxt = ", ".join(rest) or None
+        return rung(current, nxt, "kinsim_status (frontier) · curriculum.json (wave plan)")
 
     def summary(self, wave: int, phase: str, history: dict[str, set[str]] | None) -> str:
         if not wave:
