@@ -46,6 +46,7 @@ DASHBOARD_BASE = _git("rev-parse", "--short", "claude/vibetracks-dashboard")  # 
 RELOAD_FIX = _git("log", "-1", "--format=%h", "--", "clank/src/variants/a/roadmapReload.tsx")  # wires reload() in
 FOCUS_FIX = _git("log", "-1", "--format=%h", "--", "clank/src/roadmap/focus.ts")  # focus.ts and the worded phase
 WRAP_FIX = _git("log", "-S", "overflow-wrap: anywhere", "-1", "--format=%h", "--", "clank/src/variants/a/a.css")  # the Dashboard lane's
+SWITCHER_GONE = _git("log", "-1", "--format=%h", "--grep=retire", "-i", "claude/vibetracks-dashboard")  # B and C retired, pill gone
 RECORD_CMD = ("cd ~/vibetracks-roadmap && uv run --no-project --with playwright==1.55.0 python3 docs/roadmap/record_roadmap_widget.py "
               f"--url http://127.0.0.1:4400/ --out {MEDIA}")
 # The desktop preview builds `data:text/html,` + encodeURIComponent(html) and refuses a URL longer than this.
@@ -422,7 +423,7 @@ def build() -> str:
   <video controls autoplay muted loop playsinline preload="auto" aria-label="Hero: tracks, kinsim, roadmap calm head, full board, Depth, arrow keys, RB0's proof, a named run, back, Reload, pyblocks">
     <source src="{data_uri(MEDIA / media['mp4'], 'video/mp4')}" type="video/mp4"></video>
   <img id="hero-gif" class="gif hidden" alt="Hero as a GIF" src="{data_uri(MEDIA / media['gif'], 'image/gif')}">
-  <figcaption><b>Tracks → Kinematic Sim → Roadmap → Expand → Depth → arrow keys → RB0's proof → a named run → Back, then → → Tracks → Reload → Pyblocks ({media['clip_s']:.0f} s, {media['speed']}× speed)</b>
+  <figcaption><b>Tracks → Kinematic Sim → Roadmap → Expand → Depth → arrow keys → RB0's proof → a named run → Back, then the → key → Tracks → Reload → Pyblocks ({media['clip_s']:.0f} s, {media['speed']}× speed)</b>
   <span class="cap">Recorded headless from the running lane at {esc(LANE_URL)} on live data, {esc(recorded)}. The blue dot is the pointer.
   Times below are offsets in this clip; each step's line is what the recorder measured in the page at that moment.</span></figcaption>
 </figure>
@@ -504,8 +505,9 @@ the recorder shows the panel again afterwards because Clank saves its layout int
   <li><b>→ in the Depth lens moves by column, not by rung number <span class="tag">expected</span></b>The arrow walk went
       {esc(' → '.join(arrows['sels']))}: in Depth, rungs that can be climbed in parallel share a column, and ↓ reaches them.
       Noted because it surprises.</li>
-  <li><b>The Proposal switcher covers the bottom of a tall focus card <span class="tag">Dashboard lane's</span></b>The review-only switcher
-      is theirs; a compact pill is in their next wave.</li>
+  <li><b>The Proposal switcher covered the bottom of a tall focus card <span class="tag ok">gone in {sha(SWITCHER_GONE)}</span></b>The
+      Dashboard lane first moved it into a bar outside the scroller (BT1's last evidence row then ended exactly at the bar's top), then
+      retired variants B and C, since you chose A; the switcher no longer exists.</li>
   <li><b>At 390 px Clank's sidebar crowds the pane and its title overlaps the layout picker <span class="tag">Clank host's</span></b>Logged as a
       deliberate not-done. The phone still is taken with Clank's left panel hidden; the widget itself has no horizontal scroll.</li>
   <li><b>At 390 px variant A's path lines scrolled the page sideways <span class="tag ok">fixed in {sha(WRAP_FIX)}</span></b>Kinsim's
