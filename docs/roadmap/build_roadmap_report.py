@@ -35,9 +35,16 @@ REPO = Path("/home/bam/vibetracks-roadmap")
 AUDITS = Path("/home/bam/bam_ws/reports/media/audits")
 LANE_URL = "http://127.0.0.1:4400/?vtdash=Agent%20work.vtdash"
 # The commits the Found section names (read from git log; verified to exist at build time like every other sha shown).
-DASHBOARD_BASE = "29cbe13"  # the Dashboard lane's tip this branch is rebased onto
-RELOAD_FIX = "29cbe13"      # adds variants/a/roadmapReload.tsx
-FOCUS_FIX = "791966e"       # focus.ts and the worded phase
+# WHY these shas are looked up, not typed (2026-10-05): every rebase onto the Dashboard lane rewrote them, and a typed
+# sha kept passing `git cat-file -e` because the pre-rebase object still exists; the page then cited a commit that is
+# not in the branch. Each is found by what it is, and verify_shas() demands it be an ancestor of HEAD.
+def _git(*args: str) -> str:
+    return subprocess.run(["git", "-C", str(REPO), *args], capture_output=True, text=True, check=True).stdout.strip()
+
+
+DASHBOARD_BASE = _git("rev-parse", "--short", "claude/vibetracks-dashboard")  # the Dashboard lane tip this branch sits on
+RELOAD_FIX = _git("log", "-1", "--format=%h", "--", "clank/src/variants/a/roadmapReload.tsx")  # wires reload() in
+FOCUS_FIX = _git("log", "-1", "--format=%h", "--", "clank/src/roadmap/focus.ts")  # focus.ts and the worded phase
 RECORD_CMD = ("cd ~/vibetracks-roadmap && uv run --no-project --with playwright==1.55.0 python3 docs/roadmap/record_roadmap_widget.py "
               f"--url http://127.0.0.1:4400/ --out {MEDIA}")
 # The desktop preview builds `data:text/html,` + encodeURIComponent(html) and refuses a URL longer than this.
@@ -150,14 +157,14 @@ _shas: set[str] = set()
 
 
 def sha(value: str) -> str:
-    """A commit id as the page shows it, remembered so the build can prove each one exists (git cat-file -e)."""
+    """A commit id as the page shows it, remembered so the build can prove each one is in this branch (an ancestor of HEAD)."""
     _shas.add(value)
     return f"<code>{esc(value)}</code>"
 
 
 def verify_shas() -> None:
     missing = [value for value in sorted(_shas)
-               if subprocess.run(["git", "-C", str(REPO), "cat-file", "-e", f"{value}^{{commit}}"], capture_output=True).returncode]
+               if subprocess.run(["git", "-C", str(REPO), "merge-base", "--is-ancestor", value, "HEAD"], capture_output=True).returncode]
     assert not missing, f"the page names commits that do not exist: {missing}"
 
 
@@ -205,8 +212,14 @@ def fix_cell(fid: str, commits: dict[str, list[str]]) -> str:
     return '<span class="badt">none</span>'
 
 
+def audit_file(n: int) -> Path | None:
+    """Round ``n``'s report, whatever day it ran (the rounds crossed midnight)."""
+    found = sorted(AUDITS.glob(f"20*-vibetracks-roadmap-r{n}.md"))
+    return found[-1] if found else None
+
+
 def audit_round(n: int, prefix: str, commits: dict[str, list[str]]) -> str:
-    path = AUDITS / f"2026-10-04-vibetracks-roadmap-r{n}.md"
+    path = audit_file(n)
     items, verdict = findings(path)
     rows = "".join(
         f'<tr><th scope="row">{esc(f["id"])}</th><td>{esc(f["severity"])}</td><td>{inline_md(f["headline"])}</td>'
@@ -236,10 +249,13 @@ DECISIONS = """
       files through the work-track registry; pyblocks shows “No roadmap reported yet.” The recordings above measure every step.</li>
   <li>Freshness is honest end to end: a served fallback says “Not current: &lt;reason&gt;”, a failed refresh says so too, and the
       dashboard's Reload re-projects (measured above).</li>
-  <li>Grasping's numbers moved from 2 green to 0 proven / 5 claimed on purpose: 60 of its 62 ledger rows never recorded their
-      environment options, and the scored code changed after the winning runs. That is the evidence rule working, not a regression.</li>
-  <li>Tests on the final head: full repo suite 334 OK, plugin backend 23 OK, widget 158 passed with a clean type check, projector
-      322 passed (1 bam_ws-only skip).</li>
+  <li>Grasping reads the bench's own verdict. On Oct 4 evening the bench tightened what counts as a frozen run
+      (a row must vouch for its own settings); the projector's copy of the bench's rules kept the old one and called envs
+      the bench rates provisional “claimed”. The copy is gone: claims and per-run frozen status now come from the bench's own
+      gallery, run in its own venv through the bridge shared with the Dashboard lane (<code>vibetracks/benches/grasp_bench_bridge.py</code>),
+      and if the bench cannot run, grasping says “not current” instead of guessing. Its calm head above is this build's.</li>
+  <li>Tests on the final head: full repo suite 376 OK (the bridge's own tests included), plugin backend 23 OK, widget 158 passed
+      with a clean type check, projector 337 passed (1 bam_ws-only skip).</li>
 </ul>
 <h3>Needs you (each with the default if you say nothing)</h3>
 <ol class="small">
@@ -247,8 +263,6 @@ DECISIONS = """
       Codex pass is green. Default: a merge commit on that unpushed lane branch after both sides pass; never <code>main</code>.</li>
   <li><b>The three kinsim-dashboard roadmap candidates still in the merge-ready queue</b> (lens bar, React Flow, the bam_ws API) were
       built before the roadmap moved here. Recommended: supersede them. Default: leave them held and unlanded.</li>
-  <li><b>Grasping has no proven rung until its loop re-runs its gates</b> at its current code with <code>env_options</code> recorded.
-      That is the grasping loop's work, not this lane's. Default: nothing is sent to it (loops are read-only from here).</li>
   <li><b>The Progress column's “19 / 62” counts claimed rungs too.</b> The Dashboard lane will add “· 4 proven”, read from this
       widget's counts. Default: they ship that.</li>
 </ol>
@@ -484,15 +498,18 @@ the recorder shows the panel again afterwards because Clank saves its layout int
       is theirs; a compact pill is in their next wave.</li>
   <li><b>At 390 px Clank's sidebar crowds the pane and its title overlaps the layout picker <span class="tag">Clank host's</span></b>Logged as a
       deliberate not-done. The phone still is taken with Clank's left panel hidden; the widget itself has no horizontal scroll.</li>
+  <li><b>At 390 px variant A's path lines scroll the page sideways <span class="tag">Dashboard lane's</span></b>The one failing check
+      above: kinsim's “Event log / Live fold / Run ledger” paths (<code>code.vt-a-code</code>) do not wrap, so the dashboard is
+      453 px wide in a 390 px window. The calm head itself fits. Sent to the Dashboard lane with the fix (wrap, never clip).</li>
   <li><b>Clank's console noise <span class="tag">Clank host's</span></b>On every load Clank asks for <code>.clank/settings.json</code>,
       <code>tree.json</code> and <code>views.json</code> (404) and retries <code>mkdir .clank</code> (409). The dashboard throws no page
       errors (recorder: {len(HERO['page_errors'])}).</li>
 </ol>"""
 
     commits = fixed_in()
-    rounds = [n for n in range(1, 10) if (AUDITS / f"2026-10-04-vibetracks-roadmap-r{n}.md").is_file()]
+    rounds = [n for n in range(1, 20) if audit_file(n) is not None]
     audit = "".join(audit_round(n, "VWXYZQ"[n - 1], commits) for n in rounds)
-    last_verdict = findings(AUDITS / f"2026-10-04-vibetracks-roadmap-r{rounds[-1]}.md")[1]
+    last_verdict = findings(audit_file(rounds[-1]))[1]
     where = landed()
 
     page = f"""<!doctype html>
@@ -568,5 +585,5 @@ if __name__ == "__main__":
     url = encoded_size(page)
     verdict = "preview-openable" if url <= PREVIEW_CAP else "browser-only (over the desktop preview's cap)"
     print(f"wrote {OUT}  {size:,} bytes on disk, {len(_inlined)} media inlined once each")
-    print(f"commits shown, each verified with git cat-file -e: {' '.join(sorted(_shas))}")
+    print(f"commits shown, each verified as an ancestor of HEAD: {' '.join(sorted(_shas))}")
     print(f"preview data: URL {url:,} bytes vs cap {PREVIEW_CAP:,}: {verdict}")
