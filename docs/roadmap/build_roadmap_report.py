@@ -45,6 +45,7 @@ def _git(*args: str) -> str:
 DASHBOARD_BASE = _git("rev-parse", "--short", "claude/vibetracks-dashboard")  # the Dashboard lane tip this branch sits on
 RELOAD_FIX = _git("log", "-1", "--format=%h", "--", "clank/src/variants/a/roadmapReload.tsx")  # wires reload() in
 FOCUS_FIX = _git("log", "-1", "--format=%h", "--", "clank/src/roadmap/focus.ts")  # focus.ts and the worded phase
+WRAP_FIX = _git("log", "-S", "overflow-wrap: anywhere", "-1", "--format=%h", "--", "clank/src/variants/a/a.css")  # the Dashboard lane's
 RECORD_CMD = ("cd ~/vibetracks-roadmap && uv run --no-project --with playwright==1.55.0 python3 docs/roadmap/record_roadmap_widget.py "
               f"--url http://127.0.0.1:4400/ --out {MEDIA}")
 # The desktop preview builds `data:text/html,` + encodeURIComponent(html) and refuses a URL longer than this.
@@ -507,9 +508,12 @@ the recorder shows the panel again afterwards because Clank saves its layout int
       is theirs; a compact pill is in their next wave.</li>
   <li><b>At 390 px Clank's sidebar crowds the pane and its title overlaps the layout picker <span class="tag">Clank host's</span></b>Logged as a
       deliberate not-done. The phone still is taken with Clank's left panel hidden; the widget itself has no horizontal scroll.</li>
-  <li><b>At 390 px variant A's path lines scroll the page sideways <span class="tag">Dashboard lane's</span></b>The one failing check
-      above: kinsim's “Event log / Live fold / Run ledger” paths (<code>code.vt-a-code</code>) do not wrap, so the dashboard is
-      453 px wide in a 390 px window. The calm head itself fits. Sent to the Dashboard lane with the fix (wrap, never clip).</li>
+  <li><b>At 390 px variant A's path lines scrolled the page sideways <span class="tag ok">fixed in {sha(WRAP_FIX)}</span></b>Kinsim's
+      “Event log / Live fold / Run ledger” paths (<code>code.vt-a-code</code>) did not wrap, so the dashboard was 453 px wide in a
+      390 px window. The Dashboard lane wraps them (<code>overflow-wrap: anywhere</code>, every character kept); the phone still now
+      measures {esc(STILLS['phone-kinsim']['measured']['dashScroll'][0])} == {esc(STILLS['phone-kinsim']['measured']['dashScroll'][1])} px.
+      The recorder also measures Clank's left panel instead of toggling it blindly: Clank remembers the panel, and a toggle left over
+      from another drive once inverted the phone still.</li>
   <li><b>Clank's console noise <span class="tag">Clank host's</span></b>On every load Clank asks for <code>.clank/settings.json</code>,
       <code>tree.json</code> and <code>views.json</code> (404) and retries <code>mkdir .clank</code> (409). The dashboard throws no page
       errors (recorder: {len(HERO['page_errors'])}).</li>

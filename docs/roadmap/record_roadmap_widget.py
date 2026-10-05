@@ -489,8 +489,11 @@ async def record_stills(browser, url: str, out: Path, width: int, height: int) -
     context, page = await fresh((390, 844), device_scale_factor=2, is_mobile=True, has_touch=True)
     await open_dashboard(page, url, "#vt?track=kinsim")
     await page.wait_for_selector('[data-testid="vt-roadmap-calm"]', timeout=60000)
+    # WHY measure the panel instead of clicking its toggle blindly (2026-10-05): Clank remembers the panel per workspace,
+    # so a toggle left over from another drive inverted this one and the "phone" still showed a 130 px dashboard.
+    dash_width = "(() => { const s = document.querySelector('.vt-dash'); return s ? s.getBoundingClientRect().width : 0 })()"
     toggled = False
-    if await page.locator('[data-testid="status-toggle-left"]').count():
+    if await page.evaluate(dash_width) < 390 - 40 and await page.locator('[data-testid="status-toggle-left"]').count():
         await page.click('[data-testid="status-toggle-left"]')
         toggled = True
         await page.wait_for_timeout(800)
@@ -499,9 +502,10 @@ async def record_stills(browser, url: str, out: Path, width: int, height: int) -
     m = await page.evaluate(CALM, "kinsim")
     m.update(await page.evaluate("""(() => { const d = document.documentElement, s = document.querySelector('.vt-scroll'), c = document.querySelector('[data-testid="vt-roadmap-calm"]').getBoundingClientRect();
       return { docScroll: [d.scrollWidth, d.clientWidth], dashScroll: s ? [s.scrollWidth, s.clientWidth] : null, calmBox: [Math.round(c.left), Math.round(c.right)], viewport: innerWidth } })()"""))
-    m["leftPanelHidden"] = toggled
+    m["leftPanelHidden"] = await page.evaluate(dash_width) >= m["viewport"] - 40  # measured, never assumed from a click
+    m["toggledPanel"] = toggled
     await shoot(page, "phone-kinsim", "kinsim's calm head at 390 px", m,
-                calm_ok(m) and m["docScroll"][0] <= m["docScroll"][1] and (m["dashScroll"] is None or m["dashScroll"][0] <= m["dashScroll"][1])
+                calm_ok(m) and m["leftPanelHidden"] and m["docScroll"][0] <= m["docScroll"][1] and (m["dashScroll"] is None or m["dashScroll"][0] <= m["dashScroll"][1])
                 and m["calmBox"][0] >= 0 and m["calmBox"][1] <= m["viewport"])
     if toggled:
         await page.click('[data-testid="status-toggle-left"]')
