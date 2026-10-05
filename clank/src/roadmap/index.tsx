@@ -15,9 +15,10 @@ import type { PluginBackend } from '@clank/api'
 import { ApiError } from '../shared/api'
 import { type Art, artFor } from './art'
 import type { RoadmapDoc } from './doc'
-import { cardLine, modelFromDoc, parseRoadmapDoc } from './docModel'
+import { cardLine, modelFromDoc } from './docModel'
 import { FocusPanel } from './FocusPanel'
 import { freshness } from './freshness'
+import { type RoadmapData, createRoadmapLoader } from './loader'
 import { createPoller } from './poll'
 import { KEYS_HINT, LENS_CAPTION, Legend, LensBar, RoadmapBoard } from './RoadmapBoard'
 import { edgeStyle, type RoadmapSettings } from './settings'
@@ -28,15 +29,7 @@ import './roadmap.css'
 export { ROADMAP_SETTINGS_SECTION, defaultRoadmapSettings, type RoadmapSettings } from './settings'
 export type { RoadmapWidgetState } from './state'
 
-/** What useRoadmap hands the dashboard as `doc` (opaque to it): the track's document and where its art lives. */
-export interface RoadmapData {
-  track: string
-  document: RoadmapDoc
-  /** `${backend.baseUrl}/roadmap/art`; one image is `${artBase}/<name>.png`. */
-  artBase: string
-  /** The art file names the backend serves (GET /roadmap/art). */
-  artNames: ReadonlySet<string>
-}
+export type { RoadmapData } from './loader'
 
 export interface RoadmapWidgetProps {
   /** The track whose roadmap to show (`kinsim`, `rig`, ...). */
@@ -288,41 +281,9 @@ export function useRoadmap(backend: PluginBackend, track: string): RoadmapDocSta
   useEffect(() => {
     setState({ track, doc: null, loading: true, error: null })
     const artBase = `${backend.baseUrl}/roadmap/art`
-    // The last good document of THIS track, and what it was built from: an unchanged poll must not re-render the board.
-    let last: { key: string; doc: RoadmapData } | null = null
     const instance = createPoller({
       intervalMs: ROADMAP_POLL_MS,
-      load: async (force, signal) => {
-        // WHY art never fails the roadmap: a missing art dir only means icons instead of renders. A failed art poll
-        // keeps the last art list, so the renders do not flicker away with a hiccup.
-        const art = fetchJson(backend, '/roadmap/art', signal).then(
-          (body) => new Set(Array.isArray((body as { entries?: unknown } | null)?.entries) ? ((body as { entries: unknown[] }).entries.filter((name): name is string => typeof name === 'string')) : []),
-          () => null,
-        )
-        try {
-          const body = await fetchJson(backend, `/roadmap/doc?track=${encodeURIComponent(track)}${force ? '&refresh=1' : ''}`, signal)
-          const document = parseRoadmapDoc(body)
-          const artNames: ReadonlySet<string> = (await art) ?? last?.doc.artNames ?? new Set<string>()
-          if (signal.aborted) return
-          const key = JSON.stringify([body, [...artNames]])
-          if (last?.key === key) {
-            setState((now) => (now.error ? { ...now, error: null } : now))
-            return
-          }
-          last = { key, doc: { track, document, artBase, artNames } }
-          setState({ track, doc: last.doc, loading: false, error: null })
-        } catch (error) {
-          if (signal.aborted) return
-          // WHY a 404 is not an error: the track's loop has not written a roadmap yet, and the widget says so calmly.
-          if (error instanceof ApiError && error.status === 404) {
-            last = null
-            setState({ track, doc: null, loading: false, error: null })
-          } else {
-            // A failed refresh keeps the document already on screen; the failure rides in `error`.
-            setState({ track, doc: last?.doc ?? null, loading: false, error: error instanceof Error ? error.message : String(error) })
-          }
-        }
-      },
+      load: createRoadmapLoader({ track, artBase, fetchJson: (path, signal) => fetchJson(backend, path, signal), publish: setState }),
     })
     poller.current = instance
     instance.start()
