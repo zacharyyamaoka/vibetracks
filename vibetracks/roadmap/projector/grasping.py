@@ -1013,8 +1013,10 @@ class _GraspingProjector:
         return rows
 
     def _warnings(self) -> list[str]:
-        warnings = ["the loop writes no status of its own: every rung's claim reads missing, so none can show green; "
-                    "each gate criterion still shows what the ledger proves"]
+        # WHY this sentence and not "every claim reads missing": since the claim became the bench's own gallery verdict
+        # (through grasp_bench_bridge), rungs do claim and can show green; the old text told Zach the opposite.
+        warnings = ["the loop writes no status of its own: each rung's claim is the bench's own gallery verdict (beaten), "
+                    "read through grasp_bench_bridge; each gate criterion shows what the ledger proves"]
         if not self.ledger.is_file():
             warnings.append(f"no ledger at {self.ledger}: nothing is measured yet")
         warnings += [f"curriculum.py {name} is not table data, so it was skipped ({why})"

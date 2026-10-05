@@ -133,12 +133,12 @@ def test_a_ladder_that_names_no_current_rung_has_no_frontier_and_says_so(tmp_pat
 
 
 # ---------------------------------------------------------------- honesty about what this is
-def test_the_document_says_it_is_a_plan_with_no_loop_and_no_history(tmp_path):
+def test_the_document_says_it_is_a_plan_that_reads_no_runs_and_has_no_history(tmp_path):
     directory = make_loop(tmp_path)
     document = project(directory)
-    assert any("planned ladder; no loop has run" in warning for warning in document["warnings"])
+    assert any(warning.startswith("planned ladder: this projector reads only ladder_data.py") for warning in document["warnings"])
     assert any("untracked" in warning and "ladder_data.py" in warning for warning in document["warnings"])
-    assert document["summary"]["phase"] == "planned: no loop has run" and document["summary"]["wave"] is None
+    assert document["summary"]["phase"] == "planned: no run evidence read" and document["summary"]["wave"] is None
     assert document["as_of"]["head"] == git(directory, "rev-parse", "HEAD")
     assert [(source["role"], source["exists"]) for source in document["sources"]] == [("ladder", True)]
     assert document["sources"][0]["sha256"] is not None and document["sources"][0]["path"].endswith("ladder_data.py")
@@ -147,7 +147,7 @@ def test_the_document_says_it_is_a_plan_with_no_loop_and_no_history(tmp_path):
 def test_a_tracked_ladder_carries_no_untracked_warning(tmp_path):
     document = project(make_loop(tmp_path, tracked=True))
     assert not any("untracked" in warning for warning in document["warnings"])
-    assert any("planned ladder; no loop has run" in warning for warning in document["warnings"])
+    assert any(warning.startswith("planned ladder: this projector reads only ladder_data.py") for warning in document["warnings"])
 
 
 # ---------------------------------------------------------------- the ladder is read, never run
@@ -224,3 +224,10 @@ def test_the_real_ladder_projects_with_nothing_green():
     assert frontier == ["H1"]
     assert rung(document, "H1")["x"]["progress"]["done"] == 2 and rung(document, "H1")["x"]["progress"]["of"] == 12
     assert rung(document, "H4")["depends_on"] == ["H1", "H2", "H3"] and rung(document, "H9")["depends_on"] == ["H4", "H7", "H8"]
+
+
+def test_the_planned_ladder_never_asserts_that_no_loop_ran(tmp_path):
+    """It reads only ladder_data.py, so it cannot know whether the loop ran; it says what it reads, not what happened."""
+
+    from vibetracks.roadmap.projector import detection
+    assert "no loop has run" not in detection.PHASE

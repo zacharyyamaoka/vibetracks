@@ -797,3 +797,12 @@ def test_the_live_grasping_loop_projects_and_validates():
     assert len(gated) == 10
     assert document["summary"]["frontier"]
     assert elapsed < 5.0
+
+
+def test_the_document_warning_describes_where_the_claim_comes_from(tmp_path):
+    """The first warning once said every claim reads missing and nothing can show green, which stopped being true when
+    the claim became the bench's gallery verdict; it must name that source and never say "reads missing"."""
+
+    bench, _ = make_bench(tmp_path)
+    first = project(bench)["warnings"][0]
+    assert "gallery verdict" in first and "grasp_bench_bridge" in first and "reads missing" not in first, first

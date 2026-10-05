@@ -37,7 +37,9 @@ from .links import EvidenceBook, Roots
 LADDER_FILE = "ladder_data.py"
 LOOP_ID = "detection"
 AXIS_ID = "hyperspectral"
-PHASE = "planned: no loop has run"
+# WHY "no run evidence read" and not "no loop has run": this projector reads only ladder_data.py, so it cannot know
+# whether the hyperspectral loop ran (it has: the SpectralWaste repro); it can only say it reads no runs.
+PHASE = "planned: no run evidence read"
 #: "H1: 2 of 12 configs reproduced": the rung a KPI row's ``today`` text starts with, and its progress when it has one.
 _CURRENT_RUNG = re.compile(r"^\s*(?P<rung>[A-Za-z][A-Za-z0-9_.-]*):\s*(?:(?P<done>\d+)\s+of\s+(?P<of>\d+))?")
 
@@ -177,7 +179,8 @@ class _DetectionProjector:
         return rows
 
     def _warnings(self) -> list[str]:
-        warnings = ["planned ladder; no loop has run: every rung is unproven and none can be green"]
+        warnings = ["planned ladder: this projector reads only ladder_data.py, no run evidence, so every rung is "
+                    "unproven and none can be green"]
         relative = os.path.relpath(self.ladder_path, self.repo.root)
         if relative not in set(self.repo.tracked_files()):
             warnings.append(f"{LADDER_FILE} is untracked in {self.repo.root}: git gives it no history, so it binds no commit "
