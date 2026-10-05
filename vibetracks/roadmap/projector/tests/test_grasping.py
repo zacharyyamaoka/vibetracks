@@ -385,6 +385,55 @@ def test_the_reader_refuses_allocation_past_its_limits(tmp_path, expression, why
     assert set(read.tables) >= {"TIERS", "ENVS", "MODELS", "CELLS", "GATES"}  # the rest of the file still reads
 
 
+# WHY a nest of shared lists: 20 levels charge 40 items, yet the string they print as is 2**20 elements long; a bound
+# on the container's size alone lets the conversion build it. ``SQUARE`` is a 3,800-bit integer (1,150 digits).
+NEST = "N0 = [1, 2]\n" + "".join(f"N{level + 1} = [N{level}, N{level}]\n" for level in range(20))
+SQUARE = "I0 = 1000000007\n" + "".join(f"I{level + 1} = I{level} * I{level}\n" for level in range(7))
+
+
+@pytest.mark.parametrize("setup, expression, why", [
+    ("", '"%*s" % (1000001, "x")', "format width of 1000001"),                 # Codex W08: the width comes from the arguments
+    ("", '"%.*f" % (1000001, 1.5)', "format width of 1000001"),                # ... and so does a precision
+    ("", '"%-*d" % (-1000001, 1)', "format width of 1000001"),                 # a negative width pads on the right, by its size
+    ("", '"%20000s%20000s" % ("a", "b")', "a formatted string of 40"),        # each field fits, the string they make does not
+    ("", '"%(a)*s" % {"a": "x"}', "a * width from a mapping"),                         # python refuses it; the reader must not loop on it
+    ("DATA = list(range(1000))\n", "[DATA[:] for _ in range(1001)]", "items and characters in all"),  # Codex W08: copies by slice
+    ("DATA = list(range(20000))\n", "[DATA[1:] for _ in range(60)]", "items and characters in all"),
+    ("TEXT = 'x' * 20000\n", "[TEXT[:] for _ in range(60)]", "items and characters in all"),
+    ("DATA = list(range(20000))\n", "DATA[:: -1] + DATA[:: -1]", "a concatenation of 40000"),
+    ("", 'b"x" * 1000001', "a repeated sequence of 1000001"),                  # bytes repeat the same way
+    ("", 'b"x" * 20000 + b"x" * 20000', "a concatenation of 40000"),
+    ("", 'b"%*d" % (1000001, 1)', "bytes"),                                    # printf over bytes is not read at all
+    (NEST, "f\"{N20!r}\"", "conversion of"),                                   # repr of a nest, refused before it is built
+    (NEST, "f\"{N20}\"", "conversion of"),                                     # str() of it
+    (NEST, "f\"{N20!a}\"", "conversion of"),
+    (NEST, '"%s" % (N20,)', "a formatted string of"),                                  # printf conversions walk the same objects
+    (NEST, '"%r" % N20', "a formatted string of"),
+    (NEST, '"%(k)s" % {"k": N20}', "a formatted string of"),
+    (SQUARE, "f\"{[I7] * 20000}\"", "conversion of"),                          # few items, each one 1,150 digits
+    (SQUARE, 'f"{[I7] * 20000!r}"', "conversion of"),
+])
+def test_formatting_slicing_and_conversion_are_bounded_before_they_build(tmp_path, setup, expression, why):
+    bench, _sha = make_bench(tmp_path)
+    curriculum = bench / "src" / "grasp_bench" / "curriculum.py"
+    write(curriculum, curriculum.read_text(encoding="utf-8") + f"\n{setup}BIG = {expression}\n")
+    read = read_curriculum(curriculum, bench / "src" / "grasp_bench" / "contracts.py")
+    assert "BIG" not in read.tables and why in read.skipped["BIG"]
+    assert set(read.tables) >= {"TIERS", "ENVS", "MODELS", "CELLS", "GATES"}
+
+
+@pytest.mark.parametrize("expression", [
+    '",".join(["a", "b"])', '"abc".replace("b", "x", 3)', "sorted([3, 1])", "set([1, 2])", "len([1])", "str(1)", "repr(1)",
+    'format(1, "5")', "[1, 2].copy()", "[x for x in range(3)][::0]",
+])
+def test_calls_and_methods_the_reader_does_not_know_are_not_data(tmp_path, expression):
+    bench, _sha = make_bench(tmp_path)
+    curriculum = bench / "src" / "grasp_bench" / "curriculum.py"
+    write(curriculum, curriculum.read_text(encoding="utf-8") + f"\nBIG = {expression}\n")
+    read = read_curriculum(curriculum, bench / "src" / "grasp_bench" / "contracts.py")
+    assert "BIG" not in read.tables and "BIG" in read.skipped
+
+
 def test_integers_from_repeated_multiplication_are_bounded(tmp_path):
     bench, _sha = make_bench(tmp_path)
     curriculum = bench / "src" / "grasp_bench" / "curriculum.py"
@@ -402,6 +451,14 @@ def test_allocation_within_the_limits_still_reads(tmp_path):
           + '\nOK = (list(range(20000)), "x" * 20000, f"{1:>20000}", [i for i in range(5000)])\n')
     read = read_curriculum(curriculum, bench / "src" / "grasp_bench" / "contracts.py")
     assert [len(part) for part in read.tables["OK"]] == [20000, 20000, 20000, 5000]
+
+    # Slicing, printf-style formatting and conversions that stay inside the limits read as before.
+    write(curriculum, curriculum.read_text(encoding="utf-8") + SQUARE + NEST
+          + '\nFINE = ("%*s|%.*f|%-5d|%s|%r" % (8, "x", 2, 1.5, 7, "ab", ("a", 1)), f"{N3!r}", list(range(50))[::2][3:9], "abcdef"[1:-1],'
+          + ' f"{I2}", "%(a)s-%(b)05d" % {"a": "x", "b": 42}, "100%% sure" % ())\n')
+    read = read_curriculum(curriculum, bench / "src" / "grasp_bench" / "contracts.py")
+    assert read.tables["FINE"] == ("       x|1.50|7    |ab|('a', 1)", "[[[[1, 2], [1, 2]], [[1, 2], [1, 2]]], [[[1, 2], [1, 2]], [[1, 2], [1, 2]]]]",
+                                   [6, 8, 10, 12, 14, 16], "bcde", str(1000000007 ** 4), "x-00042", "100% sure")
 
 
 # ---------------------------------------------------------------- the live loop

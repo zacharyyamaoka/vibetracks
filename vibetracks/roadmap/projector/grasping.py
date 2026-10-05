@@ -85,6 +85,7 @@ class _TableReader:
     MAX_STRING = 20_000           # one string, formatted or repeated
     MAX_INT_BITS = 4_096          # one integer from + or *
     ALLOCATION_BUDGET = 1_000_000  # items + characters + integer bytes created over the whole evaluation
+    PERCENT_FIELD = re.compile(r"%(?:\([^)]*\))?[#0\- +]*(\*|[0-9]+)?(?:\.(\*|[0-9]*))?[hlL]?([^%]|%)?", re.DOTALL)
     BUILTINS: dict[str, Callable[..., Any]] = {"range": range, "tuple": tuple, "list": list, "dict": dict}
     BINARY = {ast.Add: operator.add, ast.Sub: operator.sub, ast.Mult: operator.mul, ast.Div: operator.truediv,
               ast.FloorDiv: operator.floordiv, ast.Mod: operator.mod}
@@ -99,11 +100,16 @@ class _TableReader:
         self.steps = 0
         self.allocated = 0
 
-    def _allocate(self, size: int, limit: int, node: ast.AST, what: str) -> None:
-        """Refuse ``what`` of ``size`` (items, characters) before it is built when it passes ``limit`` or the budget."""
+    def _within(self, size: int, limit: int, node: ast.AST, what: str) -> None:
+        """Refuse ``what`` of ``size`` (items, characters) when it passes ``limit``; nothing is charged."""
 
         if size > limit:
             raise NotData(f"line {getattr(node, 'lineno', '?')}: {what} of {size} is more than {limit}")
+
+    def _allocate(self, size: int, limit: int, node: ast.AST, what: str) -> None:
+        """Refuse ``what`` of ``size`` (items, characters) before it is built when it passes ``limit`` or the budget."""
+
+        self._within(size, limit, node, what)
         self.allocated += size
         if self.allocated > self.ALLOCATION_BUDGET:
             raise NotData(f"line {getattr(node, 'lineno', '?')}: more than {self.ALLOCATION_BUDGET} items and characters in all")
@@ -111,7 +117,7 @@ class _TableReader:
     def _sized(self, value: Any, node: ast.AST) -> Any:
         """Charge a value just built (a container from its elements, a joined or formatted string) to the budget."""
 
-        if isinstance(value, str):
+        if isinstance(value, (str, bytes)):
             self._allocate(len(value), self.MAX_STRING, node, "a string")
         elif isinstance(value, (list, tuple, dict)):
             self._allocate(len(value), self.MAX_ITEMS, node, "a container")
@@ -121,8 +127,75 @@ class _TableReader:
         """A format spec (``1000001``, ``.500000f``) or ``%`` template's widths, refused before they pad a string."""
 
         widths = [int(digits) for digits in re.findall(r"[0-9]+", spec)]
-        if widths and max(widths) > self.MAX_STRING:
-            raise NotData(f"line {getattr(node, 'lineno', '?')}: a format width of {max(widths)} is more than {self.MAX_STRING}")
+        if widths:
+            self._within(max(widths), self.MAX_STRING, node, "a format width")
+
+    # WHY a lower bound on the printed size, counted until it passes the limit (Codex W08): a container is charged for
+    # its own items, so ``N20 = [N19, N19]`` nested 20 deep costs 40 units and prints as a million elements, and a list
+    # of 20,000 four-thousand-bit integers prints 23 million digits. The conversion is refused from this walk, which
+    # stops as soon as it has counted past the limit, so it never costs more than the limit however the value is shared.
+    def _printed_size(self, value: Any, limit: int, nested: bool = False) -> int:
+        """At most the characters ``str`` (``repr`` inside a container) of ``value`` prints, counted only past ``limit``."""
+
+        if isinstance(value, str):
+            return len(value) + (2 if nested else 0)
+        if isinstance(value, bytes):
+            return len(value) + 3
+        if value is None or isinstance(value, bool):
+            return 4
+        if isinstance(value, int):
+            return abs(value).bit_length() // 4 + 1  # decimal digits: bits * 0.301, and this is bits / 4
+        if isinstance(value, float):
+            return 3
+        if not isinstance(value, (list, tuple, dict)):
+            return 1
+        size = 2
+        for item in (item for pair in value.items() for item in pair) if isinstance(value, dict) else value:
+            size += self._printed_size(item, limit - size, True) + 2
+            if size > limit:
+                break
+        return size
+
+    def _conversion(self, value: Any, node: ast.AST) -> None:
+        """Refuse printing ``value`` (``str``, ``repr``, ``format``, ``%s``) when what it prints would pass MAX_STRING."""
+
+        size = self._printed_size(value, self.MAX_STRING)
+        if size > self.MAX_STRING:
+            raise NotData(f"line {getattr(node, 'lineno', '?')}: a conversion of {size} or more characters is more than "
+                          f"{self.MAX_STRING}")
+
+    def _bound_percent(self, node: ast.BinOp, template: str, arguments: Any) -> None:
+        """What ``template % arguments`` would print, from its fields' widths and arguments, refused before it is built.
+
+        A ``*`` width or precision is read from the argument tuple, so a template that is small can still pad 1,000,001
+        characters; each field is also as long as the argument it prints, and the fields add up.
+        """
+
+        self._format_width(template, node)
+        mapping = isinstance(arguments, Mapping)
+        values = list(arguments.values()) if mapping else list(arguments) if isinstance(arguments, tuple) else [arguments]
+        printed = max((self._printed_size(item, self.MAX_STRING) for item in values), default=0)
+        position = 0
+        total = len(template)
+        for field_match in self.PERCENT_FIELD.finditer(template):
+            width_token, precision_token, conversion = field_match.groups()
+            widths = []
+            for token in (width_token, precision_token):
+                if token == "*":
+                    if mapping or position >= len(values) or not isinstance(values[position], int):
+                        raise NotData(f"line {node.lineno}: a * width from a mapping or a non-integer")
+                    widths.append(abs(values[position]))
+                    position += 1
+                elif token:
+                    widths.append(int(token))
+            if widths:
+                self._within(max(widths), self.MAX_STRING, node, "a format width")
+            if conversion == "%":
+                continue
+            printed_here = printed if mapping else self._printed_size(values[position], self.MAX_STRING) if position < len(values) else 0
+            position += 1
+            total += max([printed_here, *widths])
+        self._within(total, self.MAX_STRING, node, "a formatted string")
 
     def value(self, node: ast.AST, scope: Mapping[str, Any]) -> Any:
         self.steps += 1
@@ -171,10 +244,13 @@ class _TableReader:
         return self._sized(result, node)
 
     def _JoinedStr(self, node: ast.JoinedStr, scope: Mapping[str, Any]) -> str:
-        return self._sized("".join(str(self.value(part, scope)) for part in node.values), node)
+        parts = [str(self.value(part, scope)) for part in node.values]
+        self._within(sum(len(part) for part in parts), self.MAX_STRING, node, "a string")  # before the join builds it
+        return self._sized("".join(parts), node)
 
     def _FormattedValue(self, node: ast.FormattedValue, scope: Mapping[str, Any]) -> str:
         value = self.value(node.value, scope)
+        self._conversion(value, node)
         value = {115: str, 114: repr, 97: ascii}.get(node.conversion, lambda item: item)(value)
         spec = self.value(node.format_spec, scope) if node.format_spec is not None else ""
         self._format_width(str(spec), node)
@@ -186,24 +262,27 @@ class _TableReader:
             raise NotData(f"line {node.lineno}: operator {type(node.op).__name__}")
         left, right = self.value(node.left, scope), self.value(node.right, scope)
         self._bound_binary(node, left, right)
-        return function(left, right)
+        result = function(left, right)
+        return self._sized(result, node) if isinstance(node.op, ast.Mod) and isinstance(result, str) else result
 
     def _bound_binary(self, node: ast.BinOp, left: Any, right: Any) -> None:
         """What ``left <op> right`` would allocate, charged (or refused) before it runs."""
 
-        sequences = (str, list, tuple)
+        sequences = (str, bytes, list, tuple)
         if isinstance(node.op, ast.Mult):
             for sequence, count in ((left, right), (right, left)):
                 if isinstance(sequence, sequences) and isinstance(count, int):
-                    limit = self.MAX_STRING if isinstance(sequence, str) else self.MAX_ITEMS
+                    limit = self.MAX_STRING if isinstance(sequence, (str, bytes)) else self.MAX_ITEMS
                     self._allocate(len(sequence) * max(count, 0), limit, node, "a repeated sequence")
                     return
         if isinstance(node.op, ast.Add) and isinstance(left, sequences) and type(left) is type(right):
-            self._allocate(len(left) + len(right), self.MAX_STRING if isinstance(left, str) else self.MAX_ITEMS, node,
+            self._allocate(len(left) + len(right), self.MAX_STRING if isinstance(left, (str, bytes)) else self.MAX_ITEMS, node,
                            "a concatenation")
             return
+        if isinstance(node.op, ast.Mod) and isinstance(left, bytes):
+            raise NotData(f"line {node.lineno}: bytes % is not table data")
         if isinstance(node.op, ast.Mod) and isinstance(left, str):
-            self._format_width(left, node)  # printf-style formatting pads like a format spec
+            self._bound_percent(node, left, right)  # printf-style formatting pads like a format spec
             return
         if isinstance(node.op, (ast.Add, ast.Mult)) and all(isinstance(side, int) for side in (left, right)):
             bits = abs(left).bit_length() + abs(right).bit_length() if isinstance(node.op, ast.Mult) else \
@@ -247,6 +326,14 @@ class _TableReader:
             key: Any = slice(*(self.value(part, scope) if part is not None else None for part in (index.lower, index.upper, index.step)))
         else:
             key = self.value(index, scope)
+        if isinstance(key, slice) and isinstance(container, (str, bytes, list, tuple)):
+            # WHY the length is charged from the bounds, before the copy (Codex W08): ``data[:]`` of a 1,000-item list
+            # a thousand times is a million items that no container literal ever shows.
+            try:
+                length = len(range(*key.indices(len(container))))
+            except (TypeError, ValueError, OverflowError) as error:
+                raise NotData(f"line {node.lineno}: {error!r}") from error
+            self._allocate(length, self.MAX_STRING if isinstance(container, (str, bytes)) else self.MAX_ITEMS, node, "a slice")
         try:
             return container[key]
         except (KeyError, IndexError, TypeError) as error:
