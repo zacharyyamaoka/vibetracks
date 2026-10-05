@@ -14,7 +14,7 @@ Routes (Clank proxies ``/api/plugins/vibetracks/<rest>`` here, clank-workbench C
 - ``POST /tracks/<id>/title`` -> rename one work track: JSON ``{title, revision}`` (``Content-Type:
   application/json``, else 415). Revision-fenced (409 when the note changed since ``revision``), atomic, and it
   edits only the note's ``vibe-title`` value (``registry.rename_title``); ``vibe-id`` never changes. 400 for a bad
-  title (1-80 characters after trimming, one line) or body, 404 for an unknown id. Answers
+  title (empty, whitespace only, or containing a line break; never trimmed: it is stored exactly as typed) or body, 404 for an unknown id. Answers
   ``{ok, id, title, revision}`` with the note's new revision.
 - ``GET /media/<id>``        -> one file named by ``projection.media[<id>]``, streamed with Range support (so a
   ``<video>`` seeks) and its real content type. Anything else is 404.
@@ -37,6 +37,7 @@ import json
 import os
 import re
 import signal
+import stat
 import subprocess
 import sys
 import threading
@@ -55,6 +56,7 @@ if str(REPO_ROOT) not in sys.path:
     sys.path.append(str(REPO_ROOT))
 from vibetracks.dashboard.build import LiveBuilder  # noqa: E402
 from vibetracks.dashboard.registry import TitleInvalid, find_registry, rename_title  # noqa: E402
+from vibetracks.edits import read_note_exact  # noqa: E402
 from vibetracks.errors import RevisionConflict, UnknownFeature, VibeTracksError  # noqa: E402
 from vibetracks.notes import note_revision  # noqa: E402
 from vibetracks.sources import load_sources  # noqa: E402
@@ -154,6 +156,29 @@ def resolve_mount(target: str) -> MountHandler:
         return handler
 
 
+def canonical_targets(media: Mapping[str, Any]) -> dict[str, str | None]:
+    """Each media id's canonical file (``os.path.realpath``) at the moment the allowlist is built.
+
+    None when the entry cannot be served at all then: no absolute path, a ``..`` part, a missing file, or a listed
+    suffix not in ``SERVABLE``. ``media_lookup`` refuses (403) any id whose path resolves elsewhere later, or whose
+    resolved target's own suffix is not served.
+    """
+
+    targets: dict[str, str | None] = {}
+    for media_id, entry in media.items():
+        raw = entry.get("path") if isinstance(entry, dict) else None
+        target = None
+        if isinstance(raw, str) and Path(raw).is_absolute() and ".." not in Path(raw).parts \
+                and Path(raw).suffix.lower() in SERVABLE:
+            try:
+                resolved = os.path.realpath(raw, strict=True)
+            except OSError:
+                resolved = None
+            target = resolved  # its own suffix is checked when served (403), so a refusal can say why
+        targets[str(media_id)] = target
+    return targets
+
+
 class Projection:
     """projection.json, re-read when its mtime or size changes; the media allowlist comes from it."""
 
@@ -167,42 +192,69 @@ class Projection:
         self._stamp: tuple[int, int] | None = None
         self._raw: bytes | None = None
         self._media: dict[str, dict[str, Any]] = {}
+        #: media id -> the canonical file its path resolved to when the allowlist was built (None: not servable then)
+        self._targets: dict[str, str | None] = {}
 
     def load(self) -> bytes | None:
         with self._lock:
             try:
-                stat = self.path.stat()
+                info = self.path.stat()
             except FileNotFoundError:
-                self._stamp, self._raw, self._media = None, None, {}
+                self._stamp, self._raw, self._media, self._targets = None, None, {}, {}
                 return None
-            stamp = (stat.st_mtime_ns, stat.st_size)
+            stamp = (info.st_mtime_ns, info.st_size)
             if stamp != self._stamp:
                 raw = self.path.read_bytes()
                 data = json.loads(raw)
                 media = data.get("media") if isinstance(data, dict) else None
                 self._media = media if isinstance(media, dict) else {}
+                self._targets = canonical_targets(self._media)
                 self._raw, self._stamp = raw, stamp
             return self._raw
 
     def media(self, media_id: str) -> Path | None:
-        """The file for ``media_id``, or None: unknown id, bad spelling, unservable type, or not a regular file."""
+        """The canonical file to open for ``media_id``, or None when ``media_lookup`` refuses it."""
+
+        return self.media_lookup(media_id)[0]
+
+    def media_lookup(self, media_id: str) -> tuple[Path | None, int, str]:
+        """``(canonical file, 200, "")``, or ``(None, status, why)``: 404 for an unknown id, a bad spelling or a
+        file that is gone; 403 when the listed path now resolves somewhere other than the file recorded when the
+        allowlist was built, or when the file it resolves to has a suffix this backend does not serve.
+
+        WHY re-resolve and compare (audit 2026-10-04, finding 9): the allowlist is a list of paths, and a listed path
+        that is a symlink can be retargeted after listing; checking only the listed spelling's suffix would then
+        stream whatever the link points at now. The caller opens the returned canonical path, never the alias.
+        """
 
         if not MEDIA_ID.match(media_id):
-            return None
+            return None, 404, "unknown media id"
         self._refresh_media()
         entry = self._media.get(media_id)
         if not isinstance(entry, dict) or not isinstance(entry.get("path"), str):
-            return None
+            return None, 404, "unknown media id"
         path = Path(entry["path"])
-        if not path.is_absolute() or ".." in path.parts or path.suffix.lower() not in SERVABLE:
-            return None
+        if not path.is_absolute() or ".." in path.parts:
+            return None, 404, "unknown media id"
+        if path.suffix.lower() not in SERVABLE:
+            return None, 404, "unknown media id"  # an unservable listing is no entry at all, as before
+        recorded = self._targets.get(media_id)
+        if recorded is None:
+            return None, 404, "the listed file was not a servable file when the projection was built"
         try:
-            if not path.is_file():
-                return None
+            current = os.path.realpath(path, strict=True)
         except OSError:
-            return None
-        return path
-
+            return None, 404, "the listed file is gone"
+        if current != recorded:
+            return None, 403, "the listed path now resolves to a different file than the one listed"
+        if Path(current).suffix.lower() not in SERVABLE:
+            return None, 403, f"the listed path resolves to a {Path(current).suffix or 'suffix-less'} file, which is not served"
+        try:
+            if not Path(current).is_file():
+                return None, 404, "not a regular file"
+        except OSError:
+            return None, 404, "not a regular file"
+        return Path(current), 200, ""
 
     def _refresh_media(self) -> None:
         self.load()
@@ -224,6 +276,7 @@ class LiveProjection(Projection):
         with self._lock:
             media = projection.get("media")
             self._media = media if isinstance(media, dict) else {}
+            self._targets = canonical_targets(self._media)
             self._raw = raw
         return raw
 
@@ -361,7 +414,7 @@ def make_handler(projection: Projection, workspace: Path | None = None):
             try:
                 from vibetracks.dashboard.registry import read_registry
                 track = read_registry(workspace).by_id(track_id) if workspace is not None else None
-                return note_revision(Path(track.note_path).read_text(encoding="utf-8")) if track else None
+                return note_revision(read_note_exact(Path(track.note_path))) if track else None
             except (OSError, VibeTracksError):
                 return None
 
@@ -412,9 +465,9 @@ def make_handler(projection: Projection, workspace: Path | None = None):
                 return self._raw(200, raw, "application/json", head=head)
             if path.startswith("/media/"):
                 media_id = unquote(path[len("/media/"):])
-                file = projection.media(media_id)
+                file, status, why = projection.media_lookup(media_id)
                 if file is None:
-                    return self._json(404, {"error": "unknown media id"})
+                    return self._json(status, {"error": why})
                 return self._send_file(file, head)
             return self._json(404, {"error": "not found"})
 
@@ -457,8 +510,22 @@ def make_handler(projection: Projection, workspace: Path | None = None):
                     close()
 
         def _send_file(self, file: Path, head: bool) -> None:
-            size = file.stat().st_size
-            content_type = SERVABLE[file.suffix.lower()]
+            # WHY O_NOFOLLOW on the canonical path: it holds no symlink, so a link swapped in after the check fails to
+            # open instead of being followed; size and type come from the opened file itself.
+            try:
+                fd = os.open(file, os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0))
+            except OSError:
+                return self._json(403, {"error": "the listed file changed while it was being opened"})
+            handle = os.fdopen(fd, "rb")
+            try:
+                info = os.fstat(fd)
+                if not stat.S_ISREG(info.st_mode):
+                    return self._json(403, {"error": "the listed file is not a regular file"})
+                self._stream_open(handle, info.st_size, SERVABLE[file.suffix.lower()], head)
+            finally:
+                handle.close()
+
+        def _stream_open(self, handle: Any, size: int, content_type: str, head: bool) -> None:
             wanted = parse_range(self.headers.get("Range"), size)
             if wanted == "unsatisfiable":
                 self.send_response(HTTPStatus.REQUESTED_RANGE_NOT_SATISFIABLE)
@@ -483,15 +550,14 @@ def make_handler(projection: Projection, workspace: Path | None = None):
             if head or length == 0:
                 return
             try:
-                with open(file, "rb") as handle:
-                    handle.seek(start)
-                    remaining = length
-                    while remaining > 0:
-                        chunk = handle.read(min(CHUNK, remaining))
-                        if not chunk:
-                            break
-                        self.wfile.write(chunk)
-                        remaining -= len(chunk)
+                handle.seek(start)
+                remaining = length
+                while remaining > 0:
+                    chunk = handle.read(min(CHUNK, remaining))
+                    if not chunk:
+                        break
+                    self.wfile.write(chunk)
+                    remaining -= len(chunk)
             except (BrokenPipeError, ConnectionResetError):
                 pass  # the player moved on (a seek closes the old request)
 

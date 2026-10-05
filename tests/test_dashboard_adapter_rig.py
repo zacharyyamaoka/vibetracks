@@ -47,6 +47,22 @@ KPI_DEFS = [
 ]
 
 
+def assert_no_none_text(case: unittest.TestCase, track: dict) -> None:
+    """No string a page shows may carry Python's None ("0 of None", "None rungs"): missing is said in words."""
+
+    def walk(node, where):
+        if isinstance(node, dict):
+            for key, value in node.items():
+                walk(value, f"{where}.{key}")
+        elif isinstance(node, list):
+            for index, value in enumerate(node):
+                walk(value, f"{where}[{index}]")
+        elif isinstance(node, str):
+            case.assertNotRegex(node, r"\bNone\b", where)
+
+    walk(track, track.get("id", "track"))
+
+
 class RigAdapterTest(unittest.TestCase):
     def setUp(self) -> None:
         self.tmp = tempfile.TemporaryDirectory()
@@ -209,6 +225,36 @@ class RigAdapterTest(unittest.TestCase):
         self.assertEqual(self.series(self.kpi(track, "packages_landed")), [0, None, 2])
         self.assertEqual(self.series(self.kpi(track, "audits")), [0, None, 1])
         self.assertEqual(self.series(self.kpi(track, "days_since_real")), [9, None, 10])
+
+    def test_no_ladder_and_no_events_is_an_unmeasured_north_star(self) -> None:
+        # WHY (audit 2026-10-04, finding 4): this used to be value 0, measured, "0 of None", with a note citing
+        # loop-status's "2 rungs moved", a source the count never used.
+        (self.loop / "ladder.json").unlink()
+        (self.loop / "loop_events.jsonl").unlink()
+        track = self.track()
+        kpi = self.kpi(track, "rungs_green")
+        self.assertEqual(self.series(kpi), [None, None, None])
+        self.assertFalse(any(v["measured"] for v in kpi["values"]))
+        self.assertEqual(kpi["status"]["word"], "not measured")
+        self.assertIsNone(kpi["baseline"])
+        self.assertIsNone(kpi["target"])
+        for value in kpi["values"]:
+            self.assertIn("ladder.json missing and loop_events.jsonl missing", value["note"])
+            self.assertNotIn("rungs moved", value["note"])
+        self.assertIn("rungs green not measured", track["summary"])
+        assert_no_none_text(self, track)
+
+    def test_events_without_a_ladder_count_but_never_say_of_none(self) -> None:
+        (self.loop / "ladder.json").unlink()
+        track = self.track()
+        kpi = self.kpi(track, "rungs_green")
+        self.assertEqual(self.series(kpi), [1, 1, 2])  # A0, carried, A1: the events alone, no ladder placement
+        self.assertEqual(kpi["status"]["word"], "2 green (no ladder total) · +1 in T2")
+        self.assertIn("no package total: ladder.json missing", self.kpi(track, "packages_landed")["status"]["word"])
+        assert_no_none_text(self, track)
+
+    def test_the_full_fixture_has_no_none_text_either(self) -> None:
+        assert_no_none_text(self, self.track())
 
     def test_elapsed_hours_are_wall_clock(self) -> None:
         kpi = self.kpi(self.track(), "elapsed_h")

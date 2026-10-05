@@ -28,12 +28,15 @@ import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, typ
 import {
   CopyOut,
   EvidenceLink,
+  IncludeDefaultingPointer,
+  StaleDraftNotice,
   GROUP_LABEL,
   WHEN_NOT_STATED,
   appliesAfter,
   choiceLabel,
   effectiveChoice,
   isComplete,
+  isNoteOnly,
   type AnswerStore,
   type Choice,
   type NeedsDoc,
@@ -58,8 +61,9 @@ interface Entry {
 
 /** The groups that want something from Zach: exactly the frozen contract's `wants_you`. */
 const WANT_GROUPS: NeedsGroup[] = ['blocking', 'no_default', 'waiting']
-/** WHY "defaulting" is outside the lane until asked for: its default is already in effect, so it needs nothing from
- *  Zach; putting kinsim's eight in the lane would bury the three that do. One press on the end screen adds them. */
+/** WHY "defaulting" is outside the lane unless the settings page says otherwise ("Include questions whose default is
+ *  already in effect"): its default is already in effect, so it needs nothing from Zach; putting kinsim's eight in the
+ *  lane would bury the three that do. The end screen says how many it left out and where the setting is. */
 const ALL_GROUPS: NeedsGroup[] = [...WANT_GROUPS, 'defaulting']
 /** How long the picked option stays visibly pressed before the next card slides in. */
 const CONFIRM_MS = 380
@@ -73,36 +77,6 @@ function buildQueue(docs: NeedsDoc[], includeDefaulting: boolean): Entry[] {
   // One track: needs.py's own order. Several: by what an item holds (group) before which track it is in.
   for (const group of groups) for (const doc of docs) for (const item of doc.items) if (item.group === group) entries.push({ doc, item })
   return entries
-}
-
-// ---- answers that can only name options that exist ---------------------------------------------------------------
-
-/**
- * The answer store as this lane reads it: a draft whose choice names an option the item does not offer (a stale
- * "accept_recommendation" on a grasping item that has no recommendation, written by another proposal or an older
- * build) loses that choice. WHY a read-side wrapper and not a cleanup write: the store is shared with N1-N5, and
- * nothing here should rewrite what another view saved; but nothing this lane shows or copies may name an option the
- * loop never offered. A note left behind follows the kit's own rule (a note alone is "something else").
- */
-function useOfferedAnswers(answers: AnswerStore, docs: NeedsDoc[]): AnswerStore {
-  const offered = useMemo(() => {
-    const map = new Map<string, Set<Choice>>()
-    for (const doc of docs) for (const item of doc.items) map.set(`${doc.track}\u0000${item.local_id}`, new Set(item.options.map((option) => option.key)))
-    return map
-  }, [docs])
-  return useMemo<AnswerStore>(
-    () => ({
-      ...answers,
-      get(track: string, localId: string) {
-        const draft = answers.get(track, localId)
-        const keys = offered.get(`${track}\u0000${localId}`)
-        if (!draft || !keys || !draft.choice || keys.has(draft.choice)) return draft
-        // Only the note survives, and only where "something else" is an option it can stand for.
-        return draft.note.trim() && keys.has('other') ? { ...draft, choice: null } : null
-      },
-    }),
-    [answers, offered],
-  )
 }
 
 // ---- the counts contract ----------------------------------------------------------------------------------------
@@ -342,9 +316,10 @@ function Clamp({ lines, children, testId }: { lines: number; children: ReactNode
 // ---- the lane ---------------------------------------------------------------------------------------------------
 
 export default function NeedsLaneContext(props: NeedsProposalProps) {
-  const { docs, track, loading, error, onBack } = props
-  const answers = useOfferedAnswers(props.answers, docs)
-  const [includeDefaulting, setIncludeDefaulting] = useState(false)
+  const { docs, track, loading, error, onBack, includeDefaulting, openSettings } = props
+  // WHY the store as given: it already shows only live drafts with offered choices (answerRules.ts), for N1-N6 alike;
+  // this lane once wrapped it with a rule of its own that the other proposals did not share.
+  const answers = props.answers
   const queue = useMemo(() => buildQueue(docs, includeDefaulting), [docs, includeDefaulting])
   const defaultingCount = useMemo(() => docs.reduce((sum, doc) => sum + groupCount(doc, 'defaulting'), 0), [docs])
   // Position: an item id, 'end', or null for "the first card".
@@ -368,7 +343,6 @@ export default function NeedsLaneContext(props: NeedsProposalProps) {
     setPosition(null)
     setLater(new Set())
     setSeen(new Set())
-    setIncludeDefaulting(false)
   }
   const [hint, setHint] = useState<string | null>(null)
   const [flash, setFlash] = useState<Choice | null>(null)
@@ -572,7 +546,7 @@ export default function NeedsLaneContext(props: NeedsProposalProps) {
   let body: ReactNode
   if (loading && !docs.length) body = <p className="vt-muted n6-quiet">Reading the loops…</p>
   else if (error && !docs.length) body = <p className="vt-tone-risk n6-quiet">/needs did not answer: {error}</p>
-  else if (!queue.length) body = <EmptyLane docs={docs} defaultingCount={defaultingCount} includeDefaulting={includeDefaulting} onIncludeDefaulting={() => setIncludeDefaulting(true)} />
+  else if (!queue.length) body = <EmptyLane docs={docs} defaultingCount={defaultingCount} includeDefaulting={includeDefaulting} openSettings={openSettings} />
   else if (atEnd || !current)
     body = (
       <EndScreen
@@ -584,11 +558,6 @@ export default function NeedsLaneContext(props: NeedsProposalProps) {
         defaultingCount={defaultingCount}
         includeDefaulting={includeDefaulting}
         onJump={goTo}
-        onIncludeDefaulting={() => {
-          const first = buildQueue(docs, true).find((entry) => entry.item.group === 'defaulting')
-          setIncludeDefaulting(true)
-          setPosition(first?.item.id ?? 'end')
-        }}
       />
     )
   else
@@ -932,6 +901,7 @@ function Card({
           )
         })}
         {keys}
+        <StaleDraftNotice answers={answers} doc={doc} item={item} />
         <textarea
           ref={noteRef}
           className="n6-note"
@@ -949,6 +919,13 @@ function Card({
               Saved: {choiceLabel(item, flash)}
               {draft?.note.trim() ? ' + note' : ''}. Next…
             </span>
+          ) : isNoteOnly(draft) ? (
+            <>
+              <span className="vt-muted">Draft: a note, no option (this question offers no "Something else")</span>{' '}
+              <button type="button" className="vt-btn vt-faint n6-clear" onClick={onClear}>
+                clear
+              </button>
+            </>
           ) : draft && effectiveChoice(draft) ? (
             <>
               <span className="vt-muted">
@@ -1056,7 +1033,7 @@ function EndScreen({
   defaultingCount,
   includeDefaulting,
   onJump,
-  onIncludeDefaulting,
+  openSettings,
 }: NeedsProposalProps & {
   queue: Entry[]
   later: Set<string>
@@ -1064,12 +1041,13 @@ function EndScreen({
   defaultingCount: number
   includeDefaulting: boolean
   onJump(index: number): void
-  onIncludeDefaulting(): void
 }) {
   const draftOf = (entry: Entry) => answers.get(entry.doc.track, entry.item.local_id)
+  const staleOf = (entry: Entry) => answers.stale(entry.doc.track, entry.item.local_id)
   const answered = queue.filter((entry) => isComplete(draftOf(entry)))
-  const laterEntries = queue.filter((entry) => later.has(entry.item.id) && !isComplete(draftOf(entry)))
-  const unanswered = queue.filter((entry) => !isComplete(draftOf(entry)) && !later.has(entry.item.id))
+  // A stale draft is not an answer and not "unanswered" either: Copy names it with why, and its card asks to reconfirm.
+  const laterEntries = queue.filter((entry) => later.has(entry.item.id) && !isComplete(draftOf(entry)) && !staleOf(entry))
+  const unanswered = queue.filter((entry) => !isComplete(draftOf(entry)) && !later.has(entry.item.id) && !staleOf(entry))
   // WHY name drafts outside the lane: Copy exports every complete draft in these docs, including one written on an
   // earlier visit to an item that has since started defaulting. Each answer that leaves must be visible here first.
   const inLane = new Set(queue.map((entry) => entry.item.id))
@@ -1109,8 +1087,13 @@ function EndScreen({
                     {complete && choice ? (
                       <span>
                         {choiceLabel(entry.item, choice)}
-                        {draft?.note.trim() ? <span className="vt-muted"> · “{draft.note.trim()}”</span> : null}
+                        {/* The note as saved, never trimmed: pre-wrap keeps its lines (n6.css .n6-summary-note). */}
+                        {draft?.note.trim() ? <span className="vt-muted n6-summary-note"> · “{draft.note}”</span> : null}
                       </span>
+                    ) : staleOf(entry) ? (
+                      <span className="vt-muted">your draft is stale: reconfirm or discard it on its card</span>
+                    ) : isNoteOnly(draft) ? (
+                      <span className="vt-muted">a note, no option</span>
                     ) : later.has(entry.item.id) ? (
                       <span className="vt-faint">later</span>
                     ) : choice ? (
@@ -1125,20 +1108,23 @@ function EndScreen({
           )
         })}
       </ol>
-      {laterEntries.length || unanswered.length ? (
-        <p className="vt-small vt-muted n6-notcopy" data-testid="vt-n6-not-in-copy">
-          <span className="n6-label-inline">Not in the copy</span>
-          {laterEntries.length ? <> · Later: {links(laterEntries)}</> : null}
-          {unanswered.length ? <> · Unanswered: {links(unanswered)}</> : null}
-        </p>
-      ) : null}
       {elsewhere.length ? (
         <p className="vt-small vt-muted n6-notcopy" data-testid="vt-n6-elsewhere">
           <span className="n6-label-inline">Also in the copy</span> · drafted on an earlier visit, outside this lane:{' '}
           {elsewhere.map(({ doc, item }) => `${item.local_id} (${GROUP_LABEL[item.group].toLowerCase()}${docs.length > 1 ? `, ${doc.track_title}` : ''})`).join(', ')}
         </p>
       ) : null}
-      <CopyOut docs={docs} answers={answers} label="Copy all answers" className="n6-copy" />
+      {/* Copy names every draft it leaves out (stale ones with why); Later and Unanswered join that one line. */}
+      <CopyOut
+        docs={docs}
+        answers={answers}
+        label="Copy all answers"
+        className="n6-copy"
+        notInCopy={[
+          { label: 'Later', content: links(laterEntries), count: laterEntries.length },
+          { label: 'Unanswered', content: links(unanswered), count: unanswered.length },
+        ]}
+      />
       {keys}
       {docs.filter(isReported).map((doc) => (
         <p key={doc.track} className="vt-small vt-faint n6-channel">
@@ -1147,15 +1133,12 @@ function EndScreen({
         </p>
       ))}
       {!includeDefaulting && defaultingCount ? (
-        <p className="n6-more vt-small">
-          <span className="vt-muted">
-            {/* WHY not "open": the header's "M open" counts what wants Zach; these are the header's "more defaulting
-                without you", in the same words, so one word never means two things on this page. */}
-            {defaultingCount} more {defaultingCount === 1 ? 'is' : 'are'} defaulting without you: {defaultingCount === 1 ? 'its' : 'their'} default is already in effect (computed from the loop's progress).{' '}
-          </span>
-          <button type="button" className="vt-btn n6-link" data-testid="vt-n6-more" onClick={onIncludeDefaulting}>
-            Review them too →
-          </button>
+        <p className="n6-more vt-small vt-muted" data-testid="vt-n6-more">
+          {/* WHY not "open": the header's "M open" counts what wants Zach; these are the header's "more defaulting
+              without you", in the same words, so one word never means two things on this page.
+              WHY plain text and a link, not a "Review them too" button: including them is a view option, and view
+              options live only on the settings page (Codex audit 2026-10-04, finding 13). */}
+          {defaultingCount} more {defaultingCount === 1 ? 'is' : 'are'} defaulting without you: {defaultingCount === 1 ? 'its' : 'their'} default is already in effect (computed from the loop's progress), so {defaultingCount === 1 ? 'it is' : 'they are'} not in this lane. <IncludeDefaultingPointer openSettings={openSettings} testId="vt-n6-settings-link" />
         </p>
       ) : null}
       {unreported.length ? <NotReported docs={unreported} /> : null}
@@ -1202,12 +1185,12 @@ function EmptyLane({
   docs,
   defaultingCount,
   includeDefaulting,
-  onIncludeDefaulting,
+  openSettings,
 }: {
   docs: NeedsDoc[]
   defaultingCount: number
   includeDefaulting: boolean
-  onIncludeDefaulting(): void
+  openSettings(): void
 }) {
   const reported = docs.filter(isReported)
   const unreported = docs.filter((doc) => !isReported(doc))
@@ -1225,13 +1208,8 @@ function EmptyLane({
         </p>
       ))}
       {!includeDefaulting && defaultingCount ? (
-        <p className="n6-more vt-small">
-          <span className="vt-muted">
-            {defaultingCount} {defaultingCount === 1 ? 'is' : 'are'} defaulting without you: the default is already in effect (computed from the loop's progress).{' '}
-          </span>
-          <button type="button" className="vt-btn n6-link" onClick={onIncludeDefaulting}>
-            Review them →
-          </button>
+        <p className="n6-more vt-small vt-muted" data-testid="vt-n6-more">
+          {defaultingCount} {defaultingCount === 1 ? 'is' : 'are'} defaulting without you: the default is already in effect (computed from the loop's progress). <IncludeDefaultingPointer openSettings={openSettings} testId="vt-n6-settings-link" />
         </p>
       ) : null}
       {unreported.length === 1 && !reported.length ? (
@@ -1250,3 +1228,4 @@ function EmptyLane({
     </article>
   )
 }
+

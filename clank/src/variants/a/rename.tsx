@@ -1,32 +1,47 @@
 // Renaming a work track, like renaming a chat (Zach, 2026-10-04: "internally keep an ID that doesn't change, but it's
 // nice being able to rename the work track, just like I can rename a chat session").
 //   - Double-click the name (home row or track page title), press F2 on it, or use "Rename track…" in its ⋯ menu.
-//   - Enter or clicking away saves; Esc cancels. An empty or unchanged name saves nothing.
+//   - Enter or clicking away saves; Esc cancels. An unchanged name saves nothing.
 //   - The save is POST /tracks/<id>/title {title, revision} (docs/dashboard/ADAPTERS.md "Renaming a track"): only the
 //     note's vibe-title changes; the id, every URL and the roadmap key stay the same.
-//   - Optimistic: the new name shows at once and rolls back if the save fails. A 409 means the note changed since this
-//     page read it: say so quietly, reload, and keep the edit open with the reader's text.
+//   - The title goes out exactly as typed (no trim): the server validates it and its message shows inline.
+//   - The revision is the one on screen when editing STARTED (renameFence.ts): a projection that refreshes mid-edit
+//     never moves it, so another writer's change makes the save 409 instead of being overwritten silently.
+//   - Optimistic: the new name shows at once and rolls back if the save fails. A 409 keeps the edit open with the
+//     reader's text, shows the other title, and offers "Use theirs" or "Save mine anyway"; only that explicit choice
+//     re-fences, on the revision the other title was read at.
 // WHY only tracks with a registry revision: a deployment (can12) has no note of its own to rename, so it offers nothing
 // rather than a control that cannot work (G2, no fake controls).
 
 import { useCallback, useEffect, useRef, useState, type KeyboardEvent, type MouseEvent } from 'react'
 import type { PluginBackend } from '@clank/api'
 import type { Projection, Track } from '../../shared'
+import { trackById } from '../../shared'
 import { registryOf } from './live'
-
-const MAX_TITLE = 80
-// eslint-disable-next-line no-control-regex
-const CONTROL = /[\u0000-\u001f\u007f]/
+import * as fence from './renameFence'
 
 interface Override {
   title: string
   pending: boolean
+  /** The note revision our own save produced (absent while pending): the fence for an edit started before the
+   * projection has re-read the note, so a quick second rename does not 409 against our own first one. */
+  revision?: string
 }
 
 export interface RenameNotice {
   track: string
   text: string
   tone: 'muted' | 'risk'
+}
+
+export interface RenameConflict {
+  track: string
+  /** The other writer's title and revision, once the projection has re-read the note; null while it is reading. */
+  theirs: fence.Theirs | null
+  /** The other change left the name as it was when this edit started (it touched something else in the note). */
+  sameName: boolean
+  useTheirs: () => void
+  saveMine: () => void
 }
 
 export interface Renamer {
@@ -39,14 +54,15 @@ export interface Renamer {
   start: (track: Track) => void
   cancel: () => void
   submit: (track: Track) => void
+  /** Clicking away: saves, except in a conflict or on a draft the server just refused (renameFence.onBlur). */
+  blur: (track: Track) => void
   notice: RenameNotice | null
+  conflict: RenameConflict | null
 }
 
 export function useRenamer(backend: PluginBackend, projection: Projection, reload: () => void): Renamer {
   const [overrides, setOverrides] = useState<Record<string, Override>>({})
-  const [editing, setEditing] = useState<string | null>(null)
-  const [draft, setDraft] = useState('')
-  const [notice, setNotice] = useState<RenameNotice | null>(null)
+  const [session, setSession] = useState<fence.Session | null>(null)
 
   // WHY drop settled overrides on every new projection: once the backend has been re-read, the projection is the
   // truth; an override only bridges the gap between a save and that re-read.
@@ -63,39 +79,24 @@ export function useRenamer(backend: PluginBackend, projection: Projection, reloa
 
   const start = useCallback(
     (track: Track) => {
-      if (!registryOf(track)?.revision) return
-      setEditing(track.id)
-      setDraft(overrides[track.id]?.title ?? track.title)
-      setNotice(null)
+      const revision = registryOf(track)?.revision
+      const override = overrides[track.id]
+      // WHY not while our own save is in flight: its new revision is not known yet, so any fence chosen now is stale.
+      if (!revision || override?.pending) return
+      setSession(fence.begin(track.id, override?.title ?? track.title, override?.revision ?? revision))
     },
     [overrides],
   )
-  const cancel = useCallback(() => {
-    setEditing(null)
-    setNotice(null)
-  }, [])
+  const cancel = useCallback(() => setSession(null), [])
+  const setDraft = useCallback((value: string) => setSession((current) => (current ? fence.edited(current, value) : current)), [])
 
-  const submit = useCallback(
-    (track: Track) => {
-      const title = draft.trim()
-      const shown = overrides[track.id]?.title ?? track.title
-      if (!title || title === shown) {
-        setEditing(null)
-        setNotice(null)
+  const send = useCallback(
+    (track: Track, sent: fence.Session) => {
+      const body = fence.request(sent)
+      if (!body) {
+        setSession(null)
         return
       }
-      if (title.length > MAX_TITLE) {
-        setNotice({ track: track.id, text: `${MAX_TITLE} characters at most (this is ${title.length})`, tone: 'risk' })
-        return
-      }
-      if (CONTROL.test(title)) {
-        setNotice({ track: track.id, text: 'one line, no control characters', tone: 'risk' })
-        return
-      }
-      // WHY always the projection's revision (never the one a 409 reported): the reader should overwrite only a version
-      // the page has shown them. A 409 reloads the projection; an Enter before that lands simply 409s again.
-      const revision = registryOf(track)?.revision ?? null
-      if (!revision) return
       const previous = overrides[track.id]
       const rollback = () =>
         setOverrides((current) => {
@@ -104,45 +105,76 @@ export function useRenamer(backend: PluginBackend, projection: Projection, reloa
           else delete next[track.id]
           return next
         })
-      const reopen = (text: string, tone: RenameNotice['tone']) => {
-        setEditing(track.id)
-        setDraft(title)
-        setNotice({ track: track.id, text, tone })
-      }
-      setOverrides((current) => ({ ...current, [track.id]: { title, pending: true } }))
-      setEditing(null)
-      setNotice(null)
+      setOverrides((current) => ({ ...current, [track.id]: { title: body.title, pending: true } }))
+      setSession(null)
       backend
         .fetch(`/tracks/${encodeURIComponent(track.id)}/title`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ title, revision }),
+          body: JSON.stringify(body),
         })
         .then(async (response) => {
-          const body = (await response.json().catch(() => null)) as { title?: unknown; error?: unknown } | null
+          const answer = (await response.json().catch(() => null)) as { title?: unknown; error?: unknown; revision?: unknown } | null
           if (response.ok) {
-            const saved = typeof body?.title === 'string' ? body.title : title
-            setOverrides((current) => ({ ...current, [track.id]: { title: saved, pending: false } }))
+            const saved = typeof answer?.title === 'string' ? answer.title : body.title
+            const revision = typeof answer?.revision === 'string' ? answer.revision : undefined
+            setOverrides((current) => ({ ...current, [track.id]: { title: saved, pending: false, revision } }))
             reload()
             return
           }
           rollback()
           if (response.status === 409) {
+            // The draft and its original fence come back as they were; the projection re-read supplies their title.
+            setSession(fence.conflicted(sent, typeof answer?.revision === 'string' ? answer.revision : null))
             reload()
-            reopen('Changed elsewhere, reloaded. Enter saves your name over it.', 'muted')
             return
           }
-          reopen(`Not renamed: ${typeof body?.error === 'string' ? body.error : `HTTP ${response.status}`}`, 'risk')
+          setSession(fence.failed(sent, typeof answer?.error === 'string' ? answer.error : `HTTP ${response.status}`))
         })
         .catch((error: unknown) => {
           rollback()
-          reopen(`Not renamed: ${error instanceof Error ? error.message : String(error)}`, 'risk')
+          setSession(fence.failed(sent, error instanceof Error ? error.message : String(error)))
         })
     },
-    [backend, draft, overrides, reload],
+    [backend, overrides, reload],
   )
 
-  return { titleOf, canRename, pending, editing, draft, setDraft, start, cancel, submit, notice }
+  const submit = useCallback(
+    (track: Track) => {
+      if (!session || session.trackId !== track.id) return
+      // WHY Enter does nothing in a conflict: only "Save mine anyway" may write over the other title.
+      if (session.phase.kind === 'conflict') return
+      send(track, session)
+    },
+    [send, session],
+  )
+  const blur = useCallback(
+    (track: Track) => {
+      if (!session || session.trackId !== track.id) return
+      if (fence.onBlur(session) === 'submit') send(track, session)
+    },
+    [send, session],
+  )
+
+  const editing = session?.trackId ?? null
+  const editedTrack = editing ? trackById(projection, editing) : null
+  let conflict: RenameConflict | null = null
+  if (session && session.phase.kind === 'conflict' && editedTrack) {
+    const theirs = fence.theirsOf(session, editedTrack.title, registryOf(editedTrack)?.revision ?? null)
+    conflict = {
+      track: session.trackId,
+      theirs,
+      sameName: Boolean(theirs && theirs.title === session.base.title),
+      useTheirs: () => setSession(null),
+      saveMine: () => {
+        if (theirs) send(editedTrack, fence.saveMineAnyway(session, theirs))
+      },
+    }
+  }
+  let notice: RenameNotice | null = null
+  if (session?.phase.kind === 'failed') notice = { track: session.trackId, text: `Not renamed: ${session.phase.message}`, tone: 'risk' }
+
+  return { titleOf, canRename, pending, editing, draft: session?.draft ?? '', setDraft, start, cancel, submit, blur, notice, conflict }
 }
 
 /** The track's name: plain text, or the inline editor while it is being renamed. `onOpen` makes a single click open
@@ -245,6 +277,9 @@ function NameEditor({ track, renamer, notice, className }: { track: Track; renam
     input.current?.select()
   }, [])
   const stop = (event: MouseEvent) => event.stopPropagation()
+  const conflict = renamer.conflict && renamer.conflict.track === track.id ? renamer.conflict : null
+  // WHY mousedown preventDefault on the choice buttons: the input keeps focus, so no blur races the click.
+  const keepFocus = (event: MouseEvent) => event.preventDefault()
   return (
     <span className="vt-a-rename" onClick={stop} onDoubleClick={stop} onMouseDown={stop}>
       <input
@@ -255,10 +290,14 @@ function NameEditor({ track, renamer, notice, className }: { track: Track; renam
         value={renamer.draft}
         spellCheck={false}
         size={Math.max(12, Math.min(48, renamer.draft.length + 2))}
-        onChange={(event) => renamer.setDraft(event.target.value)}
+        onChange={(event) => {
+          settled.current = false
+          renamer.setDraft(event.target.value)
+        }}
         onKeyDown={(event) => {
           if (event.key === 'Enter') {
             event.preventDefault()
+            if (conflict) return
             settled.current = true
             renamer.submit(track)
           } else if (event.key === 'Escape') {
@@ -270,11 +309,41 @@ function NameEditor({ track, renamer, notice, className }: { track: Track; renam
         }}
         onBlur={() => {
           if (settled.current) return
-          settled.current = true
-          renamer.submit(track)
+          renamer.blur(track)
         }}
       />
-      {notice ? <NoticeLine notice={notice} /> : <span className="vt-a-rename-hint vt-small vt-faint">Enter saves · Esc cancels</span>}
+      {conflict ? (
+        <span className="vt-a-rename-conflict vt-small" role="status" data-testid="vt-a-rename-conflict">
+          {conflict.theirs ? (
+            <>
+              <span className="vt-muted" data-testid="vt-a-rename-theirs">
+                {conflict.sameName
+                  ? `The note changed elsewhere; its name is still “${conflict.theirs.title}”.`
+                  : `Renamed elsewhere to “${conflict.theirs.title}”.`}
+              </span>{' '}
+              <button type="button" className="vt-btn vt-a-link" data-testid="vt-a-rename-use-theirs" onMouseDown={keepFocus} onClick={() => {
+                settled.current = true
+                conflict.useTheirs()
+              }}>
+                Use theirs
+              </button>
+              {' · '}
+              <button type="button" className="vt-btn vt-a-link" data-testid="vt-a-rename-save-mine" onMouseDown={keepFocus} onClick={() => {
+                settled.current = true
+                conflict.saveMine()
+              }}>
+                Save mine anyway
+              </button>
+            </>
+          ) : (
+            <span className="vt-faint">Changed elsewhere since you started; reading the other version… Esc cancels.</span>
+          )}
+        </span>
+      ) : notice ? (
+        <NoticeLine notice={notice} />
+      ) : (
+        <span className="vt-a-rename-hint vt-small vt-faint">Enter saves · Esc cancels</span>
+      )}
     </span>
   )
 }

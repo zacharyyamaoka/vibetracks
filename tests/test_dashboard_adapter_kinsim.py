@@ -218,7 +218,8 @@ class KinsimAdapterTest(unittest.TestCase):
     def test_questions_disk_and_needs_you(self) -> None:
         track = self.fx.build()
         self.assertEqual(series(track, "questions_opened"), [None, 2, 1])
-        self.assertEqual(kpi(track, "questions_opened")["status"]["word"], "2 open · 1 blocking a rung")
+        # History only: what is open now comes from /needs (build.py), never from a second count here (finding 5).
+        self.assertEqual(kpi(track, "questions_opened")["status"]["word"], "3 opened in all")
         disk = kpi(track, "disk_pct")
         self.assertEqual(series(track, "disk_pct"), [None, 80.0, 85.0])     # W2 is its peak (85 then 70)
         self.assertEqual(disk["target"], {"value": 92.0, "kind": "limit", "label": "stop line: df -h / prints 92 %"})
@@ -236,7 +237,7 @@ class KinsimAdapterTest(unittest.TestCase):
         self.assertIn("wave 3 not started", track["state"]["detail"])
         self.assertEqual(track["state"]["since"], "2026-10-02T06:00:00+00:00")
         self.assertEqual(track["summary"], "Wave 2 closed; 4 of 6 rungs green or done (+2: OB0, RB0); "
-                                           "frontier BT2 at 40 % feasible; 2 questions open, 1 blocking a rung.")
+                                           "frontier BT2 at 40 % feasible.")
 
     def test_rung_between_waves_is_the_frontier_and_next_is_the_wave_plan(self) -> None:
         track = self.fx.build()
@@ -301,6 +302,35 @@ class KinsimAdapterTest(unittest.TestCase):
         self.assertEqual([v["value"] for v in values], [None, None, 4])      # only the fold's current count
         self.assertTrue(all(v["note"] for v in values[:2]))
         self.assertTrue(all(v["value"] is None and v["note"] for v in kpi(track, "weighted_capability")["values"]))
+
+    def test_stored_text_reaches_the_projection_whole(self) -> None:
+        # WHY (audit 2026-10-04, finding 10): event details were cut at 600 characters with "…" (w3-review-rule was
+        # 642 characters, w3-intervention-5 carried 600); leading/trailing spaces were trimmed too.
+        long_detail = "  " + " ".join(f"word{n}" for n in range(200)) + " end.  "
+        self.assertGreater(len(long_detail), 1200)
+        self.fx.events.insert(-1, ev("2026-10-02T05:00:00+00:00", 2, "intervention", "w3-review-rule", "noted",
+                                     long_detail))
+        self.fx.events[-1]["detail"] = "3 of 3 packages landed; df 70 % · " + "x" * 700
+        track = self.fx.build()
+        notes = [item.get("note") for item in track["evidence"]["by_iteration"]["W2"]]
+        self.assertIn(long_detail, notes)
+        self.assertIn(self.fx.events[-1]["detail"], notes)
+        self.assertFalse(any(isinstance(note, str) and note.endswith("…") for note in notes))
+
+    def test_a_rung_without_a_weight_is_not_weighed_as_zero(self) -> None:
+        curriculum = json.loads(json.dumps(CURRICULUM))
+        del curriculum["rungs"][2]["kpi_weight"]   # RB0
+        (self.fx.loop / "curriculum.json").write_text(json.dumps(curriculum))
+        values = kpi(self.fx.build(), "weighted_capability")["values"]
+        self.assertTrue(all(v["value"] is None and not v["measured"] for v in values))
+        self.assertIn("without a numeric kpi_weight: RB0", values[0]["note"])
+
+    def test_no_python_none_reaches_any_text(self) -> None:
+        from test_dashboard_adapter_rig import assert_no_none_text
+        assert_no_none_text(self, self.fx.build())
+        (self.fx.loop / "curriculum.json").unlink()
+        self.fx.status["rungs"] = []
+        assert_no_none_text(self, self.fx.build())
 
     def test_no_loop_files_is_not_reporting(self) -> None:
         track = kinsim.build_track(work_track([]), {"kinsim_status": str(self.fx.home / "nope.json")})

@@ -130,41 +130,43 @@ export function IterationPage({ projection, track, iteration, title, nav, mediaU
             {previous ? `change vs the previous reading` : `the first ${unitWord(track, 1)}: nothing to compare with`} · a row opens its evidence
           </span>
         </h2>
-        <table className="vt-table vt-a-deltas" data-testid="vt-a-deltas" ref={table}>
-          <colgroup>
-            <col style={{ width: '30%' }} />
-            <col style={{ width: '23%' }} />
-            <col style={{ width: '19%' }} />
-            <col style={{ width: '20%' }} />
-            <col style={{ width: '8%' }} />
-          </colgroup>
-          <thead>
-            <tr>
-              <th>KPI</th>
-              <th>Value</th>
-              <th>{showDeltas ? 'Change' : ''}</th>
-              <th>Against target</th>
-              <th>Evidence</th>
-            </tr>
-          </thead>
-          <tbody>
-            {measured.map((kpi) => (
-              <DeltaRow
-                key={kpi.id}
-                kpi={kpi}
-                track={track}
-                iteration={iteration}
-                showDeltas={showDeltas}
-                focused={kpi.id === focusKpi?.id}
-                onFocus={() => here({ kpi: kpi.id === focusKpi?.id ? undefined : kpi.id, media: undefined })}
-                mediaUrl={mediaUrl}
-                openMedia={route.media ?? null}
-                onOpenMedia={(mediaId) => here({ media: mediaId ?? undefined })}
-                onSelectItem={openItem}
-              />
-            ))}
-          </tbody>
-        </table>
+        <div className="vt-a-tablescroll">
+          <table className="vt-table vt-a-deltas" data-testid="vt-a-deltas" ref={table}>
+            <colgroup>
+              <col style={{ width: '30%' }} />
+              <col style={{ width: '23%' }} />
+              <col style={{ width: '19%' }} />
+              <col style={{ width: '20%' }} />
+              <col style={{ width: '8%' }} />
+            </colgroup>
+            <thead>
+              <tr>
+                <th>KPI</th>
+                <th>Value</th>
+                <th>{showDeltas ? 'Change' : ''}</th>
+                <th>Against target</th>
+                <th>Evidence</th>
+              </tr>
+            </thead>
+            <tbody>
+              {measured.map((kpi) => (
+                <DeltaRow
+                  key={kpi.id}
+                  kpi={kpi}
+                  track={track}
+                  iteration={iteration}
+                  showDeltas={showDeltas}
+                  focused={kpi.id === focusKpi?.id}
+                  onFocus={() => here({ kpi: kpi.id === focusKpi?.id ? undefined : kpi.id, media: undefined })}
+                  mediaUrl={mediaUrl}
+                  openMedia={route.media ?? null}
+                  onOpenMedia={(mediaId) => here({ media: mediaId ?? undefined })}
+                  onSelectItem={openItem}
+                />
+              ))}
+            </tbody>
+          </table>
+        </div>
         {unmeasured.length ? (
           <p className="vt-a-unmeasured vt-small" data-testid="vt-a-unmeasured">
             <span className="vt-faint">Not measured at {iteration.label}: </span>

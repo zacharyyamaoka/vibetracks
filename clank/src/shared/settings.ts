@@ -22,9 +22,11 @@ export interface DashboardSettings {
   xAxis: 'iteration' | 'day'
   /** Show each KPI's change beside its latest value. */
   showDeltas: boolean
+  /** Needs you: also queue the questions whose default is already in effect (group `defaulting`). */
+  needsIncludeDefaulting: boolean
 }
 
-export const defaultDashboardSettings: DashboardSettings = { xAxis: 'iteration', showDeltas: true }
+export const defaultDashboardSettings: DashboardSettings = { xAxis: 'iteration', showDeltas: true, needsIncludeDefaulting: false }
 
 export const DASHBOARD_SETTINGS_SECTION: SettingsSection = {
   id: 'dashboard',
@@ -48,6 +50,18 @@ export const DASHBOARD_SETTINGS_SECTION: SettingsSection = {
       description: "Show each KPI's change beside its latest value (against the pinned baseline or the previous iteration).",
       type: 'boolean',
       default: defaultDashboardSettings.showDeltas,
+      scope: 'app',
+    },
+    // WHY here and not as N6's "Review them too" button (Codex audit 2026-10-04, finding 13): it changes which questions
+    // the Needs-you queue shows, a view option, and view options live only on this page. Off by default: their default
+    // already applies, so they want nothing from Zach, and queueing kinsim's eight would bury the three that do.
+    {
+      key: 'needsIncludeDefaulting',
+      title: 'Needs you · Include questions whose default is already in effect',
+      description:
+        "Queue them in the Needs-you lane after the ones that still want you. Off: the lane holds only what still wants you, and its end screen says how many it left out.",
+      type: 'boolean',
+      default: defaultDashboardSettings.needsIncludeDefaulting,
       scope: 'app',
     },
   ],
@@ -138,6 +152,27 @@ export function clearStoredSettings(): void {
   } catch {
     // As above.
   }
+}
+
+/** The dashboard section's values as stored now (defaults where nothing valid is stored). For a view that is not
+ * handed VariantProps.settings (the Needs-you shell): it reads them when it mounts, and the settings page replaces it
+ * while open, so a change there is read on the way back. */
+export function readDashboardSettings(): DashboardSettings {
+  const values = resolveSettings([DASHBOARD_SETTINGS_SECTION], { dashboard: { ...defaultDashboardSettings } }, readStoredSettings())
+  return values.dashboard as unknown as DashboardSettings
+}
+
+/** readDashboardSettings(), kept in step with a change made in another tab. */
+export function useDashboardSettings(): DashboardSettings {
+  const [values, setValues] = useState<DashboardSettings>(readDashboardSettings)
+  useEffect(() => {
+    const onStorage = (event: StorageEvent) => {
+      if (event.key === null || event.key === SETTINGS_STORAGE_KEY) setValues(readDashboardSettings())
+    }
+    window.addEventListener('storage', onStorage)
+    return () => window.removeEventListener('storage', onStorage)
+  }, [])
+  return values
 }
 
 export interface PersistentSettings {

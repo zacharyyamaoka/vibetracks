@@ -7,7 +7,10 @@
 //   ## T47 · Should this robot be expected to pick at 1.0 m/s and above?
 //   - **Answer:** Go with the recommendation (accept_recommendation)
 //     > Keep the motor settings (your brief) and redefine BT4's gate as …   (the loop's recommendation, verbatim)
-//   - **Note:** Keep the motor limits; also log the skip reason per object.
+//   - **Note:**
+//     ```text
+//     Keep the motor limits; also log the skip reason per object.
+//     ```
 //
 //   ```jsonl
 //   {"ts":"2026-10-04T19:20:11-07:00","triage_id":"T47","choice":"accept_recommendation","note":"…"}
@@ -25,8 +28,20 @@
 // is for (the pyblocks precedent). WHY the jsonl fence only for bam-triage-answer/1 tracks: those rows are appended
 // verbatim to triage_answers.jsonl and must validate (exactly {ts, triage_id, choice, note}); a chat-paste loop
 // (rig) quotes the markdown instead. Unanswered items are omitted, never exported as blanks.
+//
+// WHY the note is a fenced block in markdown and the raw string in jsonl (Codex audit 2026-10-04, finding 7): the
+// note is Zach's own words and the copy must carry them exactly. The old `note.trim().replace(/\n+/g, ' ')` folded a
+// multiline answer with a ```python snippet into one line and dropped its edge whitespace; see noteBlockLines().
+// WHY stale drafts are named and never exported (finding 1): a draft bound to an older version of the question, or to
+// an item the loop has since settled, is not what Zach approved for the question as it reads now.
+// WHY a note with no option is never exported as `other` where the item does not offer `other`: the effective choice
+// must be one the item offers. A markdown-only channel carries it as a note with no option chosen; a channel whose
+// rows need a choice (bam-triage-answer/1: needs.py reads only rows whose choice is one of the three) cannot, so it is
+// named under "Not in the copy".
+//
+// Import from './answerRules' (pure), never './answers' (React): answers.check.mjs runs this file under plain node.
 
-import { effectiveChoice, isComplete, offeredDraft, type AnswerDraft } from './answers'
+import { draftState, effectiveChoice, isComplete, isNoteOnly, noteBlockLines, staleText, type AnswerDraft } from './answerRules'
 import type { Choice, NeedsDoc, NeedsItem } from './types'
 
 export const ANSWER_ROW_SCHEMA = 'bam-triage-answer/1'
@@ -71,11 +86,16 @@ export interface ExportResult {
   markdown: string
   /** Items exported, as `<track>:<local_id>`. */
   exported: string[]
-  /** Drafts left out, with why (`other` with a blank note). */
+  /** Drafts left out, with why: stale (the question changed, or the loop settled it), `other` with a blank note, or
+   * a note with no option on a channel whose rows need one. */
   skipped: { id: string; reason: string }[]
 }
 
+/** Pass the store's `stored` (every saved draft, live or stale) so stale ones are named; `get` also works. */
 type DraftLookup = (track: string, localId: string) => AnswerDraft | null
+
+/** The reason Copy names for a note with no option on a channel whose rows need one. */
+export const NOTE_ONLY_NEEDS_OPTION = 'note only, this loop needs an option'
 
 /** The chosen option's own words as markdown quote lines under the answer bullet, or [] for "Something else" (the note
  * is the answer). Every line of the loop's text is kept; blank lines stay as a bare `>` so paragraphs survive. */
@@ -96,22 +116,37 @@ export function exportTrack(doc: NeedsDoc, draftOf: DraftLookup, now: Date = new
   const ts = isoWithOffset(now)
   const rowsCarryChoice = doc.answer_channel.row_schema === ANSWER_ROW_SCHEMA
   for (const item of doc.items) {
-    // The store already drops a choice the item does not offer; checked again here because any lookup may be passed.
-    const draft = offeredDraft(draftOf(doc.track, item.local_id), new Set(item.options.map((option) => option.key)))
+    // The store applies the same rules; checked again here because any lookup may be passed.
+    const state = draftState(draftOf(doc.track, item.local_id), item)
+    if (state.stale) {
+      const has = state.stale.draft.choice || state.stale.draft.note.trim()
+      if (has) skipped.push({ id: item.id, reason: `${staleText(state.stale)}; ${state.stale.reconfirmable ? 'reconfirm or discard it' : 'discard it'}` })
+      continue
+    }
+    const draft = state.live
+    if (!draft) continue
     const choice = effectiveChoice(draft)
-    if (!draft || !choice) continue
-    if (!isComplete(draft)) {
+    const noteOnly = isNoteOnly(draft)
+    if (!choice && !noteOnly) continue
+    if (choice && !isComplete(draft)) {
       skipped.push({ id: item.id, reason: '"Something else" needs a note' })
       continue
     }
-    const note = draft.note.trim()
-    const lines = [`## ${item.local_id} · ${item.title}`, `- **Answer:** ${choiceLabel(item, choice)} (${choice})`]
-    lines.push(...optionQuoteLines(item, choice))
-    if (note) lines.push(`- **Note:** ${note.replace(/\n+/g, ' ')}`)
+    if (noteOnly && rowsCarryChoice) {
+      skipped.push({ id: item.id, reason: NOTE_ONLY_NEEDS_OPTION })
+      continue
+    }
+    // The note exactly as typed (never trimmed); a whitespace-only note is still shown, since it is what was saved.
+    const note = draft.note
+    const answer = choice ? `${choiceLabel(item, choice)} (${choice})` : 'no option chosen (note only)'
+    const lines = [`## ${item.local_id} · ${item.title}`, `- **Answer:** ${answer}`]
+    if (choice) lines.push(...optionQuoteLines(item, choice))
+    if (note) lines.push(...noteBlockLines(note))
     sections.push(lines.join('\n'))
     exported.push(item.id)
-    // Key order matters for a reader comparing rows by eye; JSON.stringify keeps insertion order.
-    rows.push(JSON.stringify({ ts, triage_id: item.local_id, choice, note }))
+    // Key order matters for a reader comparing rows by eye; JSON.stringify keeps insertion order. `note` is the raw
+    // string. Only reached with a choice: a note-only draft on a row channel was skipped above.
+    if (rowsCarryChoice && choice) rows.push(JSON.stringify({ ts, triage_id: item.local_id, choice, note }))
   }
   if (!sections.length) return skipped.length ? { markdown: '', exported, skipped } : null
   const channel = doc.answer_channel

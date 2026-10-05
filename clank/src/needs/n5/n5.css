@@ -476,4 +476,9 @@
   .vt-dash .vt-needs-n5.vt-needs-n5:focus-visible {
     outline: none;
   }
+  /* The stale-draft notice sits between the thread and the composer, never scrolled away with the stream. */
+  .vt-dash .vt-needs-n5 .vt-needs-stale.n5-stale {
+    flex: none;
+    margin: 8px 32px;
+  }
 }

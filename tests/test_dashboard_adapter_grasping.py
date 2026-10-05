@@ -411,6 +411,7 @@ class BridgeTest(unittest.TestCase):
         self.calls = root / "calls.log"
         doc = {"schema": grasp_bench_bridge.SCHEMA,
                "modules": {name: str(path) for name, path in self.files.items()},
+               "dependencies": sorted(str(path) for path in self.files.values()),
                "attestations_path": str(self.ledger.parent / "attestations.jsonl"), "runs": {}, "snapshots": {}}
         python = root / "bench" / ".venv" / "bin" / "python"
         python.parent.mkdir(parents=True)
@@ -444,6 +445,16 @@ class BridgeTest(unittest.TestCase):
             self.assertFalse(grasp_bench_bridge.bench_verdict(self.paths, {"T1": ["a"]}).cached, changed)
         self.assertEqual(self.ran(), 4)
         self.assertFalse(grasp_bench_bridge.bench_verdict(self.paths, {"T1": ["a", "b"]}).cached)  # a new request
+
+    def test_a_verdict_without_its_module_list_is_returned_but_never_cached(self) -> None:
+        python = Path(self.paths.python)
+        python.write_text(python.read_text(encoding="utf-8").replace('"dependencies": ', '"unreported": '),
+                          encoding="utf-8")
+        first = grasp_bench_bridge.bench_verdict(self.paths, {"T1": ["a"]})
+        self.assertTrue(first.ok, first.reason)
+        self.assertIn("did not report the module files", first.info()["uncached"])
+        self.assertFalse(grasp_bench_bridge.bench_verdict(self.paths, {"T1": ["a"]}).cached)
+        self.assertEqual(self.ran(), 2)
 
     def test_a_bench_importing_other_code_is_refused(self) -> None:
         other = Path(self.tmp.name) / "elsewhere.py"
@@ -501,12 +512,19 @@ class LiveSmokeTest(unittest.TestCase):
                   "heads = gallery.headline_runs(runs)\n"
                   "print(json.dumps([e for e in curriculum.GATES if gallery.env_verdict(e, heads)[0]]))\n")
         env = {k: v for k, v in os.environ.items() if k != "VIRTUAL_ENV"}
+        # WHY fail and never skip from here on (audit 2026-10-04, finding 12): the prerequisites (ledger, venv) are
+        # present, so an import error, a nonzero exit or a timeout is the oracle breaking, and a skip would let a warm
+        # bridge cache keep this test green while nothing independent checks the north star any more.
         try:
-            out = subprocess.run([str(LIVE_PYTHON), "-c", script], cwd=LIVE_PYTHON.parents[2], input=json.dumps(run_ids),
-                                 capture_output=True, text=True, timeout=120, env=env, check=True).stdout
+            done = subprocess.run([str(LIVE_PYTHON), "-c", script], cwd=LIVE_PYTHON.parents[2],
+                                  input=json.dumps(run_ids), capture_output=True, text=True, timeout=120, env=env,
+                                  check=False)
         except (OSError, subprocess.SubprocessError) as error:
-            self.skipTest(f"bench gallery did not run: {error}")
-        gallery_beaten = json.loads(out.strip().splitlines()[-1])
+            self.fail(f"the bench's own gallery did not run although its venv and ledger exist: {error!r}")
+        self.assertEqual(done.returncode, 0, f"the bench's own gallery exited {done.returncode}: {done.stderr}")
+        lines = done.stdout.strip().splitlines()
+        self.assertTrue(lines, f"the bench's own gallery printed nothing: {done.stderr}")
+        gallery_beaten = json.loads(lines[-1])
         last = beaten_kpi["values"][-1]
         self.assertEqual(last["value"], float(len(gallery_beaten)))
         names = [env_id.split("/", 1)[1] for env_id in gallery_beaten]

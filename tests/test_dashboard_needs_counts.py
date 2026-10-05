@@ -153,6 +153,34 @@ def served(track_id: str, sources, workspace=WORKSPACE) -> dict:
     return json.loads(b"".join(body))
 
 
+def assert_needs_kpis_equal_needs(case: unittest.TestCase, track: dict, doc: dict) -> int:
+    """Every KPI row about what is open or blocking now carries /needs' numbers (audit 2026-10-04, finding 5).
+
+    Returns how many rows it checked, so a caller can prove the check ran on something."""
+
+    counts = doc["counts"]
+    word = ("not reported" if counts["wants_you"] is None or counts["blocking_now"] is None
+            else f"{counts['blocking_now']} blocking · {counts['wants_you']} open now")
+    checked = 0
+    for kpi in track.get("kpis") or []:
+        if kpi["id"] in build_module.NEEDS_KPIS_NOW:
+            expected = counts[build_module.NEEDS_KPIS_NOW[kpi["id"]]]
+            case.assertEqual(kpi["values"][-1]["value"], expected, (track["id"], kpi["id"]))
+            case.assertEqual(kpi["values"][-1]["measured"], expected is not None, (track["id"], kpi["id"]))
+            case.assertEqual(kpi["status"]["word"], word, (track["id"], kpi["id"]))
+            checked += 1
+        elif kpi["id"] in build_module.NEEDS_KPIS_HISTORY:
+            case.assertEqual(kpi["status"]["word"], word, (track["id"], kpi["id"]))
+            for value in kpi["values"]:
+                if value["measured"]:
+                    case.assertIn(f"questions opened in {value['iteration']}", value["note"] or "")
+                    case.assertNotIn("open now", value["note"] or "")
+            checked += 1
+    # The adapter's own wording of a second count must not survive anywhere on the track.
+    case.assertNotRegex(json.dumps(track), r"\d+ questions open|\d+ open · \d+ blocking a rung")
+    return checked
+
+
 class CountsContractTest(unittest.TestCase):
     def setUp(self) -> None:
         self.tmp = tempfile.TemporaryDirectory()
@@ -177,6 +205,33 @@ class CountsContractTest(unittest.TestCase):
                 self.assertEqual(count, {"open": doc["counts"]["wants_you"], "blocking": doc["counts"]["blocking_now"]})
                 self.assertEqual([row["id"] for row in self.tracks[track_id]["needs_you"]],
                                  [it["local_id"] for it in doc["items"] if it["group"] in needs.WANTS_YOU_GROUPS])
+                assert_needs_kpis_equal_needs(self, self.tracks[track_id], doc)
+
+    def test_a_kpi_row_with_an_adapters_own_count_is_rewritten_from_needs(self) -> None:
+        # The fixture's kinsim and rig loops have no status files, so plant the two rows the audit found.
+        stale = {"id": "rig", "kpis": [
+            {"id": "open_questions", "values": [{"iteration": "T0", "value": None, "measured": False, "note": "x"},
+                                                {"iteration": "T1", "value": 11, "measured": True, "note": None}],
+             "status": {"word": "11 open · 2 with no default", "tone": "warn"}, "provenance": {"derived": "items open"}},
+            {"id": "questions_opened", "values": [{"iteration": "W3", "value": 4, "measured": True, "note": None}],
+             "status": {"word": "11 open · 1 blocking a rung", "tone": "warn"}, "provenance": None},
+            {"id": "disk_pct", "values": [], "status": {"word": "80 %", "tone": "muted"}}]}
+        before = json.dumps(stale)
+        out = dict(stale)
+        build_module.LiveBuilder._align_needs_kpis(out, {"open": 6, "blocking": 2}, "note")
+        self.assertEqual(json.dumps(stale), before, "the adapter's cached rows are never mutated")
+        rows = {kpi["id"]: kpi for kpi in out["kpis"]}
+        self.assertEqual((rows["open_questions"]["values"][-1]["value"], rows["open_questions"]["status"]["word"]),
+                         (6, "2 blocking · 6 open now"))
+        self.assertEqual(rows["questions_opened"]["values"][0]["value"], 4, "history stays")
+        self.assertEqual(rows["questions_opened"]["values"][0]["note"], "questions opened in W3")
+        self.assertEqual(rows["questions_opened"]["status"]["word"], "2 blocking · 6 open now")
+        self.assertEqual(rows["disk_pct"]["status"]["word"], "80 %")
+        build_module.LiveBuilder._align_needs_kpis(out, {"open": None, "blocking": None}, "triage.json could not be read")
+        rows = {kpi["id"]: kpi for kpi in out["kpis"]}
+        self.assertEqual(rows["open_questions"]["values"][-1]["value"], None)
+        self.assertFalse(rows["open_questions"]["values"][-1]["measured"])
+        self.assertEqual(rows["open_questions"]["status"]["word"], "not reported")
 
     def test_the_numbers(self) -> None:
         counts = {track_id: track["needs_you_count"] for track_id, track in self.tracks.items()}
@@ -340,6 +395,9 @@ class LiveCountsTest(unittest.TestCase):
             with self.subTest(track=track["id"]):
                 doc = served(track["id"], sources)
                 self.assertEqual(track["needs_you_count"], needs.needs_you_count(doc))
+                checked = assert_needs_kpis_equal_needs(self, track, doc)
+                if track["id"] in ("kinsim", "rig") and track["reporting"]:
+                    self.assertGreaterEqual(checked, 1, f"{track['id']} has a questions KPI row to check")
         pyblocks = next(t for t in projection["tracks"] if t["id"] == "pyblocks")
         self.assertEqual(pyblocks["needs_you_count"], {"open": None, "blocking": None})
 

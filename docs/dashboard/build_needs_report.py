@@ -22,7 +22,9 @@ import base64
 import html
 import importlib.util
 import io
+import json
 import re
+from collections import Counter
 import sys
 from pathlib import Path
 
@@ -477,6 +479,95 @@ def shared_html() -> str:
     return "".join(out) + f'<p class="small dim">{inline_md(D.SHARED_R3_HOLD)} {inline_md(D.SHARED_R2_HOLD)}</p>'
 
 
+# ---- the independent audit (Codex round 1) and what verify-5 measured after the fixes -------------------------------
+# WHY the rows are parsed from the audit file and the fix data is a JSON beside the captures: the severity and title
+# are Codex's words and the evidence is the verifier's; a hand-typed table would outlive either.
+AUDIT_FILE = Path("/home/bam/vibetracks/reports/media/audits/2026-10-04-vibetracks-live-needs-r1.md")
+AUDIT = json.loads((MEDIA / "audit-r1-fixes.json").read_text())
+_AUDIT_TEXT = AUDIT_FILE.read_text()
+AUDIT_VERDICT = _AUDIT_TEXT.splitlines()[0].strip()
+AUDIT_ROWS = [(int(n), sev, title) for n, sev, title in
+              re.findall(r"^(\d+)\. \*\*\[(high|medium|low)\] (.+?)\*\*\s*$", _AUDIT_TEXT, re.M)]
+assert AUDIT_VERDICT == "VERDICT: FAIL", AUDIT_VERDICT
+assert [n for n, _s, _t in AUDIT_ROWS] == list(range(1, 14)), "the audit file's numbered findings changed"
+AUDIT_FIX = {f["n"]: f for f in AUDIT["findings"]}
+assert set(AUDIT_FIX) == {n for n, _s, _t in AUDIT_ROWS}
+AUDIT_PASS = sum(1 for n, _s, _t in AUDIT_ROWS if AUDIT_FIX[n]["pass"])
+AUDIT_SEV = Counter(sev for _n, sev, _t in AUDIT_ROWS)
+SEV_LINE = ", ".join(f"{AUDIT_SEV[k]} {k}" for k in ("high", "medium", "low") if AUDIT_SEV[k])
+
+
+def audit_html(stills: list[tuple[str, str, str]]) -> str:
+    peer = AUDIT["peer"]
+    rows = [(str(n), sev, title, AUDIT_FIX[n]) for n, sev, title in AUDIT_ROWS] + [("+", "peer", peer["title"], peer)]
+    items = "".join(
+        f'<li class="arow"><span class="an">{esc(n)}</span><span class="asev{" hi" if sev == "high" else ""}">{esc(sev)}</span>'
+        f'<div class="abody"><b>{esc(title)}</b><p>{esc(f["short"])}</p>'
+        f'<details><summary>The verifier\'s evidence, and the test that would have caught it</summary>'
+        f'<p class="averb">{esc(f["verifier"])}</p><p class="averb"><b>Test left ({esc(f["lane"])} lane):</b> {esc(f["tests"])}</p>'
+        f'</details></div><span class="afix{"" if f["pass"] else " no"}">{"fixed · verified" if f["pass"] else "NOT fixed"}</span></li>'
+        for n, sev, title, f in rows)
+    notes = "".join(f"<li><b>{esc(t)}.</b> <span>{esc(x)}</span></li>" for t, x in AUDIT["observations"])
+    checks = AUDIT["checks"]
+    figs = '<div class="stills">' + "".join(still(*x) for x in stills) + "</div>" if stills else ""
+    return f"""
+<p class="lead"><b>{esc(AUDIT['auditor'])}</b>, round {AUDIT['round']}, read-only, audited <code>{esc(AUDIT['audited_sha'])}</code> and
+returned <b>{esc(AUDIT_VERDICT)}</b> with {len(AUDIT_ROWS)} findings ({SEV_LINE}). Three lanes fixed them on the uncommitted tree
+({esc(AUDIT['tree_after'])}). Then {esc(AUDIT['verifier'])} re-ran every finding Codex's way or harder: <b>{AUDIT_PASS} of
+{len(AUDIT_ROWS)} pass</b>, plus the 390 px overflow a peer found, with no regressions. <b>Codex round 2 reads this tree next</b>;
+until it returns, "fixed" is our own measurement, not Codex's.</p>
+<p class="small dim">Audit file: <code>{esc(str(AUDIT_FILE))}</code><br>After the fixes: pytest {esc(checks['pytest'])}; backend
+{esc(checks['backend_pytest'])}; tsc {esc(checks['tsc'])}; node checks {esc(checks['node_checks'])}; videos {esc(checks['videos'])};
+{checks['console_errors']} console errors.</p>
+<div class="ahead"><span>#</span><span>Severity</span><span>Codex's finding · what verify-5 measured after the fix</span><span>Fixed?</span></div>
+<ol class="audit">{items}</ol>
+{figs}
+<h4>What verify-5 noticed but did not count as a failure</h4>
+<ul class="open">{notes}</ul>"""
+
+
+AUDIT_STILLS = [
+    ("verify-5/v5-n6-2-changed-notice.png", "Finding 1: a draft on a changed question is not copied",
+     "verify-5 rewrote the real /needs in flight so T47's recommendation reads '(UPDATED: now 46 V)'; that text is the "
+     "probe's, not the loop's. The draft made on 44 V shows its note word for word, is named as not in the copy, and "
+     "waits for Reconfirm or Discard."),
+    ("verify-5/v5-n5-changed.png", "N5 on the live lane: the new module is served",
+     "Round 3's leftover is gone: the 4390 lane serves N5 with 'Recommended', not 'I recommend', and the same stale "
+     "notice. Copy answers is disabled and T47 is named under 'Not in the copy'."),
+    ("verify-5/v5-settings-include-defaulting.png", "Finding 13: the queue option lives in Settings",
+     "'Needs you · Include questions whose default is already in effect', off by default. 'Review them too' is gone from "
+     "N1–N6; turning this on takes N6's kinsim lane from 3 cards to 11."),
+]
+
+DECISION_R4 = f"""
+<ul>
+  <li><strong>Done and proved</strong> (verify-5, a measure-only re-check by a separate Claude agent; it made no product edits):
+    <ul>
+      <li><b>Codex round 1:</b> {AUDIT_PASS} of {len(AUDIT_ROWS)} findings fixed and re-run Codex's way or harder, plus the 390 px overflow. Table above.</li>
+      <li><b>For this page:</b> a draft is copied only while the question, its options, its default and its status read as they did when you drafted it (finding 1); notes copy byte-exact and never as an unoffered 'other' (7); one Needs-you count on home, the track line, N1–N6 headers and /needs (5); an unreadable triage file reads 'not reported', never 0 (3); the defaulting-questions option is a setting, off by default (13).</li>
+      <li><b>Round 3's two leftovers are cleared:</b> the 4390 lane serves the new N5 ('Recommended'; the module Vite serves has no 'I recommend'), and every hover time on home and the five work-track pages is local with its zone (0 raw ISO stamps, scanned 10-05 01:31 PDT).</li>
+      <li><b>Build:</b> pytest 276 passed, 0 skipped; backend 23 passed; tsc clean; node checks 21/21, 6/6, 6/6; 0 console errors; 7 of 7 report videos play.</li>
+    </ul></li>
+  <li><strong>Left</strong> (next; none blocked on you):
+    <ul>
+      <li><b>Codex round 2</b> on this tree (3e90b94 plus 63 uncommitted changes). It runs next; this page and the live-tracks report are re-shared before it starts.</li>
+      <li>From verify-5's notes: a settled draft's copy line says 'reconfirm or discard it' although only Discard is offered; a lone carriage return in a note drops text in the Markdown copy (typing cannot produce one).</li>
+      <li>Findings 10 (the UI fold), 11 and 13 and the 390 px overflow are guarded by headless probes, not by tests in the suite.</li>
+      <li>N6's one open judge item from round 2: a deployment's empty lane still says 'loop' twice.</li>
+      <li>The first-wave N1–N5 cards below still describe 'Review them too'; that control is now the Settings option.</li>
+    </ul></li>
+  <li><strong>Needs you</strong> (each has the default I take if you say nothing):
+    <ol>
+      <li><b>Your existing drafts now all show the stale notice</b> ('drafted before the dashboard recorded which version of the question you saw'), because nothing can prove what they answered. Recommendation: discard them and answer again on N6, which takes seconds per card. Default: they stay stale and are never copied.</li>
+      <li><b>Keep N6 as the default?</b> Round 2 scored it 93 against N1's 87; nothing since has lowered it. Recommendation: keep it. Default: N6 stays the default.</li>
+      <li><b>Retire N2–N5 from the chooser</b> after Codex round 2? Recommendation: yes, keep N1 as the calm comparison; fewer variants is less to keep true. Default: all six stay selectable.</li>
+      <li><b>Commit the wave</b> on <code>claude/vibetracks-dashboard</code>? Recommendation: yes, once Codex round 2 passes, so a peer's <code>stash -u</code> cannot take it. Default: left uncommitted.</li>
+    </ol></li>
+  <li><strong>Deliberately not done:</strong> no re-judge of N6, so its scores are round 2's. Nothing is sent; answers only copy out. No commits, no vault edits, no Vite restart (none was needed). verify-5's low-severity notes were not fixed in this pass.</li>
+</ul>
+"""
+
+
 # ---- page --------------------------------------------------------------------------------------------------------
 CSS = r"""
 :root{
@@ -687,6 +778,19 @@ ul.open{margin:0;padding-left:20px;font-size:13.5px;max-width:66em} ul.open li{m
 .small{font-size:13px} .dim{color:var(--dim)}
 @media(max-width:980px){.stills{grid-template-columns:1fr 1fr}}
 @media(max-width:820px){.stills,.stills.two-up{grid-template-columns:1fr}.fix{padding:14px}}
+/* audit: one row per Codex finding; colour only for the one high finding and a failure */
+.ahead,.arow{display:grid;grid-template-columns:2.2em 5.5em minmax(0,1fr) 8.5em;column-gap:14px;align-items:baseline}
+.ahead{font-size:11px;text-transform:uppercase;letter-spacing:.09em;color:var(--dim2);font-weight:700;padding:0 0 6px;border-bottom:1px solid var(--line2);max-width:1080px}
+ol.audit{list-style:none;margin:0 0 18px;padding:0;max-width:1080px}
+.arow{padding:12px 0;border-bottom:1px solid var(--line)}
+.an{color:var(--dim2);font-variant-numeric:tabular-nums}
+.asev{font-size:13px;color:var(--dim)} .asev.hi{color:var(--bad);font-weight:700}
+.abody{min-width:0} .abody b{font-size:14.5px} .abody p{margin:3px 0 4px;font-size:13.5px;color:var(--dim)}
+.abody details summary{font-weight:500;font-size:12.5px}
+p.averb{font-size:13px;color:var(--fg);white-space:pre-wrap;overflow-wrap:anywhere;margin:6px 0}
+.afix{font-size:13px;color:var(--dim)} .afix.no{color:var(--bad);font-weight:700}
+@media(max-width:700px){.ahead{display:none}.arow{grid-template-columns:2.2em minmax(0,1fr);row-gap:2px}
+  .asev{grid-column:2}.abody{grid-column:1 / -1}.afix{grid-column:1 / -1}}
 """
 
 # Light-theme override of the house feedback module, which was written dark. WHY an override block rather
@@ -796,14 +900,14 @@ def build() -> str:
     if N6_LEADS:
         n_fixed = sum(1 for st, _ in D.N6_R3_ITEM_STATUS if st == "fixed")
         verdict = (
-            f"Round 3 closes round 2's three failed checks and {n_fixed} of N6's {len(D.N6_R3_ITEM_STATUS)} judge items: "
-            f"a stale recommendation draft never shows or copies in any proposal, every hover time reads local with its "
-            f"zone, and the pills sit in a review bar nothing passes under (64 states, 0 hits). N6 · {D.N6['name']} stays "
-            f"the default on round 2's scores ({MEAN2['N6']:.0f} against N1's {MEAN2['N1']:.0f}; no re-judge this round). "
-            f"Still wrong: the live lane on 4390 serves a stale N5 until Vite restarts, and variant A's home footer and "
-            f"track stateline show raw ISO stamps on hover."
+            f"{AUDIT['auditor']} failed round 1 with {len(AUDIT_ROWS)} findings; all {AUDIT_PASS} are fixed, and an "
+            f"independent re-check ran each one Codex's way or harder with no regressions. On this page that means a draft "
+            f"is copied only while the question still reads as you saw it, notes copy byte-exact, and the defaulting-questions "
+            f"option moved to Settings. Round 3's two leftovers are gone: the live lane serves the new N5, and no hover shows "
+            f"a raw ISO stamp. N6 · {D.N6['name']} stays the default on round 2's scores ({MEAN2['N6']:.0f} against N1's "
+            f"{MEAN2['N1']:.0f}). Codex round 2 runs next; nothing here is Codex-approved yet."
         )
-        h1 = "Vibe Tracks Needs-you: round 3 closes the failed checks, N6 stays the default"
+        h1 = "Vibe Tracks Needs-you: the Codex findings are fixed, round 2 next"
     else:
         verdict = (
             f"N6 · {D.N6['name']} still scores below N1: {MEAN2['N6']:.0f} against {MEAN2['N1']:.0f} (N2 "
@@ -815,7 +919,8 @@ def build() -> str:
     # N6 leading. If a re-judge flips the order, the brief's rule applies (make N1 the default page, keep N6
     # selectable) and the ask, the recommendation and the numbers in it all need rewriting, not one phrase.
     assert N6_LEADS, "N6 trails N1: rewrite DECISION_R2's first ask to 'make N1 the default page and keep N6 selectable'"
-    decision = D.DECISION_R3
+    decision = DECISION_R4
+    audit = audit_html(AUDIT_STILLS)
     # grid first, so GRID_USED is known when the details pick their extra stills; the page below places them in order.
     videos = videos_html()
     grid = grid_html()
@@ -833,10 +938,10 @@ def build() -> str:
 <body><div class="wrap">
 
 <header class="top">
-  <div class="date">2026-10-04 · round 3</div>
+  <div class="date">2026-10-05 · round 4: after Codex audit round 1</div>
   <h1>{esc(h1)}</h1>
   <p class="verdict">{esc(verdict)}</p>
-  <p class="built">Built on the live lane at 127.0.0.1:4390 against the real /needs data · answers only ever copy out, nothing is sent · branch claude/vibetracks-dashboard, uncommitted · N1–N5 scored by two judges in the first wave; N6 vs N1 vs N2 re-judged in round 2 (not re-judged in round 3); round 3 re-checked by an independent measure-only verifier (verify-4: 7 of 9 checks pass, 243 pytest pass, tsc clean). Every judge and verifier so far is Claude; the Codex audit comes next · browser-only (over the desktop preview's size cap).</p>
+  <p class="built">Built on the live lane at 127.0.0.1:4390 against the real /needs data · answers only ever copy out, nothing is sent · branch claude/vibetracks-dashboard at 3e90b94 plus 63 uncommitted changes · N1–N5 scored by two judges in the first wave; N6 vs N1 vs N2 re-judged in round 2 (not since) · Codex round 1 audited 3e90b94 (FAIL, 13 findings); after the fixes verify-5 re-checked all 13 (pass, 276 pytest, tsc clean) · Codex round 2 next · browser-only (over the desktop preview's size cap).</p>
   <div class="launch"><pre id="launch-cmd">{esc(LAUNCHER)}</pre><button id="copy-launch" type="button">Copy</button></div>
   <div class="reach">
     <h4>How to reach it</h4>
@@ -849,10 +954,15 @@ def build() -> str:
 </header>
 
 <nav class="toc" aria-label="Sections">
-  <a href="#n6">N6</a><a href="#shared">Shared fixes</a><a href="#decide">Decide</a>
+  <a href="#audit">Audit</a><a href="#n6">N6</a><a href="#shared">Shared fixes</a><a href="#decide">Decide</a>
   <a href="#watch">N1–N5 videos</a><a href="#compare">Compare</a><a href="#proposals">Proposals</a>
   <a href="#prior">Prior art</a><a href="#judges">Judges</a>
 </nav>
+
+<section id="audit">
+  <h2>Independent audit</h2>
+  {audit}
+</section>
 
 <section id="n6">
   <h2>N6 · Lane + context{", the default" if N6_LEADS else ""}</h2>
@@ -868,15 +978,16 @@ def build() -> str:
 
 <section id="decide">
   <h2>Decision</h2>
-  <p class="lead">For round 3. The first-wave sections for N1–N5 follow it.</p>
+  <p class="lead">After Codex round 1 and its fixes. The first-wave sections for N1–N5 follow it.</p>
   <div class="decide">{decision}</div>
+  <details class="limits"><summary>Round 3's decision packet (superseded: its two 'Left' failures are fixed)</summary>{D.DECISION_R3}</details>
   <details class="limits"><summary>Round 2's decision packet (superseded)</summary>{D.DECISION_R2}</details>
   <details class="limits"><summary>Round 1's decision packet (superseded)</summary>{D.DECISION_N6}</details>
   <details class="limits"><summary>The first wave's decision packet (superseded)</summary>{DECISION}</details>
   {FB.ui(REPORT_NAME, noun="proposal", total=10)}
 </section>
 
-<h2 class="wave1">The first wave: N1–N5 <small>(unchanged; heroes re-encoded at 960 wide to keep the page small)</small></h2>
+<h2 class="wave1">The first wave: N1–N5 <small>(unchanged; heroes re-encoded at 960 wide to keep the page small; the 'Review them too' control these cards describe is now a Settings option)</small></h2>
 
 <section id="watch">
   <h2>N1–N5: watch first</h2>

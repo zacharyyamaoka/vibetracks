@@ -311,14 +311,15 @@ class RenameTest(unittest.TestCase):
 
     def test_rename_changes_only_the_title_and_returns_the_new_revision(self) -> None:
         before = self.note.read_text(encoding="utf-8")
+        # WHY the spaces stay (audit 2026-10-04, finding 8): the title is stored exactly as typed, never trimmed.
         status, body = self.post("/tracks/kinsim/title", {"title": "  Kinsim curriculum  ", "revision": self.revision()})
         self.assertEqual(status, 200, body)
         after = self.note.read_text(encoding="utf-8")
-        self.assertEqual(body, {"ok": True, "id": "kinsim", "title": "Kinsim curriculum", "revision": server.note_revision(after)})
-        self.assertEqual(after, before.replace("vibe-title: Kinematic Sim\n", "vibe-title: Kinsim curriculum\n"))
+        self.assertEqual(body, {"ok": True, "id": "kinsim", "title": "  Kinsim curriculum  ", "revision": server.note_revision(after)})
+        self.assertEqual(after, before.replace("vibe-title: Kinematic Sim\n", "vibe-title: '  Kinsim curriculum  '\n"))
         self.assertIn("vibe-id: kinsim\n", after)
         track = self.get_projection()["tracks"][0]
-        self.assertEqual((track["id"], track["title"], track["registry"]["revision"]), ("kinsim", "Kinsim curriculum", body["revision"]))
+        self.assertEqual((track["id"], track["title"], track["registry"]["revision"]), ("kinsim", "  Kinsim curriculum  ", body["revision"]))
         # The returned revision fences the next rename.
         status, again = self.post("/tracks/kinsim/title", {"title": "Kinematic Sim", "revision": body["revision"]})
         self.assertEqual((status, self.note.read_text(encoding="utf-8")), (200, before))
@@ -337,7 +338,8 @@ class RenameTest(unittest.TestCase):
         before = self.note.read_text(encoding="utf-8")
         revision = self.revision()
         for payload in ({"title": "", "revision": revision}, {"title": "   ", "revision": revision},
-                        {"title": "two\nlines", "revision": revision}, {"title": "x" * 81, "revision": revision},
+                        {"title": "two\nlines", "revision": revision}, {"title": "cr\rhere", "revision": revision},
+                        {"title": "\t ", "revision": revision},
                         {"title": 5, "revision": revision}, {"revision": revision}, {"title": "ok"},
                         {"title": "ok", "revision": ""}, ["title"], b"{not json"):
             with self.subTest(payload=payload):

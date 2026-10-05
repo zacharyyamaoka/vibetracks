@@ -1,13 +1,14 @@
 /* Variant A · Drill-down pages. Rooted in .vt-dash .vt-a, inside @layer base (clank-workbench CLAUDE.md §1.5).
-   The calm language of "The Table": one sans-serif, near-black and greys, hairlines only, one accent (data ink and the
-   latest column's faint wash), colour only for exceptions (.vt-tone-warn/-risk/-stale from calm.css). */
+   The calm language of "The Table": one sans-serif, near-black and greys, hairlines only, colour only for exceptions
+   (.vt-tone-warn/-risk/-stale from calm.css). Data ink, the latest column's wash and the selected row read in greys
+   (audit 2026-10-04 #13); the accent blue is left for the keyboard focus ring. */
 
 @layer base {
   .vt-dash .vt-a {
-    --vt-a-wash: rgba(35, 131, 226, 0.045);
+    --vt-a-wash: rgba(55, 53, 47, 0.035);
   }
   .dark .vt-dash .vt-a {
-    --vt-a-wash: rgba(82, 156, 202, 0.08);
+    --vt-a-wash: rgba(255, 255, 255, 0.04);
   }
   /* WHY only 48px of bottom room: the review pills live in the frame's review bar under the scroller
      (Dashboard.tsx), so nothing floats over the page's end any more; this is breathing room, not clearance. */
@@ -26,20 +27,24 @@
     color: var(--vt-fg);
     text-decoration-color: var(--vt-grey);
   }
+  /* Inline code and paths: the page's own sans, told apart only by a faint background (Zach's one-font rule; audit
+     2026-10-04 #13 caught a second, monospace face here). */
   .vt-dash .vt-a .vt-a-code {
-    font-family: var(--vt-mono);
-    font-size: 12px;
+    font-family: var(--vt-font);
+    font-size: 12.5px;
     color: var(--vt-grey);
     background: var(--vt-hover);
     border-radius: 3px;
     padding: 0 4px;
-    /* WHY break-word and not break-all: break-all split tokens anywhere ("loo|p-status.json" in a purpose line); a
-       path or file name wraps only at its natural breaks (a space, a hyphen), and a token wider than the line may
-       still break so nothing overflows. The padding/background repeat on each wrapped line. */
-    overflow-wrap: break-word;
+    /* WHY anywhere and not break-all: break-all split tokens anywhere ("loo|p-status.json" in a purpose line), while
+       `anywhere` still prefers the natural breaks (a space, a hyphen, a slash after the line fills) and breaks inside a
+       token only when it is wider than the line. WHY anywhere and not break-word: break-word does not lower the
+       element's min-content, so a long path in a flex row pushed the page wider than a 390 px phone (kinsim's Links
+       line, scrollWidth 453 > 390). No character is clipped.
+       WHY the default box-decoration-break (slice), not clone: Chrome breaks an `anywhere` line without counting a
+       cloned fragment's end padding, so each wrapped line stuck out 3 px past its box (measured on an item's links). */
+    overflow-wrap: anywhere;
     word-break: normal;
-    -webkit-box-decoration-break: clone;
-    box-decoration-break: clone;
   }
   .vt-dash .vt-a .vt-a-section {
     margin-top: 36px;
@@ -96,6 +101,35 @@
     margin-top: 14px;
   }
 
+  /* ---- wide tables at phone width
+     WHY a horizontal scroller of its own below 600 px of dashboard width: these fixed-layout tables (Work tracks,
+     KPI changes, Deployments) have 5-7 columns; squeezed into ~360 px their cells printed over each other ("Against
+     target" over "Evidence", the progress glyph over the next column, 2026-10-05 at 390 px). Each keeps a readable
+     minimum and scrolls sideways inside its own box, like the scorecard, so the page itself never scrolls sideways. */
+  .vt-dash .vt-a .vt-a-tablescroll {
+    max-width: 100%;
+    overflow-x: auto;
+  }
+  @container vt-scroll (max-width: 600px) {
+    .vt-dash .vt-a .vt-a-tablescroll > .vt-a-tracks {
+      min-width: 720px;
+    }
+    .vt-dash .vt-a .vt-a-tablescroll > .vt-a-deltas {
+      min-width: 600px;
+    }
+    .vt-dash .vt-a .vt-a-tablescroll > .vt-a-deploys {
+      min-width: 560px;
+    }
+    /* The scorecard's sticky KPI column took 210 of 358 px at a 390 px phone, leaving a sliver for the values that
+       scroll under it; a narrower column wraps the KPI's name instead. (One class deeper than the base rule further
+       down this file, which would otherwise win on order.) */
+    .vt-dash .vt-a .vt-a-score .vt-a-kpicol,
+    .vt-dash .vt-a .vt-a-score .vt-a-kpicell {
+      min-width: 128px;
+      max-width: 150px;
+    }
+  }
+
   /* ---- L1: the Tracks table */
   .vt-dash .vt-a .vt-a-tracks {
     margin-top: 28px;
@@ -108,6 +142,15 @@
   .vt-dash .vt-a .vt-a-name {
     font-weight: 600;
     font-size: 14.5px;
+  }
+  /* WHY pre-wrap on a track's name: a rename stores the title exactly as typed (audit 2026-10-04 #8), so authored
+     leading, trailing or doubled spaces are part of the value and must not collapse away on screen. */
+  .vt-dash .vt-a .vt-a-name,
+  .vt-dash .vt-a .vt-a-title-text {
+    white-space: pre-wrap;
+    /* break-word, not anywhere: anywhere lowers the cell's min-content and a narrow table then broke "Kinematic" into
+       letters. */
+    overflow-wrap: break-word;
   }
   /* WHY max-width + a shrinkable text column: the cell is 19% of the table; a long detail line ("4 proven (not
      current)") pushed the trend glyph out over the next column. The text wraps at its spaces, the glyph never shrinks. */
@@ -159,6 +202,20 @@
   }
   .vt-dash .vt-a .vt-a-links {
     margin-top: 18px;
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px 18px;
+    align-items: baseline;
+  }
+  /* WHY min-width 0: a flex item's floor is its min-content; with it at 0 a long "label path" item wraps inside the
+     line instead of widening the page. */
+  .vt-dash .vt-a .vt-a-links > *,
+  .vt-dash .vt-a .vt-a-itemlinks > * {
+    min-width: 0;
+    max-width: 100%;
+  }
+  /* An item's links: one "label path" group per link, wrapping as groups (they used to run together inline). */
+  .vt-dash .vt-a .vt-a-itemlinks {
     display: flex;
     flex-wrap: wrap;
     gap: 6px 18px;
@@ -278,7 +335,7 @@
   .vt-dash .vt-a .vt-a-latesttag {
     font-weight: 400;
     font-size: 11.5px;
-    color: var(--vt-accent);
+    color: var(--vt-faint);
   }
   .vt-dash .vt-a .vt-a-colsub {
     font-size: 11.5px;
@@ -381,7 +438,7 @@
   }
   .vt-dash .vt-a .vt-a-selected .vt-a-kpilabel {
     text-decoration: underline;
-    text-decoration-color: var(--vt-accent);
+    text-decoration-color: var(--vt-grey);
     text-underline-offset: 3px;
   }
 
@@ -513,6 +570,31 @@
     padding-top: 8px;
     padding-bottom: 8px;
   }
+  /* WHY reflow below 600 px of dashboard width: five columns (KPI, value, where, trend, status) have a min-content of
+     ~500 px, so at a 390 px phone the table pushed the page sideways (scrollWidth 527-735 > 390, 2026-10-05). Each
+     row becomes one wrapped line group: the KPI's name on its own line, the rest flowing under it; nothing is hidden. */
+  @container vt-scroll (max-width: 600px) {
+    .vt-dash .vt-a .vt-a-feeds,
+    .vt-dash .vt-a .vt-a-feeds tbody {
+      display: block;
+    }
+    .vt-dash .vt-a .vt-a-feeds tr {
+      display: flex;
+      flex-wrap: wrap;
+      align-items: center;
+      gap: 2px 12px;
+      padding: 8px 0;
+      border-bottom: 1px solid var(--vt-line);
+    }
+    .vt-dash .vt-a .vt-a-feeds td {
+      padding: 0;
+      border-bottom: 0;
+      min-width: 0;
+    }
+    .vt-dash .vt-a .vt-a-feeds td:first-child {
+      flex-basis: 100%;
+    }
+  }
 
   /* ---- L1: row end (⋯ menu + chevron), quiet rows, the needs cell, the rung cell */
   .vt-dash .vt-a .vt-a-rowend {
@@ -639,16 +721,19 @@
     outline: none;
   }
   .vt-dash .vt-a .vt-a-rename-input:focus {
-    border-color: var(--vt-accent);
+    border-color: var(--vt-grey);
   }
   .vt-dash .vt-a .vt-a-rename-hint,
-  .vt-dash .vt-a .vt-a-rename-notice {
+  .vt-dash .vt-a .vt-a-rename-notice,
+  .vt-dash .vt-a .vt-a-rename-conflict {
     font-weight: 400;
     font-size: 12px;
     line-height: 1.3;
   }
-  .vt-dash .vt-a .vt-a-rename-notice {
+  .vt-dash .vt-a .vt-a-rename-notice,
+  .vt-dash .vt-a .vt-a-rename-conflict {
     display: block;
+    overflow-wrap: anywhere;
   }
   .vt-dash .vt-a .vt-a-title-text {
     border-radius: 4px;

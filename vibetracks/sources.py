@@ -75,6 +75,9 @@ WORKTRACK_SOURCES: dict[str, str] = {
     "grasping_runner_py": "{grasping_bench_dir}/src/grasp_bench/runner.py",
     "grasping_contracts_py": "{grasping_bench_dir}/src/grasp_bench/contracts.py",
     "grasping_verdict_cache": "{dashboard_data_home}/grasping-bench-verdict",
+    # Appended 2026-10-05 (audit finding 2): the verdict depends on modules no fixed list names (gallery.py imports
+    # registry.py), so the whole bench package is a source and any module change reruns the adapter.
+    "grasping_bench_src": "{grasping_bench_dir}/src/grasp_bench",
 }
 _REFERENCE = re.compile(r"^\{(?P<key>[a-z0-9_]+)\}")
 

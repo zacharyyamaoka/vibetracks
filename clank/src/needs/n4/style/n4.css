@@ -446,4 +446,8 @@
   .vt-dash .vt-needs-n4.n4-framed .n4-card {
     scroll-margin-top: 12px;
   }
+  /* Zach's note as saved: its line breaks stay (never folded, never trimmed). */
+  .vt-dash .vt-needs-n4 .n4-tray-note {
+    white-space: pre-wrap;
+  }
 }

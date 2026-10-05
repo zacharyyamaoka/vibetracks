@@ -3,7 +3,7 @@
 // WHY in place and not a modal: the reader keeps the chart and the row they came from in view (progressive
 // disclosure, one deliberate click deeper), and Back still closes it when the variant routes `item`.
 
-import { useState } from 'react'
+import { useLayoutEffect, useRef, useState } from 'react'
 import type { EvidenceItem, MediaRef, Tone } from './model'
 import { formatNumber } from './model'
 import { MediaView } from './MediaView'
@@ -42,6 +42,41 @@ export function evidenceStatusTone(status: string | null): Tone {
   if (['failed', 'parked', 'aborted', 'below gate', 'above gate', 'skipped'].includes(s)) return 'warn'
   if (s.startsWith('unsound')) return 'warn'
   return 'muted'
+}
+
+/** A stored text shown whole or folded at `lines` lines, with an explicit "Show all (N characters)" / "Show less".
+ * WHY a fold and never a cut: the build sends the complete stored value (audit 2026-10-04 #10: a 642-character
+ * intervention arrived as 600 with "…" and nothing exposed the rest), so the page keeps a glance-sized block and the
+ * whole value is one click away. WHY pre-wrap: the authored line breaks and spaces are part of the value (truthful
+ * rendering); `anywhere` wraps a long path instead of widening the page. The toggle appears only when the text really
+ * overflows the fold, measured, so a short note carries no control that does nothing. */
+export function FoldText({ text, lines = 6, className, testId }: { text: string; lines?: number; className?: string; testId?: string }) {
+  const box = useRef<HTMLParagraphElement>(null)
+  const [open, setOpen] = useState(false)
+  const [overflows, setOverflows] = useState(false)
+  useLayoutEffect(() => {
+    const element = box.current
+    if (!element || open) return
+    // Measured while folded: the clamp hides lines, so scrollHeight > clientHeight means there is more to show.
+    const measure = () => setOverflows(element.scrollHeight > element.clientHeight + 1)
+    measure()
+    const observer = new ResizeObserver(measure)
+    observer.observe(element)
+    return () => observer.disconnect()
+  }, [text, open, lines])
+  const characters = Array.from(text).length
+  return (
+    <div className={`vt-fold ${className ?? ''}`} data-testid={testId} data-open={open ? 'true' : 'false'}>
+      <p ref={box} className={`vt-fold-text${open ? '' : ' vt-fold-closed'}`} style={open ? undefined : { WebkitLineClamp: lines }}>
+        {text}
+      </p>
+      {overflows || open ? (
+        <button type="button" className="vt-btn vt-fold-toggle" aria-expanded={open} data-testid="vt-fold-toggle" onClick={() => setOpen(!open)}>
+          {open ? 'Show less' : `Show all (${characters.toLocaleString()} characters)`}
+        </button>
+      ) : null}
+    </div>
+  )
 }
 
 function metricText(value: unknown): string | null {
@@ -104,7 +139,7 @@ export function EvidenceList({ items, mediaUrl, openMedia, onOpenMedia, selected
                 ))}
               </div>
             ) : null}
-            {item.note ? <p className="vt-ev-note">{item.note}</p> : null}
+            {item.note ? <FoldText key={item.note} text={item.note} className="vt-ev-note" testId="vt-ev-note" /> : null}
             {item.media.length ? (
               <div className="vt-ev-media">
                 {item.media.map((media) => (

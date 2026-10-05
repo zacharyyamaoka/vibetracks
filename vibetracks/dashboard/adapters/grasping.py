@@ -47,7 +47,10 @@ from .base import local_time, not_reporting, rung, skeleton
 READS = {"grasping_ledger": "heartbeat", "grasping_curriculum": "heartbeat", "grasping_out_dir": "evidence",
          "grasping_attestations": "input", "grasping_gallery_py": "input", "grasping_ledger_py": "input",
          "grasping_runner_py": "input", "grasping_contracts_py": "input", "grasping_bench_python": "input",
-         "grasping_verdict_cache": "input"}
+         "grasping_verdict_cache": "input", "grasping_bench_src": "input"}
+#: WHY depth 2 for the bench package: its modules sit one folder down too (models/, envs/, evaluators/), and a change to
+#: any module the verdict imports must rerun this adapter (the bridge's own cache re-checks the exact imported set).
+DEPTH = {"grasping_bench_src": 2}
 UNAVAILABLE = "bench verdict unavailable"
 UNCONFIRMED = f"unconfirmed: {UNAVAILABLE}"
 
@@ -297,8 +300,9 @@ def _short_env(env_id: str) -> str:
     return env_id.split("/", 1)[1] if "/" in env_id else env_id
 
 
-def _join(items: list[str], limit: int = 6) -> str:
-    return ", ".join(items[:limit]) + (f" +{len(items) - limit} more" if len(items) > limit else "")
+def _join(items: list[str]) -> str:
+    # WHY every item (audit 2026-10-04, finding 10 generalised): "+4 more" hid which envs; the page folds long text.
+    return ", ".join(items)
 
 
 # --------------------------------------------------------------------------------------------------------------------
@@ -735,9 +739,9 @@ def build_track(work_track: Any, sources: dict[str, str], *, bridge: Bridge | No
         if not snap.judged:
             values.append(_point(phase.id, None, of=gated_total, note=unavailable_note, evidence=ev("envs_beaten", phase)))
             continue
-        note = ("beaten: " + _join([_short_env(e) for e in snap.beaten], 10)) if snap.beaten else "none beaten yet"
+        note = ("beaten: " + _join([_short_env(e) for e in snap.beaten])) if snap.beaten else "none beaten yet"
         if snap.provisional:
-            note += " · provisional: " + _join([_short_env(e) for e in snap.provisional], 10)
+            note += " · provisional: " + _join([_short_env(e) for e in snap.provisional])
         values.append(_point(phase.id, float(len(snap.beaten)), of=gated_total, note=note, evidence=ev("envs_beaten", phase)))
     kpis.append({
         "id": "envs_beaten", "label": "Gated envs beaten", "slot": "S1", "unit": "envs", "direction": "higher",
@@ -1055,7 +1059,7 @@ def build_track(work_track: Any, sources: dict[str, str], *, bridge: Bridge | No
             "id": "grasping:blocked-cells", "iteration": all_phases[-1].id, "kind": "note",
             "title": "Cells blocked on something other than you", "when": curriculum_mtime,
             "metrics": {why: len(cells) for why, cells in other_needs.items()}, "status": "blocked", "media": [],
-            "links": [], "note": " · ".join(f"{why}: {_join(cells, 4)}" for why, cells in other_needs.items()),
+            "links": [], "note": " · ".join(f"{why}: {_join(cells)}" for why, cells in other_needs.items()),
         })
     # WHY source.problems (the rig adapter's field; the build merges an adapter's source block): a missing verdict is
     # a problem with the track's inputs, and the page's source panel is where an input problem is read.

@@ -362,4 +362,8 @@
       min-width: 20px;
     }
   }
+  /* Zach's note as saved: its line breaks stay (never folded to one line, never trimmed). */
+  .vt-dash .vt-needs-n1 .zen-summary-note {
+    white-space: pre-wrap;
+  }
 }

@@ -4,6 +4,7 @@
 
 import { CopyOut } from './CopyOut'
 import { EvidenceLink } from './EvidenceLink'
+import { StaleDraftNotice } from './StaleDraftNotice'
 import type { NeedsProposalProps } from './proposal'
 import { GROUP_LABEL, GROUP_ORDER, describeDefault, type Choice, type NeedsDoc, type NeedsItem } from './types'
 
@@ -81,6 +82,7 @@ function ItemRow({ doc, item, answers, backend, projection }: Omit<NeedsProposal
           ))}
         </p>
       ) : null}
+      <StaleDraftNotice answers={answers} doc={doc} item={item} />
       <p className="vt-small vt-needs-choices">
         {item.options.map((option) => (
           <button

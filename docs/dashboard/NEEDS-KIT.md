@@ -23,7 +23,9 @@ A proposal owns **only its own folder**: `clank/src/needs/n1/` … `n5/`. Do not
 | `docs` | `NeedsDoc[]`: `[doc]` for one track, every track otherwise. Items arrive **sorted**: blocking now, no default, default pending (by when it fires), defaulting without you, answered, done |
 | `doc` | the one track's doc when a track is routed, else `null` |
 | `loading`, `error`, `reload()` | fetch state; `reload()` re-reads the loops' live files |
-| `answers` | the `AnswerStore` (below): Zach's drafts, persisted per track + item |
+| `answers` | the `AnswerStore` (below): Zach's drafts, persisted per track + item. Render `<StaleDraftNotice answers doc item />` in every card's answer area |
+| `includeDefaulting` | the settings page's "Needs you · Include questions whose default is already in effect" (off by default). A lane that queues only what wants Zach adds the `defaulting` group when it is on. **Never a page button or a route flag**: it is a view option, and view options live only on the settings page |
+| `openSettings()` | opens the dashboard's settings page over this route (closing it lands back here). Use it through `<IncludeDefaultingPointer openSettings />`, the plain-text pointer beside "N more are defaulting without you" |
 | `backend` | `ctx.backend` |
 | `projection` | the dashboard projection when loaded (pass to `EvidenceLink` so videos and reports open through the media route); may be `null` |
 | `route`, `navigate` | the shared hash route (`#vt?track=…&needs=1&…`). Add your own keys (an open item, a mode); they round-trip. Push for a deeper level so Back climbs one |
@@ -82,10 +84,14 @@ Helpers: `openAsks(doc)` (blocking + no default + pending), `itemsInGroup(doc, g
 | part | use |
 |---|---|
 | `useNeeds(backend, track)` | `{docs, doc, loading, error, reload}`. The shell already calls it and passes the result; call it yourself only for another track |
-| `useAnswerStore(docs)` / `props.answers` | `get(track, localId)` → `{choice, note, updated}` or null; `set(track, localId, {choice?, note?})` merges and saves; `clear(track, localId?)`. One `localStorage` entry per track + item (`vibetracks.needs.answer:<track>:<id>`), every access try/catch wrapped. **A choice the item does not offer never comes out of `get()` and is never recorded by `set()`** (`offeredDraft`): a stale `accept_recommendation` on a grasping or detection item (neither records a recommendation) reads as unanswered, or as "something else" when a note is left. The stored entry is not rewritten until that item is next edited. `exportTrack` applies the same rule to whatever lookup it is given |
-| `effectiveChoice(draft)`, `isComplete(draft)` | a click wins; a **note alone** answers as `other`; `other` needs a non-blank note. A thumbs-up maps to `accept_recommendation`, "let it default" to `use_default` |
-| `<CopyOut docs answers label? />` | the one copy action. It builds the export, tries the clipboard, and **always** ends with the text in a pre-selected textarea (the clipboard is often refused on Clank origins). It disables itself when nothing is answered, and names items left out |
-| `exportAnswers(docs, answers.get)`, `exportTrack(doc, …)` | the export text, if you need it without the button |
+| `useAnswerStore(docs)` / `props.answers` | `get(track, localId)` → the **live** draft `{choice, note, updated, fingerprint, status}` or null; `stale(track, localId)` → `{draft, reason, status, reconfirmable}` or null; `stored(track, localId)` → the saved draft, live or stale; `set(track, localId, {choice?, note?})` merges, binds and saves; `reconfirm(track, localId)`; `clear(track, localId?)`. One `localStorage` entry per track + item (`vibetracks.needs.answer:<track>:<id>`), every access try/catch wrapped. The rules are pure functions in `answerRules.ts`, shared with the exporter and checked by `answers.check.mjs` |
+| **Drafts are bound to what Zach reviewed** | every draft stores `fingerprint` = `reviewedFingerprint(item)`: the title, ask and full `context_md` (UPDATEs included), every option's key, label and `detail_md`, the default's text and when it applies, and the status. Computed fields (group, `default.state`, `blocking_now`, timestamps) are left out, so a wave closing does not invalidate drafts. A draft is **stale** when the fingerprint no longer matches (`changed`), when it has none (`unbound`: saved before binding), or when the item is no longer `open` (`settled`: answered, closed, superseded, defaulted). A stale draft never comes out of `get()`, is never exported, and is named under "Not in the copy"; `<StaleDraftNotice>` quotes it whole with **Reconfirm** (re-binds it to the question as it reads now; offered only while the item is open and still offers the drafted option) and **Discard**. A `set()` on an item with a stale draft starts a new draft (the stale words are not carried in unreconfirmed). A settled item takes no draft at all, so show it without answer controls |
+| **Offered choices** | a choice the item does not offer never comes out of `get()` and is never recorded by `set()`; the note is kept. `exportTrack` applies the same rules to whatever lookup it is given |
+| `effectiveChoice(draft)`, `isComplete(draft)`, `isNoteOnly(draft)` | a click wins; a **note alone** answers as `other` **only where the item offers `other`**; `other` needs a non-blank note. A note alone on an item without `other` is `isNoteOnly`: no option. A thumbs-up maps to `accept_recommendation`, "let it default" to `use_default` |
+| `<StaleDraftNotice answers doc item />` | the calm notice for a stale draft (renders nothing otherwise): the reason, the draft quoted whole (`white-space: pre-wrap`), Reconfirm and Discard |
+| `<CopyOut docs answers label? />` | the one copy action. It builds the export from `answers.stored`, tries the clipboard, and **always** ends with the text in a pre-selected textarea (the clipboard is often refused on Clank origins). It disables itself when nothing is answered, and lists every draft it leaves out under "Not in the copy:" with why (stale, "Something else" without a note, a note with no option on a loop that needs one) |
+| `exportAnswers(docs, answers.stored)`, `exportTrack(doc, …)` | the export text, if you need it without the button |
+| **Zach's note is never altered** | store and export it exactly as typed: never `trim()` it for storage or display (`trim()` only tests for blankness), never fold its lines. Show it with `white-space: pre-wrap` |
 | `<EvidenceLink backend doc item index projection? />` | one evidence entry: opens through the projection's media route when the path is a known media file, else through `/needs/evidence` (which serves only paths the backend itself extracted from that item); a directory or unservable file is shown as its path with a copy button, never as a dead link |
 | `evidenceHref(...)`, `evidenceUrl(...)` | the href alone |
 | `headerCounts(doc)`, `headerSummary(docs)`, `notReportedText(doc)` | the header's two numbers and their disjoint parts, from needs.py; `null` / `notReported` for a track that reports none (see the counts contract above) |
@@ -103,7 +109,10 @@ Helpers: `openAsks(doc)` (blocking + no default + pending), `itemsInGroup(doc, g
 ## T47 · Should this robot be expected to pick at 1.0 m/s and above?
 - **Answer:** Go with the recommendation (accept_recommendation)
   > Keep the motor settings (your brief) and redefine BT4's gate as 'every object scored, 0 exceptions, every skip logged'; …
-- **Note:** Keep the motor limits; also log the skip reason per object.
+- **Note:**
+  ```text
+  Keep the motor limits; also log the skip reason per object.
+  ```
 
 ```jsonl
 {"ts":"2026-10-04T19:19:06-07:00","triage_id":"T47","choice":"accept_recommendation","note":"Keep the motor limits; also log the skip reason per object."}
@@ -118,10 +127,17 @@ Every other track (rig's `chat_paste`, detection's `note_paste`, …) gets no fe
 ## T2 · Flash diff on controller 192551cb (plan D2)
 - **Answer:** Go with the recommendation (accept_recommendation)
   > Approve the diff the first bench window shows you; until then RAM-only config with readback.
-- **Note:** …
+- **Note:**
+  ```text
+  …
+  ```
 ````
 
 "Something else" quotes nothing (the note is the answer). An option the loop recorded no words for reads `> (the loop recorded no words for this option)`.
+
+**The note** is a fenced block (info `text`) inside the `- **Note:**` item, its fence one backtick longer than the longest backtick run in the note (at least three), every line indented by the item's two spaces. CommonMark strips that indent again, so the block's literal is exactly the note plus one final newline: multiline text, pasted code fences and leading or trailing whitespace all survive, and nothing in the note can end the block or restyle the markdown around it. In the jsonl row, `note` is the raw string.
+
+**A note with no option** (an item that offers no "Something else") is never exported as `other`. On a markdown-only channel (`chat_paste`, `note_paste`) it goes out as `- **Answer:** no option chosen (note only)` plus its note; on a channel whose rows need a choice (`bam-triage-answer/1`: needs.py reads only rows whose choice is one of the three) it is left out and named: "note only, this loop needs an option".
 
 ## CSS
 

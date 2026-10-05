@@ -550,9 +550,21 @@ def build_track(work_track: Any, sources: dict[str, str]) -> dict[str, Any]:
         green_series.append(count)
     total_rungs = len(rungs) or None
     ladder_green = sum(1 for _, r in rungs.values() if r.get("status") == "green") if rungs else None
+    # WHY (audit 2026-10-04, finding 4): with no ladder rungs and no rung_status_changed event, the fold above counts
+    # nothing and green_series is all 0. That 0 was emitted as measured ("0 of None"), with a note citing the status
+    # file's rate, a source the count never used. Unknown is null, said with its reason.
+    ladder_why = f"ladder.json {ladder_error}" if ladder_error else ("ladder.json has no rungs" if ladder is not None
+                                                                     else "ladder.json is not an object")
+    events_why = (f"loop_events.jsonl {events_error}" if events_error
+                  else "loop_events.jsonl has no rung_status_changed event")
+    green_established = bool(rungs) or bool(rung_changes)
+    unmeasured_note = f"not measured: {ladder_why} and {events_why}, so no rung count can be established"
     green_values = []
     for n, it in enumerate(ids):
         tick = ticks.ticks[n]
+        if not green_established:
+            green_values.append(_value(it, None, note=unmeasured_note))
+            continue
         note = None
         if not tick.events and n > 0:
             note = "no event recorded for this tick; carried from the previous tick" + (
@@ -569,14 +581,22 @@ def build_track(work_track: Any, sources: dict[str, str]) -> dict[str, Any]:
                            for axis in (ladder or {}).get("axes") or [])
     where_line = " · ".join(f"{w.get('axis')} at {w.get('here')}" + (f" → {w['next']}" if w.get("next") else " (done)")
                             for w in status.get("where") or [] if isinstance(w, dict))
-    delta = (green_values[-1]["value"] or 0) - (green_values[-2]["value"] or 0) if len(green_values) > 1 else None
+    last_green, previous_green = (green_values[-1]["value"] if green_values else None,
+                                  green_values[-2]["value"] if len(green_values) > 1 else None)
+    delta = last_green - previous_green if last_green is not None and previous_green is not None else None
+    if last_green is None:
+        green_word = "not measured"
+    else:
+        green_word = (f"{last_green} of {total_rungs}" if total_rungs else f"{last_green} green (no ladder total)") + (
+            f" · +{delta} in {ids[-1]}" if delta else "")
     kpis = [_kpi(
         "rungs_green", "Ladder rungs green", "S1", "rungs", "higher", green_values,
         target={"value": total_rungs, "kind": "scope", "label": f"of {total_rungs} rungs"} if total_rungs else None,
-        baseline={"iteration": "T0", "label": "bootstrap T0", "value": green_values[0]["value"]} if green_values else None,
-        status={"word": f"{green_values[-1]['value']} of {total_rungs}" + (f" · +{delta} in {ids[-1]}" if delta else ""),
-                "tone": "ok" if delta else "muted"},
-        note=f"By axis: {axis_line}. Frontier: {where_line}." if axis_line else "ladder.json unreadable: no axis breakdown",
+        baseline=({"iteration": "T0", "label": "bootstrap T0", "value": green_values[0]["value"]}
+                  if green_values and green_values[0]["measured"] else None),
+        status={"word": green_word, "tone": "ok" if delta else "muted"},
+        note=(f"By axis: {axis_line}. Frontier: {where_line}." if axis_line else
+              unmeasured_note if not green_established else f"{ladder_why}: no axis breakdown"),
         provenance=_prov(events_src, "/kind=rung_status_changed",
                          "rungs whose latest rung_status_changed at or before the tick is green; ladder-only greens placed "
                          "by their packages' landing time; the current tick is ladder.json's count"),
@@ -680,7 +700,8 @@ def build_track(work_track: Any, sources: dict[str, str]) -> dict[str, Any]:
     kpis.append(_kpi(
         "packages_landed", "Packages landed", "S4", "packages", "count", landed_values,
         target={"value": total_packages, "kind": "scope", "label": f"of {total_packages} packages"} if total_packages else None,
-        status={"word": f"{landed_total} of {total_packages} landed · {len(building)} building", "tone": "muted"},
+        status={"word": f"{landed_total} of {total_packages} landed · {len(building)} building" if total_packages
+                else f"no package total: {ladder_why}", "tone": "muted"},
         provenance=_prov(events_src, "/kind=lane_status,status=landed",
                          "first landed event per package; ladder-landed packages with no event placed by their updated time"),
     ))
@@ -776,10 +797,13 @@ def build_track(work_track: Any, sources: dict[str, str]) -> dict[str, Any]:
     open_values = [_value(it, None, note="not recorded per tick") for it in ids[:-1]]
     open_values.append(_value(ids[-1], len(needs_you) if needs_count is None else None,
                               note=None if needs_count is None else "triage.json unreadable; only the no-default slots are known"))
+    # WHY the adapter's count is provisional: build.py replaces this row's latest value and status with /needs'
+    # counts (audit 2026-10-04, finding 5); len(needs_you) counts defaulting items too.
     kpis.append(_kpi(
         "open_questions", "Open questions", "S7", "questions", "lower", open_values,
         status={"word": f"{len(needs_you)} open · {no_default} with no default", "tone": "warn" if no_default else "muted"},
-        note=f"From {needs_source}. A question with no default holds its work until you answer it.",
+        note=f"From {needs_source}; the latest value is the Needs-you count. A question with no default holds its work "
+             "until you answer it.",
         provenance=_prov(sources.get("rig_triage"), "/items/*/status", "items with status open, now"),
     ))
 
@@ -880,7 +904,10 @@ def build_track(work_track: Any, sources: dict[str, str]) -> dict[str, Any]:
              "detail": " · ".join(p for p in detail_parts if p), "since": since}
     milestone = status.get("milestone") or (ladder or {}).get("milestone") or {}
     nxt = (status.get("next") or [None])[0]
-    summary = (f"Tick {ticks.loop_current} {phase}: {green_values[-1]['value']} of {total_rungs} rungs green"
+    summary = (f"Tick {ticks.loop_current} {phase}: "
+               + (f"{last_green} of {total_rungs} rungs green" if last_green is not None and total_rungs
+                  else f"{last_green} rungs green (no ladder total)" if last_green is not None
+                  else "rungs green not measured")
                + (f"; next: {nxt}" if nxt else "")
                + (f"; milestone '{milestone.get('title')}' due {milestone.get('due')}" if milestone.get("title") else "") + ".")
     links = []

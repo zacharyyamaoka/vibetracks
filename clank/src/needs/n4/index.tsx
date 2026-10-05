@@ -15,6 +15,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import {
   CopyOut,
+  StaleDraftNotice,
   EvidenceLink,
   GROUP_LABEL,
   WHEN_NOT_STATED,
@@ -513,6 +514,7 @@ function Card({
         </p>
       ) : null}
 
+      <StaleDraftNotice answers={answers} doc={doc} item={item} />
       <div className="n4-options" role="group" aria-label="Your answer">
         {item.options.map((option, index) => {
           const selected = option.key === 'other' ? choice === 'other' || otherOpen : choice === option.key
@@ -716,7 +718,7 @@ function AnswerTray({ entries, answers, onPick, currentKey }: { entries: Entry[]
                 <button type="button" className="vt-btn n4-tray-row" aria-current={entry.key === currentKey ? 'true' : undefined} onClick={() => onPick(entry.key)}>
                   <span className="vt-num vt-strong">{entry.item.local_id}</span>{' '}
                   <span>{choice === 'other' ? 'Something else' : choiceLabel(entry.item, choice)}</span>
-                  {draft?.note.trim() ? <span className="vt-muted">: {draft.note.trim()}</span> : null}
+                  {draft?.note.trim() ? <span className="vt-muted n4-tray-note">: {draft.note}</span> : null}
                   {!isComplete(draft) ? <span className="vt-tone-warn"> · needs a note</span> : null}
                 </button>
               </li>

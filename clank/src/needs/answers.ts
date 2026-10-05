@@ -2,17 +2,14 @@
 // WHY localStorage and not a backend write: the backend is read-only by contract (mounts are GET only), and the
 // answer's real destination is the loop's own channel, reached by Copy answers. Every access is try/catch wrapped:
 // storage often fails on Clank/file origins, and the page must still work for this session.
+// The rules (fingerprint binding, live vs stale, offered choices, what a note alone means) live in answerRules.ts,
+// shared with the exporter; this file is the store every proposal N1-N6 reads through.
 
 import { useCallback, useMemo, useState } from 'react'
-import { CHOICES, type Choice, type NeedsDoc } from './types'
+import type { NeedsDoc, NeedsItem } from './types'
+import { boundDraft, draftState, isAnswerable, parseStoredDraft, type AnswerDraft, type StaleDraft } from './answerRules'
 
-export interface AnswerDraft {
-  /** null = no choice clicked yet; a note alone exports as `other`. */
-  choice: Choice | null
-  note: string
-  /** ISO time of the last edit. */
-  updated: string
-}
+export * from './answerRules'
 
 const PREFIX = 'vibetracks.needs.answer'
 
@@ -22,12 +19,7 @@ export function answerKey(track: string, localId: string): string {
 
 function read(track: string, localId: string): AnswerDraft | null {
   try {
-    const raw = window.localStorage.getItem(answerKey(track, localId))
-    if (!raw) return null
-    const value = JSON.parse(raw) as Partial<AnswerDraft>
-    // WHY CHOICES and not a hand list: grasping's `approve` was dropped on every reload by a list that predated it.
-    const choice = (CHOICES as unknown[]).includes(value.choice) ? (value.choice as Choice) : null
-    return { choice, note: typeof value.note === 'string' ? value.note : '', updated: typeof value.updated === 'string' ? value.updated : '' }
+    return parseStoredDraft(window.localStorage.getItem(answerKey(track, localId)))
   } catch {
     return null
   }
@@ -36,72 +28,58 @@ function read(track: string, localId: string): AnswerDraft | null {
 function write(track: string, localId: string, draft: AnswerDraft | null): void {
   try {
     if (draft === null) window.localStorage.removeItem(answerKey(track, localId))
-    else window.localStorage.setItem(answerKey(track, localId), JSON.stringify(draft))
+    else {
+      // The transient flag is never stored: it is recomputed from the item on every read.
+      const { offersOther: _transient, ...stored } = draft
+      window.localStorage.setItem(answerKey(track, localId), JSON.stringify(stored))
+    }
   } catch {
     // Blocked storage: the draft lives in memory for this page; Copy answers still works.
   }
 }
 
-/** The choice an export carries: an explicit click wins; a note alone means `other`; nothing means unanswered. */
-export function effectiveChoice(draft: AnswerDraft | null | undefined): Choice | null {
-  if (!draft) return null
-  if (draft.choice) return draft.choice
-  return draft.note.trim() ? 'other' : null
-}
-
-/** A draft is exportable when it has a choice, and `other` carries a non-blank note (the note IS the answer). */
-export function isComplete(draft: AnswerDraft | null | undefined): boolean {
-  const choice = effectiveChoice(draft)
-  if (!choice) return false
-  return choice !== 'other' || Boolean(draft?.note.trim())
-}
-
 export interface AnswerStore {
-  /** The draft as the item can take it: a stored choice the item does not offer is dropped (see offeredDraft). */
+  /** The LIVE draft only: bound to the question as it reads now, on an item that is still open, with a choice the
+   * item offers. A stale draft reads as null here (never shown as answered); see stale(). */
   get(track: string, localId: string): AnswerDraft | null
-  /** Merge a change; `{choice: null, note: ''}` with no other content clears the entry. A choice the item does not
-   * offer is never recorded. */
+  /** The draft Zach must reconfirm or discard before it counts, or null. */
+  stale(track: string, localId: string): StaleDraft | null
+  /** The stored draft as saved, live or stale. Pass this to exportAnswers so Copy can NAME what it leaves out. */
+  stored(track: string, localId: string): AnswerDraft | null
+  /** Merge a change into the live draft and bind it to the question as it reads now; `{choice: null, note: ''}`
+   * clears the entry. A choice the item does not offer is never recorded, and an item that is not open (or not in
+   * the shown docs) takes no draft. A change to an item with a stale draft starts a NEW draft: the stale one's words
+   * are not carried into it, because Zach has not reconfirmed them. */
   set(track: string, localId: string, change: Partial<Pick<AnswerDraft, 'choice' | 'note'>>): void
+  /** Re-bind a stale draft to the question as it reads now (Zach read it again and keeps his answer). */
+  reconfirm(track: string, localId: string): void
   clear(track: string, localId?: string, localIds?: string[]): void
   /** Bumps on every change, for effects that depend on the drafts. */
   version: number
 }
 
-/** `<track>\0<local_id>` -> the option keys that item offers, for every item in `docs`. */
-export type OfferedChoices = Map<string, Set<Choice>>
-
-function offeredKey(track: string, localId: string): string {
+function itemKey(track: string, localId: string): string {
   return `${track}\u0000${localId}`
 }
 
-export function offeredChoices(docs: NeedsDoc[]): OfferedChoices {
-  const map: OfferedChoices = new Map()
-  for (const doc of docs) for (const item of doc.items) map.set(offeredKey(doc.track, item.local_id), new Set(item.options.map((option) => option.key)))
+/** `<track>\0<local_id>` -> the item, for every item in `docs`. */
+export function itemIndex(docs: NeedsDoc[]): Map<string, NeedsItem> {
+  const map = new Map<string, NeedsItem>()
+  for (const doc of docs) for (const item of doc.items) map.set(itemKey(doc.track, item.local_id), item)
   return map
 }
 
 /**
- * A stored draft as `offered` allows it: a choice the item does not offer is dropped; a note left behind stays only
- * where "something else" exists to carry it (a note alone exports as `other`); an item not in the loaded docs is left
- * as stored (nothing renders or exports it).
+ * The drafts for the items in `docs`. Pass the docs the page shows: every read and write is checked against them.
  *
- * WHY in the shared store and not per proposal: drafts are shared by N1-N6 and outlive builds, so a stale
- * `accept_recommendation` (an older build, a keypress before the guard, a loop that dropped its recommendation) sat on
- * grasping and detection items, which offer no recommendation. N2-N5 then showed "✓ recommendation" and N3-N5 copied
- * `accept_recommendation` out for an option that does not exist; only N6 filtered it, with its own wrapper. WHY a
- * read-side rule and not a cleanup sweep: a view must never rewrite what Zach saved behind his back; the next edit of
- * that item writes the cleaned draft.
+ * WHY the rule lives here and not per proposal: drafts are shared by N1-N6 and outlive builds; a rule in one proposal
+ * (N6 once filtered unoffered choices with its own wrapper) leaves the other five showing and copying what it hides.
+ * WHY an item not in the docs reads as null: nothing can say what such a draft answered, and nothing renders it.
  */
-export function offeredDraft(draft: AnswerDraft | null, keys: Set<Choice> | undefined): AnswerDraft | null {
-  if (!draft || !keys || !draft.choice || keys.has(draft.choice)) return draft
-  return draft.note.trim() && keys.has('other') ? { ...draft, choice: null } : null
-}
-
-/** The drafts for the items in `docs`. Pass the docs the page shows: every get() and set() is checked against them. */
 export function useAnswerStore(docs: NeedsDoc[] = []): AnswerStore {
   const [cache] = useState(() => new Map<string, AnswerDraft | null>())
   const [version, setVersion] = useState(0)
-  const offered = useMemo(() => offeredChoices(docs), [docs])
+  const items = useMemo(() => itemIndex(docs), [docs])
   const stored = useCallback(
     (track: string, localId: string) => {
       const key = answerKey(track, localId)
@@ -110,24 +88,50 @@ export function useAnswerStore(docs: NeedsDoc[] = []): AnswerStore {
     },
     [cache],
   )
+  const save = useCallback(
+    (track: string, localId: string, draft: AnswerDraft | null) => {
+      cache.set(answerKey(track, localId), draft)
+      write(track, localId, draft)
+      setVersion((n) => n + 1)
+    },
+    [cache],
+  )
   const get = useCallback(
-    (track: string, localId: string) => offeredDraft(stored(track, localId), offered.get(offeredKey(track, localId))),
-    [stored, offered],
+    (track: string, localId: string) => {
+      const item = items.get(itemKey(track, localId))
+      return item ? draftState(stored(track, localId), item).live : null
+    },
+    [stored, items],
+  )
+  const stale = useCallback(
+    (track: string, localId: string) => {
+      const item = items.get(itemKey(track, localId))
+      return item ? draftState(stored(track, localId), item).stale : null
+    },
+    [stored, items],
   )
   const set = useCallback(
     (track: string, localId: string, change: Partial<Pick<AnswerDraft, 'choice' | 'note'>>) => {
-      const key = answerKey(track, localId)
-      const keys = offered.get(offeredKey(track, localId))
-      // The previous draft as the item can take it, so a note typed under a stale choice never re-saves that choice.
-      const previous = offeredDraft(stored(track, localId), keys)
-      const next: AnswerDraft = { choice: previous?.choice ?? null, note: previous?.note ?? '', updated: new Date().toISOString(), ...change }
-      if (next.choice && keys && !keys.has(next.choice)) next.choice = previous?.choice ?? null
-      const empty = !next.choice && !next.note
-      cache.set(key, empty ? null : next)
-      write(track, localId, empty ? null : next)
-      setVersion((n) => n + 1)
+      const item = items.get(itemKey(track, localId))
+      if (!item || !isAnswerable(item)) return
+      const keys = new Set(item.options.map((option) => option.key))
+      // The live draft as the item can take it, so a note typed under a stale choice never re-saves that choice.
+      const previous = draftState(stored(track, localId), item).live
+      let choice = change.choice === undefined ? (previous?.choice ?? null) : change.choice
+      if (choice && !keys.has(choice)) choice = previous?.choice ?? null
+      const note = change.note === undefined ? (previous?.note ?? '') : change.note
+      save(track, localId, !choice && !note ? null : boundDraft(item, choice, note))
     },
-    [cache, stored, offered],
+    [stored, items, save],
+  )
+  const reconfirm = useCallback(
+    (track: string, localId: string) => {
+      const item = items.get(itemKey(track, localId))
+      const current = item ? draftState(stored(track, localId), item).stale : null
+      if (!item || !current || !current.reconfirmable) return
+      save(track, localId, boundDraft(item, current.draft.choice, current.draft.note))
+    },
+    [stored, items, save],
   )
   const clear = useCallback(
     (track: string, localId?: string, localIds?: string[]) => {
@@ -140,5 +144,5 @@ export function useAnswerStore(docs: NeedsDoc[] = []): AnswerStore {
     },
     [cache],
   )
-  return useMemo(() => ({ get, set, clear, version }), [get, set, clear, version])
+  return useMemo(() => ({ get, stale, stored, set, reconfirm, clear, version }), [get, stale, stored, set, reconfirm, clear, version])
 }

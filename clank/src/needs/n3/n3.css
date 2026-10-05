@@ -470,6 +470,8 @@
   }
   .vt-dash .vt-needs-n3 .vt-n3-summary-note {
     color: var(--vt-grey);
+    /* Zach's note as saved: its line breaks stay (never folded, never trimmed). */
+    white-space: pre-wrap;
   }
   .vt-dash .vt-needs-n3 .vt-n3-leftout {
     margin-top: 10px;

@@ -136,40 +136,42 @@ function TrackPageBody({ projection, track, title, nav, xAxis, showDeltas, roadm
           <h2 className="vt-h3">
             Deployments <span className="vt-a-h-note">evidence for this track</span>
           </h2>
-          <table className="vt-table vt-a-deploys" aria-label="Deployments">
-            <colgroup>
-              <col style={{ width: '30%' }} />
-              <col style={{ width: '28%' }} />
-              <col style={{ width: '26%' }} />
-              <col style={{ width: '16%' }} />
-            </colgroup>
-            <tbody>
-              {children.map((child) => {
-                const childMoved = lastMoved(projection, child)
-                return (
-                  <tr key={child.id} className="vt-row-link" data-testid="vt-a-deploy-row" data-track={child.id} onClick={() => nav.track(child.id)}>
-                    <td>
-                      <button type="button" className="vt-btn vt-a-deploy-name" onClick={(event) => { event.stopPropagation(); nav.track(child.id) }}>
-                        {child.title}
-                      </button>
-                    </td>
-                    <td>
-                      <StatusWord status={child.state} detail={child.state.detail} />
-                    </td>
-                    <td>
-                      <ProgressCell track={child} showDeltas={showDeltas} />
-                    </td>
-                    <td>
-                      <span className="vt-a-two" title={childMoved.detail ?? undefined}>
-                        <span className={childMoved.stale ? 'vt-tone-stale' : undefined}>{childMoved.text}</span>
-                        <small>{sourceKind(child) === 'snapshot' ? 'from a snapshot' : child.iteration.label}</small>
-                      </span>
-                    </td>
-                  </tr>
-                )
-              })}
-            </tbody>
-          </table>
+          <div className="vt-a-tablescroll">
+            <table className="vt-table vt-a-deploys" aria-label="Deployments">
+              <colgroup>
+                <col style={{ width: '30%' }} />
+                <col style={{ width: '28%' }} />
+                <col style={{ width: '26%' }} />
+                <col style={{ width: '16%' }} />
+              </colgroup>
+              <tbody>
+                {children.map((child) => {
+                  const childMoved = lastMoved(projection, child)
+                  return (
+                    <tr key={child.id} className="vt-row-link" data-testid="vt-a-deploy-row" data-track={child.id} onClick={() => nav.track(child.id)}>
+                      <td>
+                        <button type="button" className="vt-btn vt-a-deploy-name" onClick={(event) => { event.stopPropagation(); nav.track(child.id) }}>
+                          {child.title}
+                        </button>
+                      </td>
+                      <td>
+                        <StatusWord status={child.state} detail={child.state.detail} />
+                      </td>
+                      <td>
+                        <ProgressCell track={child} showDeltas={showDeltas} />
+                      </td>
+                      <td>
+                        <span className="vt-a-two" title={childMoved.detail ?? undefined}>
+                          <span className={childMoved.stale ? 'vt-tone-stale' : undefined}>{childMoved.text}</span>
+                          <small>{sourceKind(child) === 'snapshot' ? 'from a snapshot' : child.iteration.label}</small>
+                        </span>
+                      </td>
+                    </tr>
+                  )
+                })}
+              </tbody>
+            </table>
+          </div>
         </section>
       ) : null}
 

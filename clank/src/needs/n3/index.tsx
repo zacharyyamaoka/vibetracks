@@ -12,6 +12,7 @@ import { useCallback, useEffect, useMemo, useRef, useState, type MutableRefObjec
 import {
   CopyOut,
   EvidenceLink,
+  StaleDraftNotice,
   GROUP_LABEL,
   NO_DEFAULT_RECORDED,
   WHEN_NOT_STATED,
@@ -314,7 +315,7 @@ export default function NeedsN3(props: NeedsProposalProps) {
                           {entry.item.local_id}
                         </button>
                         <span className="vt-n3-summary-choice">{choiceLabel(entry.item, choice)}</span>
-                        {draft?.note.trim() ? <span className="vt-n3-summary-note">“{draft.note.trim()}”</span> : null}
+                        {draft?.note.trim() ? <span className="vt-n3-summary-note">“{draft.note}”</span> : null}
                         {entry.item.group === 'defaulting' ? <span className="vt-faint vt-small"> · overrides a default in effect</span> : null}
                       </li>
                     )
@@ -604,6 +605,7 @@ function Card({ entry, ...ctx }: CardContext & { entry: Entry }) {
                 <OptionRow key={option.key} doc={doc} item={item} option={option} index={index} picked={choice === option.key && Boolean(draft?.choice || option.key === 'other')} onPick={() => choose(entry, option.key)} />
               ))}
             </div>
+            <StaleDraftNotice answers={props.answers} doc={doc} item={item} />
             <textarea
               className="vt-needs-note vt-n3-note"
               data-testid="vt-n3-note"

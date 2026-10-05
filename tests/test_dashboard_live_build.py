@@ -338,9 +338,13 @@ class RealWorkspaceTest(unittest.TestCase):
         self.assertEqual([(t["id"], t["parent"], t["kind"]) for t in children],
                          [("can12", "rig", "deployment"), ("can16", "rig", "deployment")])
         rig = next(t for t in self.projection["tracks"] if t["id"] == "rig")
+        # WHY skip on the files' absence and not on "rig not reporting": with the loop's files present, a rig that
+        # does not report is the failure this test exists to catch (the audit's finding 12, generalised).
+        from vibetracks.sources import load_sources
+        if not os.path.isfile(load_sources().get("rig_loop_status", "")):
+            self.skipTest("the rig loop's files are not on this machine")
+        self.assertTrue(rig["reporting"], rig["state"])
         for child in children:
-            if not rig["reporting"]:
-                self.skipTest("the rig loop's files are not on this machine")
             self.assertTrue(child["reporting"], child["state"])
             self.assertEqual((child["source"]["kind"], child["source"]["live"]), ("live", True))
             self.assertIsNone(self.projection["source"]["snapshot"])  # nothing fell back to the snapshot

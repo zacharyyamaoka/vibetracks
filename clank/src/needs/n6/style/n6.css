@@ -341,6 +341,10 @@
   .vt-dash .vt-needs-n6 .n6-summary-title {
     font-weight: 500;
   }
+  /* Zach's note as saved: its line breaks stay (never folded to one line, never trimmed). */
+  .vt-dash .vt-needs-n6 .n6-summary-note {
+    white-space: pre-wrap;
+  }
   .vt-dash .vt-needs-n6 .n6-copy {
     margin-top: 22px;
   }

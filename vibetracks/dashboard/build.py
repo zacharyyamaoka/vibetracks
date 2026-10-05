@@ -111,6 +111,14 @@ DEFAULT_WORKSPACE = Path(__file__).resolve().parents[2] / "workspace"
 ADAPTER_PACKAGE = "vibetracks.dashboard.adapters"
 #: A directory source is stamped by its own entries, never recursively, and at most this many of them.
 DIR_SCAN_LIMIT = 5000
+#: KPI rows whose latest value says what is open (or blocking) NOW, and which count that value is: their latest value
+#: and status come from needs.py's doc (``_align_needs_kpis``). WHY (audit 2026-10-04, finding 5): rig's "Open
+#: questions" read 11 and kinsim's S7 status "11 open · 1 blocking a rung" while /needs, the one source, said 6 and 3;
+#: the adapters counted every status-open item, defaulting ones included.
+NEEDS_KPIS_NOW = {"open_questions": "wants_you", "needs_you": "wants_you", "blocking_questions": "blocking_now"}
+#: KPI rows that count questions per iteration (history): values stay, each labelled as history, and only the status
+#: (which describes now) comes from needs.py's doc.
+NEEDS_KPIS_HISTORY = ("questions_opened", "triage_opened")
 REASON_LIMIT = 240
 
 
@@ -405,6 +413,50 @@ class LiveBuilder:
         source = (doc or {}).get("source") or {}
         out["needs_you_source"] = {"adapter": source.get("adapter"), "live": bool(source.get("live")),
                                    "note": source.get("note") if doc is not None else "needs.py could not build this track"}
+        LiveBuilder._align_needs_kpis(out, out["needs_you_count"], out["needs_you_source"]["note"])
+
+    @staticmethod
+    def _align_needs_kpis(out: dict[str, Any], count: dict[str, int | None], source_note: str | None) -> None:
+        """Rewrite the KPI rows about open questions from the canonical count (``needs_you_count``).
+
+        A "now" row (``NEEDS_KPIS_NOW``) gets its latest value and its status from the count; a history row
+        (``NEEDS_KPIS_HISTORY``) keeps every per-iteration value, each noted "questions opened in <it>", and gets its
+        status from the count. A null count is "not reported", never 0. The adapter's cached rows are never mutated.
+        """
+
+        kpis = out.get("kpis")
+        if not isinstance(kpis, list):
+            return
+        open_now, blocking_now = count.get("open"), count.get("blocking")
+        if open_now is None or blocking_now is None:
+            word, tone = "not reported", "muted"
+        else:
+            word, tone = f"{blocking_now} blocking · {open_now} open now", "warn" if blocking_now else "muted"
+        derived = "latest value and status: /needs counts (needs.py), the one source of every Needs-you number"
+        aligned = []
+        for kpi in kpis:
+            kpi_id = kpi.get("id") if isinstance(kpi, dict) else None
+            if kpi_id not in NEEDS_KPIS_NOW and kpi_id not in NEEDS_KPIS_HISTORY:
+                aligned.append(kpi)
+                continue
+            kpi = {**kpi, "status": {"word": word, "tone": tone},
+                   "provenance": {**(kpi.get("provenance") or {}),
+                                  "derived": "; ".join(filter(None, [(kpi.get("provenance") or {}).get("derived"),
+                                                                     derived]))}}
+            values = [dict(value) for value in kpi.get("values") or []]
+            if kpi_id in NEEDS_KPIS_NOW and values:
+                now = open_now if NEEDS_KPIS_NOW[kpi_id] == "wants_you" else blocking_now
+                values[-1].update(value=now, measured=now is not None, of=None,
+                                  note=("open now, from /needs" if now is not None
+                                        else f"not reported: {source_note or 'needs.py has no count'}"))
+            elif kpi_id in NEEDS_KPIS_HISTORY:
+                for value in values:
+                    if value.get("measured"):
+                        history = f"questions opened in {value.get('iteration')}"
+                        value["note"] = " · ".join(filter(None, [history, value.get("note")]))
+            kpi["values"] = values
+            aligned.append(kpi)
+        out["kpis"] = aligned
 
     @staticmethod
     def _child_needs(out: dict[str, Any], parent: WorkTrack) -> None:

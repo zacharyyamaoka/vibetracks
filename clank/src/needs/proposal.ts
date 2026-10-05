@@ -18,8 +18,16 @@ export interface NeedsProposalProps {
   error: string | null
   /** Re-read the loops' live files. */
   reload(): void
-  /** Draft answers, persisted per track + item; pass to <CopyOut answers>. */
+  /** Draft answers, persisted per track + item; pass to <CopyOut answers>. Render <StaleDraftNotice> in every card's
+   * answer area: get() hides a stale draft, and only the notice tells Zach it exists. */
   answers: AnswerStore
+  /** The settings page's "Include questions whose default is already in effect" (shared/settings.ts). A lane that
+   * queues only what wants Zach adds the defaulting ones when this is on. WHY a setting and not a page button
+   * (Codex audit 2026-10-04, finding 13): it changes what the queue shows, a view option, and view options live only on
+   * the settings page. */
+  includeDefaulting: boolean
+  /** Open the dashboard's settings page (the plain-text pointer beside a count of items this view leaves out). */
+  openSettings(): void
   backend: PluginBackend
   /** The dashboard projection when loaded (for <EvidenceLink projection>); may be null. */
   projection: Projection | null

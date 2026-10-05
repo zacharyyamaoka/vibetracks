@@ -34,7 +34,7 @@ from typing import Any
 import yaml
 
 from ..descriptor import DescriptorConfig, load_descriptor
-from ..edits import apply_note_edit, replace_frontmatter_entry
+from ..edits import apply_note_edit, read_note_exact, replace_frontmatter_entry
 from ..errors import UnknownFeature, VibeTracksError
 from ..notes import first_paragraph, note_revision, parse_frontmatter
 
@@ -42,7 +42,6 @@ TRACK_ID = re.compile(r"^[a-z0-9][a-z0-9_-]*$")
 ADAPTER_NAME = re.compile(r"^[a-z][a-z0-9_]*$")
 STATUSES = ("running", "paused", "archived")
 DEFAULT_STALL_HOURS = 24.0
-TITLE_MAX = 80
 
 #: The registry's keys beyond the stock ``vibe-`` set; a descriptor may rename any of them under
 #: ``vibetracks.properties`` (``Work tracks.vibetrack`` spells them out).
@@ -298,7 +297,9 @@ def read_registry(workspace: str | Path) -> Registry:
     seen: dict[str, str] = {}
     for path in sorted(config.source.rglob("*.md")):
         try:
-            content = path.read_text(encoding="utf-8")
+            # WHY the exact bytes: the revision fences the rename, and a newline-translated read would hash a CRLF
+            # note as text it does not hold (apply_note_edit fences on the exact text).
+            content = read_note_exact(path)
             frontmatter, body = parse_frontmatter(content)
         except (VibeTracksError, OSError, UnicodeDecodeError) as error:
             problems.append({"path": path.name, "error": str(error)})
@@ -333,19 +334,28 @@ def load_registry(workspace: str | Path) -> list[WorkTrack]:
 # ------------------------------------------------------------------------------------------------ renaming
 
 
-def clean_title(value: Any) -> str:
-    """The title a rename stores: a string, trimmed, 1-80 characters, no newline or other control character."""
+#: Line breaks a title may not contain: every boundary ``str.splitlines`` knows (LF, CR, VT, FF, FS/GS/RS, NEL, U+2028,
+#: U+2029). WHY all of them: YAML and most renderers start a new line at several of these, so a title "on one line" in
+#: the box would arrive on two in the note or on the page.
+LINE_BREAKS = frozenset("\n\r\x0b\x0c\x1c\x1d\x1e\x85\u2028\u2029")
+
+
+def validate_title(value: Any) -> str:
+    """The title a rename stores: exactly ``value``, never trimmed or normalised.
+
+    Refused (TitleInvalid) only when it is not a string, is empty or whitespace only, or contains a line break.
+    WHY no trim and no length cap (audit 2026-10-04, finding 8): the title is Zach's authored text, and a stored
+    property keeps every character he typed; "  Grasping  " is stored as typed, and the page abbreviates visually.
+    """
 
     if not isinstance(value, str):
         raise TitleInvalid("title must be a string")
-    if any(ord(char) < 0x20 or ord(char) == 0x7F for char in value):
-        raise TitleInvalid("title must be one line, with no newline or control character")
-    cleaned = value.strip()
-    if not cleaned:
-        raise TitleInvalid("title must not be empty")
-    if len(cleaned) > TITLE_MAX:
-        raise TitleInvalid(f"title must be at most {TITLE_MAX} characters (got {len(cleaned)})")
-    return cleaned
+    if not value.strip():
+        raise TitleInvalid("title must not be empty or only whitespace")
+    breaks = sorted({f"U+{ord(char):04X}" for char in value if char in LINE_BREAKS})
+    if breaks:
+        raise TitleInvalid(f"title must be one line: it contains a line break ({', '.join(breaks)})")
+    return value
 
 
 def rename_title(workspace: str | Path, track_id: str, title: Any, revision: str) -> tuple[str, str]:
@@ -358,7 +368,7 @@ def rename_title(workspace: str | Path, track_id: str, title: Any, revision: str
     Raises TitleInvalid, UnknownFeature (no such id) or RevisionConflict.
     """
 
-    cleaned = clean_title(title)
+    cleaned = validate_title(title)
     if not isinstance(track_id, str) or not TRACK_ID.fullmatch(track_id):
         raise UnknownFeature(f"unknown work track: {track_id!r}")
     registry = read_registry(workspace)
@@ -371,6 +381,9 @@ def rename_title(workspace: str | Path, track_id: str, title: Any, revision: str
 
     def transform(markdown: str) -> str:
         updated = replace_frontmatter_entry(markdown, key, cleaned)
+        stored = parse_frontmatter(updated)[0].get(key)
+        if stored != cleaned:  # WHY: the write must read back as exactly the typed title, or it does not happen
+            raise TitleInvalid(f"the note would store {stored!r}, not the title as typed")
         written["content"] = updated
         return updated
 

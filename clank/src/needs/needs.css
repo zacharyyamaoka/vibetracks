@@ -132,4 +132,48 @@
   .vt-dash .vt-needs-copy-result {
     margin-top: 10px;
   }
+
+  /* A stale draft (StaleDraftNotice.tsx): a hairline box in the page's own greys, no colour fill. WHY no warn colour on
+     the box: a changed question is a quiet "read this again", not an alarm; the bold reason carries it. */
+  .vt-dash .vt-needs-stale {
+    margin: 10px 0;
+    padding: 8px 12px;
+    border: 1px solid var(--vt-line);
+    border-radius: 6px;
+  }
+  .vt-dash .vt-needs-stale p + p {
+    margin-top: 4px;
+  }
+  /* Zach's note exactly as saved: its line breaks and edge whitespace stay visible. */
+  .vt-dash .vt-needs-stale-note {
+    display: block;
+    white-space: pre-wrap;
+    margin-top: 2px;
+    color: var(--vt-fg);
+  }
+  .vt-dash .vt-needs-stale-actions {
+    display: flex;
+    gap: 12px;
+  }
+  /* WHY `.vt-needs` in the selector: calm.css's `.vt-dash button.vt-btn { all: unset }` outranks two classes and would
+     strip the underline, leaving Reconfirm / Discard looking like plain words. */
+  .vt-dash .vt-needs .vt-needs-stale-btn {
+    padding: 2px 0;
+    color: var(--vt-fg);
+    font-weight: 500;
+    text-decoration: underline;
+    text-decoration-color: var(--vt-faint);
+    text-underline-offset: 3px;
+  }
+  .vt-dash .vt-needs-not-in-copy {
+    margin-top: 8px;
+  }
+  .vt-dash .vt-needs .vt-needs-settings-link {
+    padding: 0;
+    color: var(--vt-fg);
+    font-weight: 500;
+    text-decoration: underline;
+    text-decoration-color: var(--vt-faint);
+    text-underline-offset: 3px;
+  }
 }

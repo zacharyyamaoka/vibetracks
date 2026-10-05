@@ -16,6 +16,7 @@ import type { PluginBackend } from '@clank/api'
 import type { Projection } from '../shared/model'
 import { parseRoute, type Route } from '../shared/route'
 import { trackById } from '../shared/model'
+import { useDashboardSettings } from '../shared/settings'
 import { isUnknownTrackError, unreportedDoc, useNeeds, type NeedsState } from './api'
 import { useAnswerStore } from './answers'
 import { reviewBarFor } from './kit'
@@ -177,8 +178,12 @@ export interface NeedsShellProps {
 export function NeedsShell({ backend, route, navigate, projection }: NeedsShellProps) {
   const track = route.track ?? null
   const needs = useKnownNeeds(useNeeds(backend, track), track, projection)
-  // WHY the docs go into the store: it answers only with choices the shown items offer (answers.ts offeredDraft).
+  // WHY the docs go into the store: it answers only with drafts bound to the items as they read now, on items still
+  // open, with choices they offer (answerRules.ts draftState); a stale draft reaches the page only as a notice.
   const answers = useAnswerStore(needs.docs)
+  const { needsIncludeDefaulting } = useDashboardSettings()
+  // The settings page is the dashboard's own (`settings=1` over this route); closing it lands back on this page.
+  const openSettings = useCallback(() => navigate({ ...route, settings: '1' }, 'push'), [navigate, route])
   const [key, setKey] = useState(readStored)
   const choose = useCallback((next: string) => {
     setKey(next)
@@ -218,6 +223,8 @@ export function NeedsShell({ backend, route, navigate, projection }: NeedsShellP
         error={needs.error}
         reload={needs.reload}
         answers={answers}
+        includeDefaulting={needsIncludeDefaulting}
+        openSettings={openSettings}
         backend={backend}
         projection={projection}
         route={route}

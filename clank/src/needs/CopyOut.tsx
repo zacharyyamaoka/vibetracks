@@ -3,7 +3,7 @@
 // origins and in a background panel, and a copy that silently failed is worse than none; the selected text is one
 // Ctrl+C away whatever happened.
 
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useRef, useState, type ReactNode } from 'react'
 import type { AnswerStore } from './answers'
 import { exportAnswers, type ExportResult } from './exportAnswers'
 import type { NeedsDoc } from './types'
@@ -14,6 +14,10 @@ export interface CopyOutProps {
   /** The button's words; default "Copy answers". */
   label?: string
   className?: string
+  /** The page's own "not in the copy" groups (Later, Unanswered, each with jump links), joined into Copy's ONE "Not in
+   * the copy:" line. WHY one line: N6's end screen printed its own "Not in the copy" above Copy's, the same heading
+   * twice for one list. Empty groups are dropped. */
+  notInCopy?: { label: string; content: ReactNode; count: number }[]
 }
 
 async function copyText(text: string): Promise<boolean> {
@@ -41,11 +45,14 @@ async function copyText(text: string): Promise<boolean> {
   }
 }
 
-export function CopyOut({ docs, answers, label = 'Copy answers', className }: CopyOutProps) {
+export function CopyOut({ docs, answers, label = 'Copy answers', className, notInCopy = [] }: CopyOutProps) {
   const [result, setResult] = useState<(ExportResult & { copied: boolean }) | null>(null)
   const area = useRef<HTMLTextAreaElement>(null)
-  const preview = exportAnswers(docs, answers.get)
+  // WHY `stored` and not `get`: get() hides stale drafts, and Copy must NAME every draft it leaves out (a stale draft
+  // silently missing from the copy reads as "answered" to someone who drafted it).
+  const preview = exportAnswers(docs, answers.stored)
   const count = preview.exported.length
+  const groups = notInCopy.filter((group) => group.count > 0)
 
   useEffect(() => {
     if (result && area.current) {
@@ -55,7 +62,7 @@ export function CopyOut({ docs, answers, label = 'Copy answers', className }: Co
   }, [result])
 
   const run = async () => {
-    const built = exportAnswers(docs, answers.get)
+    const built = exportAnswers(docs, answers.stored)
     const copied = built.markdown ? await copyText(built.markdown) : false
     setResult({ ...built, copied })
   }
@@ -74,10 +81,23 @@ export function CopyOut({ docs, answers, label = 'Copy answers', className }: Co
         {label}
         {count ? ` (${count})` : ''}
       </button>
-      {preview.skipped.length ? (
-        <span className="vt-small vt-tone-warn" style={{ marginLeft: 10 }}>
-          {preview.skipped.length} left out: {preview.skipped.map((skip) => `${skip.id.split(':').pop()} ${skip.reason}`).join('; ')}
-        </span>
+      {preview.skipped.length || groups.length ? (
+        <p className="vt-small vt-muted vt-needs-not-in-copy" data-testid="vt-needs-not-in-copy">
+          <span className="vt-strong">Not in the copy:</span>{' '}
+          {preview.skipped.map((skip, index) => (
+            <span key={skip.id} data-item={skip.id}>
+              {index ? '; ' : ''}
+              {skip.id.split(':').slice(1).join(':')} ({skip.reason})
+            </span>
+          ))}
+          {groups.map((group, index) => (
+            <span key={group.label}>
+              {index || preview.skipped.length ? ' · ' : ''}
+              {group.label}: {group.content}
+            </span>
+          ))}
+          .
+        </p>
       ) : null}
       {result ? (
         <div className="vt-needs-copy-result">

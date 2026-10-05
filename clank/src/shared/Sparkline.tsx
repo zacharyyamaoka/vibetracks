@@ -1,6 +1,8 @@
 // A tiny SVG series: the shape of a KPI over its iterations, the latest point emphasised, an optional target line or
 // band. Gaps (null, never measured) break the line instead of dropping to zero (research: "missing data is an
 // explicit state"). WHY a hand SVG and no chart library: a 64 × 18 glyph needs no axes, and the plugin ships no deps.
+// WHY grey ink and a near-black latest dot, never the accent blue: ordinary data is not an exception, and a blue line on
+// every row spent the page's only colour on nothing (audit 2026-10-04 #13). Exceptions are the status word's job.
 
 export interface SparklineProps {
   values: Array<number | null>
@@ -62,12 +64,12 @@ export function Sparkline({ values, width = 64, height = 18, target, domain, sel
         <line x1={0} x2={width} y1={y(target.value)} y2={y(target.value)} stroke="var(--vt-faint)" strokeWidth={1} strokeDasharray="2 2" />
       ) : null}
       {runs.map((run, i) =>
-        run.length === 1 ? null : <path key={i} d={path(run)} fill="none" stroke="var(--vt-accent)" strokeWidth={1.5} strokeLinejoin="round" strokeLinecap="round" />,
+        run.length === 1 ? null : <path key={i} d={path(run)} fill="none" stroke="var(--vt-ink)" strokeWidth={1.5} strokeLinejoin="round" strokeLinecap="round" />,
       )}
       {runs.filter((run) => run.length === 1).map((run, i) => (
-        <circle key={`solo-${i}`} cx={run[0][0]} cy={run[0][1]} r={1.6} fill="var(--vt-accent)" />
+        <circle key={`solo-${i}`} cx={run[0][0]} cy={run[0][1]} r={1.6} fill="var(--vt-ink)" />
       ))}
-      {lastIndex >= 0 ? <circle cx={x(lastIndex)} cy={y(values[lastIndex] as number)} r={2.4} fill="var(--vt-accent)" /> : null}
+      {lastIndex >= 0 ? <circle cx={x(lastIndex)} cy={y(values[lastIndex] as number)} r={2.4} fill="var(--vt-fg)" /> : null}
       {selected !== null && selected >= 0 && selected < n && values[selected] !== null ? (
         <circle cx={x(selected)} cy={y(values[selected] as number)} r={4} fill="none" stroke="var(--vt-fg)" strokeWidth={1} />
       ) : null}

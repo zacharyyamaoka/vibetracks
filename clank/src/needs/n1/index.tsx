@@ -18,6 +18,8 @@ import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode, type
 import {
   CopyOut,
   EvidenceLink,
+  IncludeDefaultingPointer,
+  StaleDraftNotice,
   GROUP_LABEL,
   NO_DEFAULT_RECORDED,
   WHEN_NOT_STATED,
@@ -28,6 +30,7 @@ import {
   headerCounts,
   headerSummary,
   isComplete,
+  isNoteOnly,
   notReportedText,
   type Choice,
   type NeedsDoc,
@@ -48,9 +51,10 @@ interface Entry {
   item: NeedsItem
 }
 
-// WHY the queue is "wants you" groups first and the defaulting ones only on request: an item whose default is already
-// in effect needs nothing from Zach; putting all eight of kinsim's in his lane would bury the three that do. They are
-// one press away from the end screen ("Review them too"), never hidden.
+// WHY the queue is "wants you" groups first and the defaulting ones only when the settings page says so: an item whose
+// default is already in effect needs nothing from Zach; putting all eight of kinsim's in his lane would bury the three
+// that do. The end screen counts them and points at the setting ("Include questions whose default is already in
+// effect"); a page button or a `zq=all` route flag was a view option outside the settings page (audit finding 13).
 const ASK_GROUPS: NeedsGroup[] = ['blocking', 'no_default', 'waiting']
 const ALL_GROUPS: NeedsGroup[] = [...ASK_GROUPS, 'defaulting']
 
@@ -112,8 +116,7 @@ function isEditable(target: EventTarget | null): boolean {
 }
 
 export default function NeedsZen(props: NeedsProposalProps) {
-  const { docs, loading, error, answers, route, navigate, onBack } = props
-  const includeDefaulting = route.zq === 'all'
+  const { docs, loading, error, answers, route, navigate, onBack, includeDefaulting } = props
   const queue = useMemo(() => buildQueue(docs, includeDefaulting), [docs, includeDefaulting])
   const defaultingCount = useMemo(() => docs.reduce((sum, doc) => sum + doc.items.filter((item) => item.group === 'defaulting').length, 0), [docs])
   const atEnd = route.zen === 'end'
@@ -524,6 +527,7 @@ function Card({
             </button>
           )
         })}
+        <StaleDraftNotice answers={answers} doc={doc} item={item} />
         <textarea
           ref={noteRef}
           className="zen-note"
@@ -538,6 +542,13 @@ function Card({
         <p className="zen-draft-line vt-small" role="status">
           {hint ? (
             <span className="vt-tone-warn">{hint}</span>
+          ) : isNoteOnly(draft) ? (
+            <>
+              <span className="vt-muted">Draft: a note, no option (this question offers no "Something else")</span>{' '}
+              <button type="button" className="vt-btn vt-faint zen-clear" onClick={onClear}>
+                clear
+              </button>
+            </>
           ) : draft && effectiveChoice(draft) ? (
             <>
               <span className="vt-muted">
@@ -634,8 +645,7 @@ function EndScreen({
   later,
   defaultingCount,
   includeDefaulting,
-  route,
-  navigate,
+  openSettings,
   onJump,
 }: NeedsProposalProps & { queue: Entry[]; later: Set<string>; defaultingCount: number; includeDefaulting: boolean; onJump(index: number): void }) {
   const answered = queue.filter((entry) => isComplete(answers.get(entry.doc.track, entry.item.local_id))).length
@@ -668,8 +678,10 @@ function EndScreen({
                     {complete && choice ? (
                       <span>
                         {choiceLabel(entry.item, choice)}
-                        {draft?.note.trim() ? <span className="vt-muted"> · “{draft.note.trim()}”</span> : null}
+                        {draft?.note.trim() ? <span className="vt-muted zen-summary-note"> · “{draft.note}”</span> : null}
                       </span>
+                    ) : answers.stale(entry.doc.track, entry.item.local_id) ? (
+                      <span className="vt-muted">your draft is stale: reconfirm or discard it on its card</span>
                     ) : later.has(entry.item.id) ? (
                       <span className="vt-faint">left for later</span>
                     ) : choice ? (
@@ -692,28 +704,15 @@ function EndScreen({
         </p>
       ))}
       {!includeDefaulting && defaultingCount ? (
-        <p className="zen-more vt-small">
-          <span className="vt-muted">
-            {defaultingCount} more {defaultingCount === 1 ? 'is' : 'are'} open, but {defaultingCount === 1 ? 'its' : 'their'} default is already in effect (computed from the loop's progress).{' '}
-          </span>
-          <button
-            type="button"
-            className="vt-btn zen-link"
-            data-testid="vt-zen-more"
-            onClick={() => {
-              const first = buildQueue(docs, true).find((entry) => entry.item.group === 'defaulting')
-              navigate({ ...route, zq: 'all', zen: first?.item.id ?? 'end' }, 'replace')
-            }}
-          >
-            Review them too →
-          </button>
+        <p className="zen-more vt-small vt-muted" data-testid="vt-zen-more">
+          {defaultingCount} more {defaultingCount === 1 ? 'is' : 'are'} open, but {defaultingCount === 1 ? 'its' : 'their'} default is already in effect (computed from the loop's progress), so {defaultingCount === 1 ? 'it is' : 'they are'} not in this lane. <IncludeDefaultingPointer openSettings={openSettings} testId="vt-zen-settings-link" />
         </p>
       ) : null}
     </article>
   )
 }
 
-function EmptyLane({ docs, route, navigate, defaultingCount, includeDefaulting }: NeedsProposalProps & { defaultingCount: number; includeDefaulting: boolean }) {
+function EmptyLane({ docs, openSettings, defaultingCount, includeDefaulting }: NeedsProposalProps & { defaultingCount: number; includeDefaulting: boolean }) {
   const summary = headerSummary(docs)
   return (
     <article className="zen-card zen-empty" data-testid="vt-zen-empty">
@@ -754,11 +753,8 @@ function EmptyLane({ docs, route, navigate, defaultingCount, includeDefaulting }
         )
       })}
       {!includeDefaulting && defaultingCount ? (
-        <p className="zen-more vt-small">
-          <span className="vt-muted">{defaultingCount} open with the default already in effect. </span>
-          <button type="button" className="vt-btn zen-link" onClick={() => navigate({ ...route, zq: 'all' }, 'replace')}>
-            Review them →
-          </button>
+        <p className="zen-more vt-small vt-muted" data-testid="vt-zen-more">
+          {defaultingCount} open with the default already in effect. <IncludeDefaultingPointer openSettings={openSettings} testId="vt-zen-settings-link" />
         </p>
       ) : null}
     </article>

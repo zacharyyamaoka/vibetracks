@@ -406,4 +406,8 @@
   .vt-dash .vt-needs-n2 .n2-copyout {
     margin-top: 26px;
   }
+  /* Zach's note as saved: its line breaks stay (never folded to one line, never trimmed). */
+  .vt-dash .vt-needs-n2 .n2-review-note {
+    white-space: pre-wrap;
+  }
 }

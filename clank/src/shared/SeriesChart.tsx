@@ -6,6 +6,8 @@
 // iteration to onSelectIteration, the way to the evidence), explicit missing data (a gap and a faint tick, never 0),
 // uncertainty with the number (n ≤ 1 points are hollow and labelled), target or band on the same scale.
 // WHY hand SVG: the plugin ships no chart library and this needs exact control of gaps and markers.
+// WHY grey ink with the latest point in near-black, never the accent blue: ordinary data is not an exception (audit
+// 2026-10-04 #13); colour stays free for warn/risk/stale.
 
 import { useEffect, useMemo, useRef, useState } from 'react'
 import type { Iteration, Kpi, KpiValue } from './model'
@@ -189,7 +191,7 @@ export function SeriesChart({
         })}
         {/* series */}
         {segments.map((d, i) => (
-          <path key={`seg-${i}`} d={d} fill="none" stroke="var(--vt-accent)" strokeWidth={1.75} strokeLinejoin="round" strokeLinecap="round" pointerEvents="none" />
+          <path key={`seg-${i}`} d={d} fill="none" stroke="var(--vt-ink)" strokeWidth={1.75} strokeLinejoin="round" strokeLinecap="round" pointerEvents="none" />
         ))}
         {measured.map((p) => {
           const value = p.value as KpiValue
@@ -201,8 +203,8 @@ export function SeriesChart({
                 cx={x(p.index)}
                 cy={y(value.value as number)}
                 r={isLatest ? 4 : 3}
-                fill={thin ? 'var(--vt-bg)' : 'var(--vt-accent)'}
-                stroke="var(--vt-accent)"
+                fill={thin ? 'var(--vt-bg)' : isLatest ? 'var(--vt-fg)' : 'var(--vt-ink)'}
+                stroke={isLatest ? 'var(--vt-fg)' : 'var(--vt-ink)'}
                 strokeWidth={thin ? 1.5 : 0}
               />
               {showN && value.n !== null ? (

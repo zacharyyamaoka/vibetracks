@@ -15,6 +15,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode, type RefObject } from 'react'
 import {
   CopyOut,
+  StaleDraftNotice,
   EvidenceLink,
   GROUP_LABEL,
   WHEN_NOT_STATED,
@@ -181,12 +182,14 @@ export default function NeedsN5(props: NeedsProposalProps) {
 
   const reply = useCallback(
     (t: Thread, choice: Choice | null, note: string) => {
-      const text = note.trim()
-      if (choice === 'other' && !text) {
+      // WHY trim() only TESTS for words: the note is stored exactly as typed (Codex audit 2026-10-04, finding 7); the
+      // copy must carry Zach's text, edge whitespace and line breaks included.
+      const blank = !note.trim()
+      if (choice === 'other' && blank) {
         composerRef.current?.focus()
         return
       }
-      answers.set(t.doc.track, t.item.local_id, { choice: choice ?? (text ? 'other' : null), note: text })
+      answers.set(t.doc.track, t.item.local_id, { choice: choice ?? (blank ? null : 'other'), note })
       if (skipped.has(t.item.id)) {
         const next = new Set(skipped)
         next.delete(t.item.id)
@@ -559,7 +562,7 @@ function ThreadView(props: ThreadProps) {
         {draftLabel ? (
           <Reply meta="you · draft, leaves with Copy answers" draft testid="n5-draft">
             <p className="vt-strong">{draftLabel}</p>
-            {draft?.note.trim() ? <p className="n5-pre">{draft.note.trim()}</p> : null}
+            {draft?.note.trim() ? <p className="n5-pre">{draft.note}</p> : null}
             {!complete ? <p className="vt-small vt-tone-warn">“Something else” needs words; add them below.</p> : null}
             <p className="n5-reply-actions">
               <button
@@ -582,6 +585,7 @@ function ThreadView(props: ThreadProps) {
         ) : null}
       </div>
 
+      <StaleDraftNotice answers={props.answers} doc={thread.doc} item={thread.item} className="n5-stale" />
       {closed ? (
         <p className="n5-composer n5-composer-closed vt-small vt-faint">This thread is closed by the loop. Reopen it in the loop's own channel if it needs you again.</p>
       ) : (
@@ -700,7 +704,7 @@ function Outbox({ docs, answers, skipped, repliedCount, stillNeed, onSelect }: N
                     <span className="n5-rail-id">{item.local_id}</span>
                     <span>
                       {draftSummary(item, draft)}
-                      {draft?.note.trim() ? <span className="vt-faint"> · “{draft.note.trim()}”</span> : null}
+                      {draft?.note.trim() ? <span className="vt-faint n5-pre"> · “{draft.note}”</span> : null}
                       {!isComplete(draft) ? <span className="vt-tone-warn"> · needs words</span> : null}
                     </span>
                   </button>

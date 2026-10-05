@@ -5,7 +5,12 @@
    #787774 secondary, #ededec hairlines); the page background still follows Clank's --background so it sits in the
    shell, and dark mode follows Clank's .dark class.
    WHY colour only on .vt-tone-warn/-risk/-stale: "colour only for exceptions" (BRIEF, research principle 11). ok and
-   muted read grey; the one accent is for data ink (series lines, the selected cursor), never for status. */
+   muted read grey, and so does ordinary data ink: a series is --vt-ink (grey) with its latest point in --vt-fg, never
+   the accent blue (audit 2026-10-04 #13: blue sparklines on every row made colour mean nothing). The accent is left
+   for the keyboard focus ring only.
+   WHY one font family: Zach's rule is one sans-serif. Inline code and paths are the same sans, told apart by a faint
+   background (variant A's .vt-a-code), never a second monospace face; --vt-mono stays as an alias of --vt-font so every older
+   `font-family: var(--vt-mono)` in the tree follows the rule without a second copy of it. */
 
 @layer base {
   .vt-dash {
@@ -27,7 +32,9 @@
     --vt-stale-dot: #8aa4bd;
     --vt-ok-dot: #c8c7c4;
     --vt-font: system-ui, -apple-system, 'Segoe UI', Inter, sans-serif;
-    --vt-mono: ui-monospace, SFMono-Regular, Menlo, monospace;
+    --vt-mono: var(--vt-font);
+    /* Data ink: ordinary series lines and points. Grey, so colour stays free for warn/risk/stale. */
+    --vt-ink: #787774;
 
     position: relative;
     height: 100%;
@@ -58,6 +65,7 @@
     --vt-stale: #8fa9c2;
     --vt-stale-dot: #6d8aa6;
     --vt-ok-dot: #5a5a58;
+    --vt-ink: #a3a29f;
   }
   .vt-dash *,
   .vt-dash *::before,
@@ -116,6 +124,9 @@
     flex: 1 1 auto;
     min-height: 0;
     overflow: auto;
+    /* WHY a named size container: the dashboard's width is Clank's pane, not the viewport, so a page that must reflow
+       at phone width (a five-column table) asks this box, never a @media query. */
+    container: vt-scroll / inline-size;
   }
 
   /* ---- the dashboard header: the shell's own slim row; only the settings gear sits in it, at the right end.
@@ -205,6 +216,20 @@
     padding: 36px 48px 72px;
     max-width: 1280px;
   }
+  /* WHY anywhere on headings: an item's name is often one unbroken token ("M3.bandit@mujoco/stage0"), which pushed a
+     390 px page sideways; it now wraps only where it would otherwise overflow. */
+  .vt-dash .vt-h1,
+  .vt-dash .vt-h2,
+  .vt-dash .vt-h3 {
+    overflow-wrap: anywhere;
+  }
+  /* WHY a 16 px side gutter below 600 px of dashboard width: the 48 px desktop gutter left a 390 px phone 294 px of
+     content, and every table and path squeezed into it. */
+  @container vt-scroll (max-width: 600px) {
+    .vt-dash .vt-page {
+      padding: 24px 16px 56px;
+    }
+  }
   .vt-dash .vt-h1 {
     font-size: 32px;
     line-height: 1.2;
@@ -239,9 +264,14 @@
   .vt-dash .vt-strong {
     font-weight: 600;
   }
+  /* Paths and ids: the page's sans (one font, see the header).
+     WHY overflow-wrap anywhere: a path has no space to wrap at, and break-word does not lower an element's min-content,
+     so a long path in a flex row or table cell pushed the page wider than a 390 px phone (scrollWidth 453 > 390).
+     `anywhere` wraps only where the token would otherwise overflow and never clips a character. */
   .vt-dash .vt-mono {
-    font-family: var(--vt-mono);
-    font-size: 12px;
+    font-family: var(--vt-font);
+    font-size: 12.5px;
+    overflow-wrap: anywhere;
   }
   .vt-dash .vt-label {
     font-size: 12.5px;
@@ -413,6 +443,8 @@
   }
   .vt-dash .vt-ev-title {
     font-weight: 600;
+    min-width: 0;
+    overflow-wrap: anywhere;
   }
   .vt-dash .vt-ev-metrics {
     display: flex;
@@ -432,6 +464,31 @@
     font-size: 12.5px;
     color: var(--vt-faint);
   }
+  /* FoldText (EvidenceList.tsx): a stored text folded at N lines (the line count comes inline as -webkit-line-clamp). */
+  .vt-dash .vt-fold-text {
+    white-space: pre-wrap;
+    overflow-wrap: anywhere;
+  }
+  .vt-dash .vt-fold-closed {
+    display: -webkit-box;
+    -webkit-box-orient: vertical;
+    overflow: hidden;
+  }
+  /* (0,3,0): it must outrank `.vt-dash button.vt-btn`, whose `all: unset` would wipe the underline. */
+  .vt-dash .vt-fold .vt-fold-toggle {
+    display: inline-block;
+    margin-top: 2px;
+    font-size: 12.5px;
+    color: var(--vt-grey);
+    text-decoration: underline;
+    text-decoration-color: var(--vt-line);
+    text-underline-offset: 2px;
+    border-radius: 3px;
+  }
+  .vt-dash .vt-fold .vt-fold-toggle:hover {
+    color: var(--vt-fg);
+    text-decoration-color: var(--vt-grey);
+  }
   .vt-dash .vt-ev-media {
     display: flex;
     flex-wrap: wrap;
@@ -442,6 +499,9 @@
     all: unset;
     box-sizing: border-box;
     cursor: pointer;
+    /* WHY: a chip's label is often a file name or a whole path; it wraps rather than widening the page (390 px). */
+    max-width: 100%;
+    overflow-wrap: anywhere;
     font-size: 12.5px;
     color: var(--vt-grey);
     padding: 2px 8px;
@@ -479,8 +539,9 @@
     max-height: 420px;
     overflow: auto;
     white-space: pre-wrap;
-    font-family: var(--vt-mono);
-    font-size: 12px;
+    overflow-wrap: anywhere;
+    font-family: var(--vt-font);
+    font-size: 12.5px;
     padding: 12px;
     background: var(--vt-hover);
     border-radius: 4px;
@@ -492,6 +553,10 @@
     font-size: 12.5px;
     color: var(--vt-faint);
     margin-bottom: 6px;
+  }
+  .vt-dash .vt-media-bar > * {
+    min-width: 0;
+    overflow-wrap: anywhere;
   }
 
   /* ---- the temporary variant switcher (bottom-right, Zach's prototype-switch rule) */

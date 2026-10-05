@@ -74,35 +74,37 @@ export function TracksPage({ projection, title, nav, showDeltas, reload, backend
       {tracks.length === 0 ? (
         <p className="vt-a-section vt-faint">No work tracks in the registry yet.</p>
       ) : (
-        <table className="vt-table vt-a-tracks" aria-label="Work tracks">
-          <colgroup>
-            <col style={{ width: '18%' }} />
-            <col style={{ width: '17%' }} />
-            <col style={{ width: '19%' }} />
-            <col style={{ width: '18%' }} />
-            <col style={{ width: '11%' }} />
-            <col style={{ width: '12%' }} />
-            {/* WHY a fixed 52px and not 4%: the row end holds the rename menu and the chevron (~40px of fixed-size
-                controls); at 1280 a 4% column was 36px and the chevron printed past the table's right edge. */}
-            <col style={{ width: 52 }} />
-          </colgroup>
-          <thead>
-            <tr>
-              <th>Name</th>
-              <th>Status</th>
-              <th>Progress</th>
-              <th>Current rung → next</th>
-              <th>Last moved</th>
-              <th>Needs you</th>
-              <th aria-hidden="true" />
-            </tr>
-          </thead>
-          <tbody>
-            {tracks.map((track) => (
-              <TrackRow key={track.id} projection={projection} track={track} nav={nav} showDeltas={showDeltas} backend={backend} renamer={renamer} />
-            ))}
-          </tbody>
-        </table>
+        <div className="vt-a-tablescroll">
+          <table className="vt-table vt-a-tracks" aria-label="Work tracks">
+            <colgroup>
+              <col style={{ width: '18%' }} />
+              <col style={{ width: '17%' }} />
+              <col style={{ width: '19%' }} />
+              <col style={{ width: '18%' }} />
+              <col style={{ width: '11%' }} />
+              <col style={{ width: '12%' }} />
+              {/* WHY a fixed 52px and not 4%: the row end holds the rename menu and the chevron (~40px of fixed-size
+                  controls); at 1280 a 4% column was 36px and the chevron printed past the table's right edge. */}
+              <col style={{ width: 52 }} />
+            </colgroup>
+            <thead>
+              <tr>
+                <th>Name</th>
+                <th>Status</th>
+                <th>Progress</th>
+                <th>Current rung → next</th>
+                <th>Last moved</th>
+                <th>Needs you</th>
+                <th aria-hidden="true" />
+              </tr>
+            </thead>
+            <tbody>
+              {tracks.map((track) => (
+                <TrackRow key={track.id} projection={projection} track={track} nav={nav} showDeltas={showDeltas} backend={backend} renamer={renamer} />
+              ))}
+            </tbody>
+          </table>
+        </div>
       )}
 
       <p className="vt-a-foot vt-small vt-faint">

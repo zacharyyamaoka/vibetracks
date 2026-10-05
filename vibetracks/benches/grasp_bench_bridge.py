@@ -16,8 +16,12 @@ there is none: the verdict comes from ``grasp_bench.gallery`` itself, and when t
 "bench verdict unavailable" instead of falling back to a guess.
 
 One subprocess per change: the result is cached in ``grasping_verdict_cache`` (a folder under the dashboard data
-home), keyed on the mtimes and sizes of every file the verdict depends on (the ledger, attestations.jsonl,
-gallery.py, ledger.py, curriculum.py, runner.py, contracts.py, the venv's python), the request and this script.
+home), keyed on the mtimes and sizes of every file the verdict depends on: the ledger, attestations.jsonl (recorded
+as absent when missing), the venv's python, the request and this script, plus every grasp_bench module the run
+imported. That module set is only known after a run (gallery.py imports registry.py, whose ``env_family`` decides
+the protocol), so the script reports it from ``sys.modules``, the entry stores the stamps, and a read re-stamps them:
+any changed, added-to or vanished module is a miss. WHY (audit 2026-10-04): a registry.py change moved the bench's
+own verdict from 6 beaten envs to 2 while both caches, which watched a fixed list without registry.py, stayed warm.
 
 The request names each snapshot by the ledger ``run_id``s it holds (the adapter's cumulative tier phases), so the
 bench judges exactly the rows the adapter read even if the ledger grows in between. The document printed back:
@@ -60,6 +64,15 @@ MODULE_KEYS = {"gallery": "gallery_py", "ledger": "ledger_py", "curriculum": "cu
 SCRIPT = r'''
 import json, os, sys
 request = json.load(sys.stdin)
+# WHY after the verdict and from sys.modules: the files that decided it are exactly the grasp_bench modules this run
+# imported (gallery -> registry, runner -> contracts, ...), which no fixed list can name ahead of time.
+def _dependencies():
+    found = set()
+    for name, module in list(sys.modules.items()):
+        path = getattr(module, "__file__", None)
+        if path and (name == "grasp_bench" or name.startswith("grasp_bench.")):
+            found.add(os.path.realpath(path))
+    return sorted(found)
 from grasp_bench import contracts, curriculum, gallery, runner
 from grasp_bench import ledger as ledger_module
 from grasp_bench.ledger import Ledger
@@ -97,7 +110,7 @@ for snapshot_id, run_ids in request["subsets"].items():
 modules = {name: os.path.realpath(module.__file__) for name, module in (
     ("gallery", gallery), ("ledger", ledger_module), ("curriculum", curriculum), ("runner", runner),
     ("contracts", contracts))}
-document = {"schema": "grasp-bench-verdict/1", "modules": modules,
+document = {"schema": "grasp-bench-verdict/1", "modules": modules, "dependencies": _dependencies(),
             "attestations_path": os.path.realpath(str(book.attestations_path)), "ledger_rows": len(runs),
             "duplicate_run_ids": duplicates, "gated": list(curriculum.GATES), "runs": judged, "snapshots": snapshots}
 sys.stdout.write("\n" + json.dumps(document) + "\n")
@@ -166,14 +179,62 @@ def _cache_key(paths: BenchPaths, request: dict[str, Any]) -> str:
 
 
 def _read_cache(file: Path, key: str) -> dict[str, Any] | None:
+    """The cache entry for ``key`` whose recorded module files are all unchanged, else None (a miss).
+
+    WHY two halves: the key covers what is known before a run (script, request, venv python, runs.jsonl,
+    attestations.jsonl, declared modules); ``deps`` covers what is only known after it, every grasp_bench module the
+    verdict imported. An entry without a ``deps`` list is from before that rule and is a miss.
+    """
+
     try:
         with open(file, encoding="utf-8") as handle:
             data = json.load(handle)
     except (OSError, ValueError):
         return None
-    if isinstance(data, dict) and data.get("key") == key and isinstance(data.get("doc"), dict):
-        return data
-    return None
+    if not (isinstance(data, dict) and data.get("key") == key and isinstance(data.get("doc"), dict)):
+        return None
+    deps = data.get("deps")
+    if not isinstance(deps, list) or not deps:
+        return None
+    for stamp in deps:
+        if not (isinstance(stamp, list) and len(stamp) == 3 and isinstance(stamp[0], str)):
+            return None
+        if _stamp(stamp[0]) != stamp:
+            return None
+    return data
+
+
+def _dependencies(doc: dict[str, Any], before: dict[str, list[Any]]) -> tuple[list[list[Any]] | None, str | None]:
+    """``(stamps of every module file the run reported, None)``, or ``(None, why they cannot key a cache)``.
+
+    ``before`` holds the stamps of the package's files taken before the run: a file that changed while the bench ran
+    may have been imported in either version, so that result is returned but never cached.
+    """
+
+    files = doc.get("dependencies")
+    if not isinstance(files, list) or not files or not all(isinstance(path, str) and path for path in files):
+        return None, "the bench did not report the module files its verdict imported"
+    stamps = [_stamp(path) for path in sorted(set(files))]
+    for stamp in stamps:
+        if stamp[1] is None:
+            return None, f"the bench reported an imported module that does not exist: {stamp[0]}"
+        if stamp[0] in before and before[stamp[0]] != stamp:
+            return None, f"{stamp[0]} changed while the bench ran"
+    return stamps, None
+
+
+def _package_stamps(package: Path) -> dict[str, list[Any]]:
+    """Stamps of every .py under the bench package, by realpath, taken before a run."""
+
+    stamps: dict[str, list[Any]] = {}
+    try:
+        files = sorted(package.rglob("*.py"))
+    except OSError:
+        return stamps
+    for file in files:
+        real = _real(str(file))
+        stamps[real] = _stamp(real)
+    return stamps
 
 
 def _write_cache(directory: Path, payload: dict[str, Any], name: str = CACHE_NAME) -> None:
@@ -238,6 +299,7 @@ def bench_verdict(paths: BenchPaths, subsets: dict[str, list[str]], *, timeout: 
 
     env = {name: value for name, value in os.environ.items() if name not in _SCRUB}
     bench_dir = Path(paths.python).parent.parent.parent  # <bench>/.venv/bin/python
+    before = _package_stamps(Path(paths.gallery_py).parent)
     run_started = time.monotonic()
     try:
         done = subprocess.run([paths.python, "-I", "-c", SCRIPT], input=json.dumps(request), cwd=bench_dir, env=env,
@@ -259,9 +321,14 @@ def bench_verdict(paths: BenchPaths, subsets: dict[str, list[str]], *, timeout: 
     if problem:
         return fail(problem)
     computed_at = time.strftime("%Y-%m-%dT%H:%M:%S%z")
-    _write_cache(cache_dir, {"key": key, "doc": doc, "run_seconds": run_seconds, "computed_at": computed_at})
-    return BridgeResult(doc, seconds=time.monotonic() - started, run_seconds=run_seconds,
-                        extra={"computed_at": computed_at})
+    deps, uncached = _dependencies(doc, before)
+    if deps is not None:
+        _write_cache(cache_dir, {"key": key, "deps": deps, "doc": doc, "run_seconds": run_seconds,
+                                 "computed_at": computed_at})
+    extra: dict[str, Any] = {"computed_at": computed_at}
+    if uncached:
+        extra["uncached"] = _clip(uncached)
+    return BridgeResult(doc, seconds=time.monotonic() - started, run_seconds=run_seconds, extra=extra)
 
 
 # ---- verdict(): the one-call reader the roadmap projector and the dashboard share
@@ -276,6 +343,15 @@ DEFAULT_CACHE_DIR = "~/.local/share/vibetracks/dashboard/grasping-bench-verdict"
 VERDICT_SCRIPT = r'''
 import json, os, sys
 request = json.load(sys.stdin)
+# WHY after the verdict and from sys.modules: the files that decided it are exactly the grasp_bench modules this run
+# imported (gallery -> registry, runner -> contracts, ...), which no fixed list can name ahead of time.
+def _dependencies():
+    found = set()
+    for name, module in list(sys.modules.items()):
+        path = getattr(module, "__file__", None)
+        if path and (name == "grasp_bench" or name.startswith("grasp_bench.")):
+            found.add(os.path.realpath(path))
+    return sorted(found)
 from grasp_bench import curriculum, gallery
 from grasp_bench import ledger as ledger_module
 from grasp_bench.ledger import Ledger
@@ -296,7 +372,8 @@ for env_id in curriculum.GATES:
                     "best_run": None if best is None else index_of[id(best)]}
 document = {"envs": envs, "runs": runs, "headline": {cell: index_of[id(run)] for cell, run in heads.items()},
             "modules": {"gallery": os.path.realpath(gallery.__file__), "ledger": os.path.realpath(ledger_module.__file__),
-                        "curriculum": os.path.realpath(curriculum.__file__)}}
+                        "curriculum": os.path.realpath(curriculum.__file__)},
+            "dependencies": _dependencies()}
 sys.stdout.write("\n" + json.dumps(document) + "\n")
 '''
 
@@ -334,8 +411,9 @@ def verdict(bench_dir: str | Path, *, cache_dir: str | Path | None = None, timeo
         return _verdict_failure(f"ledger missing: {ledger_root / 'runs.jsonl'}", head)
 
     request = {"ledger_root": str(ledger_root)}
-    watched = [ledger_root / "runs.jsonl", ledger_root / "attestations.jsonl", code / "gallery.py",
-               code / "curriculum.py", code / "ledger.py", code / "runner.py", python]
+    # WHY these and not the module list: runs.jsonl, attestations.jsonl (stamped absent when missing) and the venv
+    # python are known before the run; every grasp_bench module the verdict imports is checked from the cache entry.
+    watched = [ledger_root / "runs.jsonl", ledger_root / "attestations.jsonl", python]
     blob = json.dumps({"script": VERDICT_SCRIPT, "schema": VERDICT_SCHEMA, "request": request,
                        "stamps": [_stamp(str(path)) for path in watched]}, sort_keys=True)
     key = hashlib.sha256(blob.encode("utf-8")).hexdigest()
@@ -345,6 +423,7 @@ def verdict(bench_dir: str | Path, *, cache_dir: str | Path | None = None, timeo
         return {**hit["doc"], "bench_head": head}
 
     env = {name: value for name, value in os.environ.items() if name not in _SCRUB}
+    before = _package_stamps(code)
     try:
         done = subprocess.run([str(python), "-I", "-c", VERDICT_SCRIPT], input=json.dumps(request), cwd=bench, env=env,
                               capture_output=True, text=True, timeout=timeout, check=False)
@@ -368,5 +447,7 @@ def verdict(bench_dir: str | Path, *, cache_dir: str | Path | None = None, timeo
             return _verdict_failure(f"the bench venv imports {name}.py from {imported}, not from {code}", head)
     doc = {"schema": VERDICT_SCHEMA, "envs": raw["envs"], "runs": raw["runs"], "headline": raw["headline"],
            "bench_head": None, "error": None}
-    _write_cache(directory, {"key": key, "doc": doc}, VERDICT_CACHE_NAME)
+    deps, _uncached = _dependencies(raw, before)
+    if deps is not None:  # WHY no error when deps cannot be stamped: the verdict is still the bench's; it is just not cached
+        _write_cache(directory, {"key": key, "deps": deps, "doc": doc}, VERDICT_CACHE_NAME)
     return {**doc, "bench_head": head}

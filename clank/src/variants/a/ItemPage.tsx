@@ -19,6 +19,7 @@ import {
 } from '../../shared'
 import type { Nav } from './nav'
 import { formatLocal } from '../../shared/time'
+import { FoldText } from '../../shared/EvidenceList'
 
 function metricText(value: unknown): string | null {
   if (value === null || value === undefined || value === '') return null
@@ -99,7 +100,9 @@ export function ItemPage({ projection, track, item, title, nav, mediaUrl }: {
         </dl>
       ) : null}
       {missing.length ? <p className="vt-small vt-faint">Not recorded for this item: {missing.join(' · ')}</p> : null}
-      {item.note ? <p className="vt-a-note">{item.note}</p> : null}
+      {/* WHY a fold at six lines: the projection carries the complete stored note (audit 2026-10-04 #10); the page keeps
+          its metrics and media in view and the whole value is one "Show all" away. */}
+      {item.note ? <FoldText key={item.id} text={item.note} className="vt-a-note" testId="vt-a-note" /> : null}
 
       {pair ? <VideoPair pair={pair} mediaUrl={mediaUrl} /> : null}
       {otherVideos.map((media) => (
@@ -133,7 +136,7 @@ export function ItemPage({ projection, track, item, title, nav, mediaUrl }: {
       {item.media.length === 0 ? <p className="vt-small vt-faint vt-a-section">No media recorded for this item.</p> : null}
 
       {item.links.length ? (
-        <p className="vt-small vt-a-section">
+        <p className="vt-small vt-a-section vt-a-itemlinks">
           {item.links.map((link) => (
             <span key={link.label} className="vt-muted">
               {link.label}{' '}

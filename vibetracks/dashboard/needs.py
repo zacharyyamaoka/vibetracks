@@ -39,6 +39,7 @@ from __future__ import annotations
 import json
 import os
 import re
+import stat
 import subprocess
 import time
 from datetime import datetime, timezone
@@ -128,6 +129,46 @@ def _read_json(path: Path) -> Any:
         return json.loads(path.read_text(encoding="utf-8"))
     except (OSError, ValueError):
         return None
+
+
+def read_triage(path: Path) -> tuple[dict[str, Any] | None, str | None]:
+    """``(triage document, None)``, or ``(None, why it cannot be counted)``.
+
+    Valid means: readable UTF-8 JSON, an object, with an ``items`` list whose every entry is an object with a
+    non-empty string ``triage_id``. WHY so strict (audit 2026-10-04, finding 3): ``_read_json(...) or {}`` turned a
+    read error, broken JSON, a non-object or ``{}`` into an empty queue, so the page said "0 blocking · 0 open" with
+    ``live: true`` while the loop's questions were unreadable. A document that cannot be counted is "not reported".
+    """
+    try:
+        text = path.read_text(encoding="utf-8")
+    except (OSError, UnicodeDecodeError) as error:
+        return None, f"{type(error).__name__}: {error}"
+    try:
+        data = json.loads(text)
+    except ValueError as error:
+        return None, f"invalid JSON: {error}"
+    if not isinstance(data, dict):
+        return None, f"the document is a JSON {type(data).__name__}, not an object"
+    if "items" not in data:
+        return None, "the document has no items list"
+    items = data["items"]
+    if not isinstance(items, list):
+        return None, f"items is a JSON {type(items).__name__}, not a list"
+    for position, item in enumerate(items):
+        if not isinstance(item, dict):
+            return None, f"items[{position}] is a JSON {type(item).__name__}, not an object"
+        if not isinstance(item.get("triage_id"), str) or not item["triage_id"].strip():
+            return None, f"items[{position}] has no triage_id"
+    return data, None
+
+
+def _unreadable_triage_doc(track: str, title: str, path: Path, reason: str, paths: list[str],
+                           channel: dict[str, Any]) -> dict[str, Any]:
+    """The doc for a triage file that exists but cannot be counted: every count null, the reason in the note."""
+    doc = _empty_doc(track, title, f"not reported: {path.name} could not be read: {reason}", paths=paths,
+                     channel=channel, adapter="bam_triage")
+    doc["source"]["error"] = reason
+    return doc
 
 
 def _read_jsonl(path: Path) -> list[dict[str, Any]]:
@@ -320,8 +361,19 @@ def extract_evidence(text: str, roots: Iterable[Path]) -> list[dict[str, Any]]:
             kind = "file_line" if line else ("report" if resolved.suffix.lower() == ".html" else "path")
             value = f"{resolved}#L{line}" if line else str(resolved)
             found.append({"label": raw if len(raw) <= 120 else candidate, "kind": kind, "value": value,
-                          "path": str(resolved), "line": line, "is_dir": resolved.is_dir()})
+                          "path": str(resolved), "target": _canonical(resolved), "line": line,
+                          "is_dir": resolved.is_dir()})
     return found
+
+
+def _canonical(path: str | os.PathLike[str]) -> str | None:
+    """The file ``path`` resolves to now (``os.path.realpath``), recorded when the evidence allowlist is built; None
+    when it does not resolve. WHY: the /needs/evidence route refuses an entry whose path resolves elsewhere at serve
+    time, so a listed symlink retargeted after listing cannot stream an unlisted file (audit 2026-10-04, finding 9)."""
+    try:
+        return os.path.realpath(path, strict=True)
+    except OSError:
+        return None
 
 
 def _resolve(candidate: str, roots: list[Path]) -> Path | None:
@@ -555,10 +607,19 @@ def build_kinsim(sources: Mapping[str, str], title: str = "kinsim") -> dict[str,
         return _empty_doc("kinsim", title, "triage.json not found: no worktree has the kinsim loop branch and "
                           "kinsim_curriculum_dir has no triage.json", adapter="bam_triage")
     home = Path(sources.get("kinsim_home") or "~/.local/share/bam_curriculum").expanduser()
-    triage = _read_json(loop_dir / "triage.json") or {}
-    status = _read_json(home / "status.json") or {}
-    events = _read_jsonl(home / "loop_events.jsonl")
     answers_path = home / "triage_answers.jsonl"
+    channel = {"kind": "jsonl_append", "target": str(answers_path), "row_schema": ANSWER_SCHEMA,
+               "read_back": "at the next wave start (integrator)",
+               "alternatives": ["POST /api/triage/<id>/answer on the kinsim dashboard API",
+                                "paste into the loop's chat"]}
+    paths = [str(loop_dir / "triage.json"), str(home / "status.json"), str(home / "loop_events.jsonl"),
+             str(answers_path)]
+    triage, problem = read_triage(loop_dir / "triage.json")
+    if triage is None:
+        return _unreadable_triage_doc("kinsim", title, loop_dir / "triage.json", problem or "unknown", paths, channel)
+    status_raw = _read_json(home / "status.json")
+    status = status_raw if isinstance(status_raw, dict) else {}
+    events = _read_jsonl(home / "loop_events.jsonl")
     answers = _latest_answers(_read_jsonl(answers_path))
     finished = _finished_iteration(status.get("wave"), status.get("phase"), events)
     rung_labels: dict[str, tuple[str, str]] = {}
@@ -572,20 +633,18 @@ def build_kinsim(sources: Mapping[str, str], title: str = "kinsim") -> dict[str,
     roots = [loop_dir, *( [repo] if repo else [] ), Path(sources.get("bam_ws_root") or NEEDS_DEFAULTS["bam_ws_root"]), home]
     items = [build_triage_item("kinsim", raw, finished=finished, unit="wave", events=_event_index(events),
                                answers=answers, rung_labels=rung_labels, roots=roots, answer_channel_kind="jsonl_append")
-             for raw in triage.get("items") or [] if isinstance(raw, dict)]
+             for raw in triage["items"]]
     items.sort(key=_sort_key)
+    note = (f"{triage.get('schema', '?')} read live; blocking per status.json: "
+            f"{', '.join(status.get('blocking_triage') or []) or 'none'}" if isinstance(status_raw, dict) else
+            f"{triage.get('schema', '?')} read live; status.json could not be read as an object, so the finished wave comes from "
+            "loop_events.jsonl alone")
     return {
         "schema": SCHEMA, "track": "kinsim", "track_title": title, "generated_at": _now(),
         "iteration": {"unit": "wave", "n": status.get("wave"), "phase": status.get("phase"), "finished": finished},
-        "source": {"adapter": "bam_triage", "paths": [str(loop_dir / "triage.json"), str(home / "status.json"),
-                                                      str(home / "loop_events.jsonl"), str(answers_path)],
-                   "commit": _git_last_commit(loop_dir, "triage.json"), "live": True,
-                   "note": f"{triage.get('schema', '?')} read live; blocking per status.json: "
-                           f"{', '.join(status.get('blocking_triage') or []) or 'none'}"},
-        "answer_channel": {"kind": "jsonl_append", "target": str(answers_path), "row_schema": ANSWER_SCHEMA,
-                           "read_back": "at the next wave start (integrator)",
-                           "alternatives": ["POST /api/triage/<id>/answer on the kinsim dashboard API",
-                                            "paste into the loop's chat"]},
+        "source": {"adapter": "bam_triage", "paths": paths,
+                   "commit": _git_last_commit(loop_dir, "triage.json"), "live": True, "note": note},
+        "answer_channel": channel,
         "counts": _counts(items), "items": items,
     }
 
@@ -596,10 +655,16 @@ def build_rig(sources: Mapping[str, str], title: str = "rig") -> dict[str, Any]:
     if loop_dir is None:
         return _empty_doc("rig", title, "triage.json not found in rig_loop_dir or the rig loop branch's worktree",
                           adapter="bam_triage")
-    triage = _read_json(loop_dir / "triage.json") or {}
-    loop_status = _read_json(loop_dir / "loop-status.json") or {}
+    channel = {"kind": "chat_paste", "target": "the rig loop's integrator (/loop session)", "row_schema": None,
+               "read_back": "by hand: the integrator quotes your words into the item and sets it answered"}
+    paths = [str(loop_dir / "triage.json"), str(loop_dir / "loop-status.json"), str(loop_dir / "loop_events.jsonl")]
+    triage, problem = read_triage(loop_dir / "triage.json")
+    if triage is None:
+        return _unreadable_triage_doc("rig", title, loop_dir / "triage.json", problem or "unknown", paths, channel)
+    status_raw = _read_json(loop_dir / "loop-status.json")
+    loop_status = status_raw if isinstance(status_raw, dict) else {}
     events = _read_jsonl(loop_dir / "loop_events.jsonl")
-    tick = loop_status.get("tick") or {}
+    tick = loop_status.get("tick") if isinstance(loop_status.get("tick"), dict) else {}
     finished = _finished_iteration(tick.get("n"), tick.get("phase"), events)
     rung_labels: dict[str, tuple[str, str]] = {}
     ladder = _read_json(loop_dir / "ladder.json") or {}
@@ -614,17 +679,17 @@ def build_rig(sources: Mapping[str, str], title: str = "rig") -> dict[str, Any]:
     roots = [loop_dir, *([repo] if repo else []), Path(sources.get("bam_ws_root") or NEEDS_DEFAULTS["bam_ws_root"])]
     items = [build_triage_item("rig", raw, finished=finished, unit="wave", events=_event_index(events), answers={},
                                rung_labels=rung_labels, roots=roots, answer_channel_kind="chat_paste")
-             for raw in triage.get("items") or [] if isinstance(raw, dict)]
+             for raw in triage["items"]]
     items.sort(key=_sort_key)
+    note = f"{triage.get('schema', '?')} read live; answers are folded into recommendation by the integrator"
+    if not isinstance(status_raw, dict):
+        note += "; loop-status.json could not be read, so the finished wave comes from loop_events.jsonl alone"
     return {
         "schema": SCHEMA, "track": "rig", "track_title": title, "generated_at": _now(),
         "iteration": {"unit": "wave", "n": tick.get("n"), "phase": tick.get("phase"), "finished": finished},
-        "source": {"adapter": "bam_triage", "paths": [str(loop_dir / "triage.json"), str(loop_dir / "loop-status.json"),
-                                                      str(loop_dir / "loop_events.jsonl")],
-                   "commit": _git_last_commit(loop_dir, "triage.json"), "live": True,
-                   "note": f"{triage.get('schema', '?')} read live; answers are folded into recommendation by the integrator"},
-        "answer_channel": {"kind": "chat_paste", "target": "the rig loop's integrator (/loop session)", "row_schema": None,
-                           "read_back": "by hand: the integrator quotes your words into the item and sets it answered"},
+        "source": {"adapter": "bam_triage", "paths": paths,
+                   "commit": _git_last_commit(loop_dir, "triage.json"), "live": True, "note": note},
+        "answer_channel": channel,
         "counts": _counts(items), "items": items,
     }
 
@@ -639,7 +704,7 @@ def _line_of(text: str, needle: str) -> int | None:
 
 def _file_line(path: str, line: int | None, label: str) -> dict[str, Any]:
     return {"label": label, "kind": "file_line" if line else "path", "value": f"{path}#L{line}" if line else path,
-            "path": path, "line": line, "is_dir": False}
+            "path": path, "target": _canonical(path), "line": line, "is_dir": False}
 
 
 def _mtime_iso(path: str) -> str | None:
@@ -918,13 +983,50 @@ def _first(query: Mapping[str, list[str]], key: str) -> str | None:
     return values[0] if values and values[0] else None
 
 
-def _stream(path: Path, chunk: int = 256 * 1024) -> Iterable[bytes]:
-    with path.open("rb") as handle:
+def _stream(handle: Any, chunk: int = 256 * 1024) -> Iterable[bytes]:
+    with handle:
         while True:
             data = handle.read(chunk)
             if not data:
                 return
             yield data
+
+
+def serve_evidence(entry: Mapping[str, Any]) -> tuple[int, dict[str, str], Iterable[bytes]]:
+    """Stream one evidence entry's file, or refuse it.
+
+    404 when the entry names no absolute regular file; 415 when the listed path's suffix is not served; 403 when the
+    path now resolves to a different file than the ``target`` recorded when the entry was listed, or that file's own
+    suffix is not served. The canonical target is what gets opened (``O_NOFOLLOW``: it holds no symlink), never the
+    alias, so a link swapped in between the check and the open fails instead of being followed.
+    """
+    path = Path(entry.get("path") or "")
+    if not entry.get("path") or not path.is_absolute() or ".." in path.parts or not path.is_file():
+        return _json(404, {"error": "evidence is not a servable file", "path": entry.get("path")})
+    if SERVABLE.get(path.suffix.lower()) is None:
+        return _json(415, {"error": f"{path.suffix or 'no suffix'} is not served", "path": str(path)})
+    recorded = entry.get("target")
+    current = _canonical(path)
+    if not recorded or current != recorded:
+        return _json(403, {"error": "the evidence path now resolves to a different file than the one listed",
+                           "path": str(path)})
+    content_type = SERVABLE.get(Path(current).suffix.lower())
+    if content_type is None:
+        return _json(403, {"error": f"the evidence path resolves to a {Path(current).suffix or 'suffix-less'} file, "
+                                    "which is not served", "path": str(path)})
+    try:
+        fd = os.open(current, os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0))
+    except OSError:
+        return _json(403, {"error": "the evidence file changed while it was being opened", "path": str(path)})
+    handle = os.fdopen(fd, "rb")
+    info = os.fstat(fd)
+    if not stat.S_ISREG(info.st_mode):
+        handle.close()
+        return _json(403, {"error": "the evidence target is not a regular file", "path": str(path)})
+    if info.st_size > MAX_EVIDENCE_BYTES:
+        handle.close()
+        return _json(413, {"error": "file too large to serve here", "path": str(path), "bytes": info.st_size})
+    return 200, {"Content-Type": content_type, "Content-Length": str(info.st_size)}, _stream(handle)
 
 
 def handle(method: str, subpath: str, query: Mapping[str, list[str]], headers: Mapping[str, str],
@@ -950,19 +1052,10 @@ def handle(method: str, subpath: str, query: Mapping[str, list[str]], headers: M
         item = next((it for it in doc["items"] if it["local_id"] == local), None)
         if item is None or int(index) >= len(item["evidence"]):
             return _json(404, {"error": "no such evidence entry"})
-        entry = item["evidence"][int(index)]
-        path = Path(entry.get("path") or "")
         # WHY serve only what this module extracted from the item's own text: the route must not become a way to
-        # read any file on the machine by naming it; the evidence list is the allowlist, rebuilt on every request.
-        if not entry.get("path") or not path.is_absolute() or ".." in path.parts or not path.is_file():
-            return _json(404, {"error": "evidence is not a servable file", "path": entry.get("path")})
-        content_type = SERVABLE.get(path.suffix.lower())
-        if content_type is None:
-            return _json(415, {"error": f"{path.suffix or 'no suffix'} is not served", "path": str(path)})
-        size = path.stat().st_size
-        if size > MAX_EVIDENCE_BYTES:
-            return _json(413, {"error": "file too large to serve here", "path": str(path), "bytes": size})
-        return 200, {"Content-Type": content_type, "Content-Length": str(size)}, _stream(path)
+        # read any file on the machine by naming it; the evidence list is the allowlist, rebuilt on every request,
+        # and each entry carries the canonical target it resolved to when it was listed.
+        return serve_evidence(item["evidence"][int(index)])
     return _json(404, {"error": f"no route {subpath!r} under /needs"})
 
 

@@ -275,9 +275,8 @@ def read_needs(plan_note: Path) -> list[dict[str, Any]]:
         lead = _clean_markdown(entry["title_md"]).rstrip(".") if entry["title_md"] is not None else ""
         # A nested bullet list is the reasoning behind the question, not the question: stop before it.
         rest = _clean_markdown(entry["question_md"])
-        # The question is its first two sentences; an explicit ellipsis marks a cut, never a silent trim.
+        # The question is its first two sentences, whole: the page folds long text (no character cut here).
         first = " ".join(re.split(r"(?<=\.)\s", rest, maxsplit=2)[:2])
-        first = first if len(first) <= 400 else first[:399].rstrip() + "…"
         question = f"{lead}: {first}" if lead else first
         default = _clean_markdown(after.strip().splitlines()[0]) if after.strip() else None
         needs.append({"id": f"plan-{entry['n']}", "q": question, "blocks": entry["blocks"], "default": default or None,

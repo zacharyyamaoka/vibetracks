@@ -14,6 +14,9 @@ export type { CopyOutProps } from './CopyOut'
 export { EvidenceLink, evidenceHref } from './EvidenceLink'
 export type { EvidenceLinkProps } from './EvidenceLink'
 export { PlaceholderList } from './PlaceholderList'
+export { StaleDraftNotice } from './StaleDraftNotice'
+export { IncludeDefaultingPointer, INCLUDE_DEFAULTING_TITLE } from './SettingsPointer'
+export type { StaleDraftNoticeProps } from './StaleDraftNotice'
 
 // ------------------------------------------------------------------------------------------- times
 

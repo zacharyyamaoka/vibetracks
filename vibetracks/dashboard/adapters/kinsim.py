@@ -96,9 +96,17 @@ def _wave_of(event: dict[str, Any]) -> int | None:
     return wave if isinstance(wave, int) and not isinstance(wave, bool) else None
 
 
-def _clip(text: Any, limit: int = 160) -> str:
-    text = str(text or "").strip()
-    return text if len(text) <= limit else text[: limit - 1].rstrip() + "…"
+def _full(text: Any) -> str | None:
+    """A stored string exactly as the loop wrote it, or None when it is absent or empty.
+
+    WHY never cut (audit 2026-10-04, finding 10): this used to clip at 600 characters with "…", so w3-intervention-5
+    reached the page as 600 of the stored 642 with nothing that exposed the rest. The page folds long text; the
+    projection carries every character.
+    """
+    if text is None:
+        return None
+    text = str(text)
+    return text if text.strip() else None
 
 
 def _pct(rate: Any) -> float | None:
@@ -411,7 +419,8 @@ class _Kinsim:
             target={"value": self.n_rungs, "kind": "scope", "label": f"of {self.n_rungs} rungs"} if self.n_rungs else None,
             baseline={"iteration": "start", "label": "start (freeze)", "value": values[0]["value"]} if values[0]["measured"] else None,
             status={"word": (f"+{delta} in {last_id}" if delta else f"no change in {last_id}") if delta is not None
-                    else (f"{latest['value']} of {self.n_rungs}" if latest else "not measured"),
+                    else ((f"{latest['value']} of {self.n_rungs}" if self.n_rungs else f"{latest['value']} green or done")
+                          if latest else "not measured"),
                     "tone": "ok" if delta else "muted"},
             note=fold_note + ". Gate rules per rung kind (curriculum.json); readings count only under the ruler they were judged by.",
             provenance=self.prov(self.status_path, "/rungs/*/status", "refold of rung_status_changed events + gated ledger rows per wave; "
@@ -420,7 +429,10 @@ class _Kinsim:
         out = [rungs]
 
         weights = {r["rung_id"]: r.get("kpi_weight") for r in (self.curriculum or {}).get("rungs", []) if r.get("rung_id")}
-        if weights and history is not None:
+        # WHY: a rung with no numeric kpi_weight used to weigh 0 (``int(w or 0)``), a measured sum built on a missing
+        # input; with any weight missing the weighted total is unknown (audit 2026-10-04, finding 4 generalised).
+        unweighted = sorted(r for r, w in weights.items() if not isinstance(w, (int, float)) or isinstance(w, bool))
+        if weights and history is not None and not unweighted:
             total = sum(int(w or 0) for w in weights.values())
             per = [sum(int(weights.get(r) or 0) for r in history[i]) for i in self.ids]
             wvalues = [_value(i, v, of=total) for i, v in zip(self.ids, per)]
@@ -436,7 +448,9 @@ class _Kinsim:
         else:
             out.append(_kpi(
                 "weighted_capability", "Weighted capability", "S1", "points", "higher",
-                [_value(i, None, note=refold_note or "curriculum.json has no kpi_weight") for i in self.ids],
+                [_value(i, None, note=(f"curriculum.json rungs without a numeric kpi_weight: {', '.join(unweighted)}"
+                                       if weights and unweighted else refold_note or "curriculum.json has no kpi_weight"))
+                 for i in self.ids],
                 status={"word": "not measured", "tone": "muted"}, note="Needs curriculum.json kpi_weight.",
                 provenance=self.prov(self.curriculum_path, "/rungs/*/kpi_weight"),
             ))
@@ -597,13 +611,13 @@ class _Kinsim:
                         status={"word": "not measured", "tone": "muted"}, note=None, provenance=self.prov(self.triage_path))
         opened = Counter(item.get("opened_wave") for item in items)
         values = [_value("start", None, note="no wave yet")] + [_value(f"W{n}", opened.get(n, 0)) for n in self.waves]
-        open_items = [i for i in items if i.get("status") == "open"]
-        blocking = [t for t in self.status.get("blocking_triage", []) if isinstance(t, str)]
+        # WHY no open/blocking count here (audit 2026-10-04, finding 5): "11 open" counted every status-open item,
+        # defaulting ones included, against /needs' 3. This row is history; build.py sets its status from /needs.
         return _kpi(
-            "questions_opened", "Questions opened", "S7", "questions", "count", values,
-            status={"word": f"{len(open_items)} open · {len(blocking)} blocking a rung", "tone": "warn" if blocking else "muted"},
-            note="Triage items by the wave that opened them. Silence keeps the work moving: an unanswered item's default "
-                 "applies at the end of the wave it names. Blocking is the loop's own list (status.json blocking_triage).",
+            "questions_opened", "Questions opened per wave", "S7", "questions", "count", values,
+            status={"word": f"{sum(v['value'] or 0 for v in values if v['measured'])} opened in all", "tone": "muted"},
+            note="Triage items by the wave that opened them (history). Silence keeps the work moving: an unanswered "
+                 "item's default applies at the end of the wave it names. What is open now is the Needs-you count.",
             provenance=self.prov(self.triage_path, "/items/*/opened_wave", "count of triage items per opened_wave"),
         )
 
@@ -666,11 +680,11 @@ class _Kinsim:
                 self.ev.add(it, "report", f"Wave {n} report" if report else f"Wave {n} close", item_id=f"{it}-report",
                             when=(finished or {}).get("ts"), status="closed" if finished else "in progress",
                             metrics={"commit": (finished or {}).get("commit")}, media=self.media.ref(report),
-                            note=_clip((finished or {}).get("detail"), 600) or None,
+                            note=_full((finished or {}).get("detail")),
                             kpis=["rungs_green", "weighted_capability", "rungs_moved", "packages_landed", "elapsed_h"])
             for j, event in enumerate(info["events"]):
                 kind, subject, status = event.get("kind"), str(event.get("subject") or ""), event.get("status")
-                detail = _clip(event.get("detail"), 600) or None
+                detail = _full(event.get("detail"))
                 common = {"when": event.get("ts"), "status": status, "note": detail,
                           "media": self.evidence_media(event.get("evidence"))}
                 disk = ["disk_pct"] if id(event) in disk_ids else []
@@ -740,9 +754,9 @@ class _Kinsim:
             word, tone, detail = "Between waves", "ok", f"wave {wave} closed {_short_ts(when)} · wave {wave + 1} not started"
         elif phase == "paused":
             word, tone = "Paused", "warn"
-            detail = f"{(since or {}).get('subject') or 'paused'}: {_clip(str((since or {}).get('detail') or '').split(';')[0], 120)}"
+            detail = f"{(since or {}).get('subject') or 'paused'}: {str((since or {}).get('detail') or '').split(';')[0]}"
         elif phase == "stopped":
-            word, tone, detail = "Stopped", "muted", _clip((since or {}).get("detail"), 120) or "loop_stopped"
+            word, tone, detail = "Stopped", "muted", _full((since or {}).get("detail")) or "loop_stopped"
         else:
             word, tone, detail = "Not started", "muted", "no wave event yet"
         parts = [detail, nxt if phase != "paused" else None]
@@ -805,10 +819,8 @@ class _Kinsim:
             pct = _pct(rows[-1]["metrics"].get("feasible_rate")) if rows else None
             if pct is not None:
                 bits.append(f"frontier {rung} at {pct:g} % feasible")
-        items = (self.triage or {}).get("items")
-        if isinstance(items, list):
-            n_open = sum(1 for i in items if i.get("status") == "open")
-            bits.append(f"{n_open} questions open, {len(self.status.get('blocking_triage', []))} blocking a rung")
+        # WHY no question count in the summary (audit 2026-10-04, finding 5): it was a second count that disagreed
+        # with /needs; the Needs-you cell carries the one count.
         return "; ".join(bits) + "."
 
     def needs_you(self) -> list[dict[str, Any]]:
@@ -827,9 +839,9 @@ class _Kinsim:
                 applies = f"after W{after}" + (" · in force (W{} closed)".format(after) if finished >= after else "")
             # WHY blocks only for the loop's blocking list: an item whose default is in force no longer holds its
             # rungs (TRIAGE.md), and counting it would show seven blockers where the loop has one.
-            out.append({"id": item["triage_id"], "q": _clip(item.get("title"), 200),
+            out.append({"id": item["triage_id"], "q": str(item.get("title") or ""),
                         "blocks": list(item.get("blocks") or []) if item["triage_id"] in blocking else [],
-                        "default": _clip(item.get("default"), 300) or None, "applies": applies})
+                        "default": _full(item.get("default")), "applies": applies})
 
         def number(need: dict[str, Any]) -> int:
             digits = re.sub(r"\D", "", need["id"])

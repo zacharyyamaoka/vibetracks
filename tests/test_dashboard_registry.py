@@ -158,13 +158,40 @@ class RenameTest(unittest.TestCase):
         self.ws.cleanup()
 
     def test_rename_changes_only_the_title_line(self) -> None:
-        title, revision = registry.rename_title(self.ws.root, "a", "  New name  ", self.revision)
+        title, revision = registry.rename_title(self.ws.root, "a", "New name", self.revision)
         after = self.ws.path("a.md").read_text(encoding="utf-8")
         self.assertEqual(title, "New name")
         self.assertEqual(revision, note_revision(after))
         self.assertEqual(after, self.original.replace("vibe-title: Old name\n", "vibe-title: New name\n"))
         track = registry.read_registry(self.ws.root).by_id("a")
         self.assertEqual((track.id, track.title, track.revision), ("a", "New name", revision))
+
+    def test_the_title_is_stored_exactly_as_typed(self) -> None:
+        # WHY (audit 2026-10-04, finding 8): "  Grasping  " used to be stored as "Grasping"; a stored title keeps every
+        # authored character, and only an empty, whitespace-only or multi-line title is refused.
+        revision = self.revision
+        for typed in ("  Grasping  ", "Grasping ", "\tTabbed\ttitle", "x" * 300, "dash — «ü» 🤖", "trailing.  "):
+            with self.subTest(typed=typed):
+                stored, revision = registry.rename_title(self.ws.root, "a", typed, revision)
+                self.assertEqual(stored, typed)
+                self.assertEqual(registry.read_registry(self.ws.root).by_id("a").title, typed)
+                self.assertEqual(revision, note_revision(self.ws.path("a.md").read_bytes().decode("utf-8")))
+
+    def test_a_bom_crlf_note_keeps_every_byte_outside_the_title_value(self) -> None:
+        crlf = ("\ufeff---\r\nvibe-track: worktrack\r\nvibe-id: a\r\nvibe-title: Old name\r\nvibe-status: running\r\n"
+                "vibe-priority: 1\r\nvibe-owner: x  # kept\r\nvibe-adapter: none\r\nvibe-sources: [kinsim_home]\r\n"
+                "vibe-roadmap: null\r\nvibe-children: []\r\n---   \r\n\r\n# Old name\r\n\r\nPurpose.\r\n")
+        self.ws.path("a.md").write_bytes(crlf.encode("utf-8"))
+        track = registry.read_registry(self.ws.root).by_id("a")
+        self.assertEqual(track.revision, note_revision(crlf), "the fence is the exact text, CRs included")
+        stored, revision = registry.rename_title(self.ws.root, "a", "  New name  ", track.revision)
+        after = self.ws.path("a.md").read_bytes()
+        self.assertEqual(after, crlf.replace("vibe-title: Old name\r\n", "vibe-title: '  New name  '\r\n").encode("utf-8"))
+        self.assertEqual((stored, revision), ("  New name  ", note_revision(after.decode("utf-8"))))
+        self.assertEqual(registry.read_registry(self.ws.root).by_id("a").title, "  New name  ")
+        # and back: the original bytes exactly
+        registry.rename_title(self.ws.root, "a", "Old name", revision)
+        self.assertEqual(self.ws.path("a.md").read_bytes(), crlf.encode("utf-8"))
 
     def test_titles_yaml_would_misread_round_trip(self) -> None:
         revision = self.revision
@@ -186,11 +213,12 @@ class RenameTest(unittest.TestCase):
         self.assertEqual(self.ws.path("a.md").read_text(encoding="utf-8"), self.original)
 
     def test_bad_titles_are_refused(self) -> None:
-        for title in ("", "   ", "two\nlines", "tab\there", "x" * 81, None, 7, ["list"]):
+        for title in ("", "   ", "\t \t", "two\nlines", "cr\rhere", "trailing\n", "ls\u2028sep", "nel\x85x", None, 7,
+                      ["list"]):
             with self.subTest(title=title):
                 with self.assertRaises(registry.TitleInvalid):
                     registry.rename_title(self.ws.root, "a", title, self.revision)
-        self.assertEqual(registry.rename_title(self.ws.root, "a", "x" * 80, self.revision)[0], "x" * 80)
+        self.assertEqual(self.ws.path("a.md").read_text(encoding="utf-8"), self.original)
 
     def test_unknown_id(self) -> None:
         for track_id in ("nope", "../a", "A"):

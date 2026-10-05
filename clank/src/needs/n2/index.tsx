@@ -20,6 +20,7 @@ import {
   CopyOut,
   EvidenceLink,
   GROUP_LABEL,
+  StaleDraftNotice,
   NO_DEFAULT_RECORDED,
   WHEN_NOT_STATED,
   appliesAfter,
@@ -27,7 +28,9 @@ import {
   effectiveChoice,
   hasDefault,
   headerSummary,
+  isAnswerable,
   isComplete,
+  isNoteOnly,
   notReportedText,
   type AnswerDraft,
   type Choice,
@@ -115,7 +118,10 @@ function whenText(doc: NeedsDoc, item: NeedsItem): string {
   return `${after.replace(/^a/, 'A')}${at ? `; ${at}` : ''}.`
 }
 
-function draftWord(item: NeedsItem, draft: AnswerDraft | null): { text: string; tone: 'done' | 'warn' } | null {
+function draftWord(item: NeedsItem, draft: AnswerDraft | null, stale = false): { text: string; tone: 'done' | 'warn' | 'quiet' } | null {
+  // A stale draft is not an answer: the row says it waits for Reconfirm or Discard, never "✓".
+  if (stale) return { text: 'draft to reconfirm', tone: 'quiet' }
+  if (isNoteOnly(draft)) return { text: 'a note, no option', tone: 'quiet' }
   const choice = effectiveChoice(draft)
   if (!choice) return null
   if (!isComplete(draft)) return { text: 'note needed', tone: 'warn' }
@@ -463,7 +469,7 @@ function TrackList({ doc, multi, selectedKey, onSelect, answers, later, doneShow
               {GROUP_LABEL[group]} <span className="vt-num">{items.length}</span>
             </h3>
             {items.map((item) => (
-              <Row key={item.id} doc={doc} item={item} selected={selectedKey === itemKey(doc, item)} onSelect={onSelect} draft={answers.get(doc.track, item.local_id)} later={later.has(itemKey(doc, item))} />
+              <Row key={item.id} doc={doc} item={item} selected={selectedKey === itemKey(doc, item)} onSelect={onSelect} draft={answers.get(doc.track, item.local_id)} stale={Boolean(answers.stale(doc.track, item.local_id))} later={later.has(itemKey(doc, item))} />
             ))}
           </div>
         )
@@ -475,7 +481,7 @@ function TrackList({ doc, multi, selectedKey, onSelect, answers, later, doneShow
           </button>
           {doneShown
             ? done.map((item) => (
-                <Row key={item.id} doc={doc} item={item} selected={selectedKey === itemKey(doc, item)} onSelect={onSelect} draft={answers.get(doc.track, item.local_id)} later={later.has(itemKey(doc, item))} />
+                <Row key={item.id} doc={doc} item={item} selected={selectedKey === itemKey(doc, item)} onSelect={onSelect} draft={answers.get(doc.track, item.local_id)} stale={Boolean(answers.stale(doc.track, item.local_id))} later={later.has(itemKey(doc, item))} />
               ))
             : null}
         </div>
@@ -484,9 +490,9 @@ function TrackList({ doc, multi, selectedKey, onSelect, answers, later, doneShow
   )
 }
 
-function Row({ doc, item, selected, onSelect, draft, later }: { doc: NeedsDoc; item: NeedsItem; selected: boolean; onSelect(key: string): void; draft: AnswerDraft | null; later: boolean }) {
+function Row({ doc, item, selected, onSelect, draft, stale, later }: { doc: NeedsDoc; item: NeedsItem; selected: boolean; onSelect(key: string): void; draft: AnswerDraft | null; stale: boolean; later: boolean }) {
   const key = itemKey(doc, item)
-  const word = draftWord(item, draft)
+  const word = draftWord(item, draft, stale)
   const settled = word?.tone === 'done' || item.group === 'answered' || item.group === 'done'
   return (
     <button
@@ -505,7 +511,7 @@ function Row({ doc, item, selected, onSelect, draft, later }: { doc: NeedsDoc; i
           {questionText(item)}
         </span>
         {word ? (
-          <span className={`n2-row-state vt-small ${word.tone === 'warn' ? 'vt-tone-warn' : ''}`} data-testid="n2-row-state">
+          <span className={`n2-row-state vt-small ${word.tone === 'warn' ? 'vt-tone-warn' : word.tone === 'quiet' ? 'vt-muted' : ''}`} data-testid="n2-row-state">
             {word.tone === 'done' ? '✓ ' : ''}
             {word.text}
           </span>
@@ -602,6 +608,15 @@ function ItemPane({ entry, answers, backend, projection, noteRef, later, onChoos
           Your answer
           {complete ? <span className="n2-saved"> · drafted, goes out with Copy answers</span> : null}
         </h3>
+        <StaleDraftNotice answers={answers} doc={doc} item={item} />
+        {/* WHY no options on a settled item: the store takes no draft for an item the loop no longer has open, so
+            buttons here would do nothing (no fake controls); the loop's own answer is shown above. */}
+        {!isAnswerable(item) ? (
+          <p className="vt-small vt-muted" data-testid="n2-settled">
+            The loop has this as {item.status}; there is nothing to answer here. Reopen it in the loop's own channel if it needs you again.
+          </p>
+        ) : (
+        <>
         <div className="n2-options" role="radiogroup" aria-label="Answer">
           {item.options.map((option, index) => {
             const pressed = choice === option.key
@@ -650,6 +665,12 @@ function ItemPane({ entry, answers, backend, projection, noteRef, later, onChoos
         />
         <div className="n2-actions vt-small">
           {choice && !complete ? <span className="vt-tone-warn">"Something else" needs a note before it can be copied.</span> : null}
+          {isNoteOnly(draft) ? (
+            <span className="vt-muted">
+              A note with no option: this question offers no "Something else"
+              {doc.answer_channel.row_schema ? ', and this loop needs an option, so it is not in the copy' : '; it goes out as a note'}.
+            </span>
+          ) : null}
           <span className="n2-actions-right">
             {draft ? (
               <button type="button" className="vt-btn vt-muted n2-link" onClick={() => answers.clear(doc.track, item.local_id)} data-testid="n2-clear">
@@ -666,6 +687,8 @@ function ItemPane({ entry, answers, backend, projection, noteRef, later, onChoos
             </button>
           </span>
         </div>
+        </>
+        )}
       </section>
 
       {body && body !== lead ? (
@@ -785,9 +808,12 @@ function LoopAnswer({ item }: { item: NeedsItem }) {
 
 function CopyPane({ docs, answers, entries, later, onSelect }: NeedsProposalProps & { entries: Entry[]; later: Set<string>; onSelect(key: string): void }) {
   const items = entries.filter((entry): entry is Extract<Entry, { kind: 'item' }> => entry.kind === 'item')
-  const drafted = items.filter((entry) => effectiveChoice(answers.get(entry.doc.track, entry.item.local_id)))
-  const laterItems = items.filter((entry) => later.has(entry.key) && !isComplete(answers.get(entry.doc.track, entry.item.local_id)))
-  const unanswered = items.filter((entry) => OPEN_GROUPS.includes(entry.item.group) && !effectiveChoice(answers.get(entry.doc.track, entry.item.local_id)) && !later.has(entry.key))
+  const draftOf = (entry: Extract<Entry, { kind: 'item' }>) => answers.get(entry.doc.track, entry.item.local_id)
+  const isStale = (entry: Extract<Entry, { kind: 'item' }>) => Boolean(answers.stale(entry.doc.track, entry.item.local_id))
+  const drafted = items.filter((entry) => effectiveChoice(draftOf(entry)) || isNoteOnly(draftOf(entry)))
+  // A stale draft is neither answered nor "unanswered": Copy names it with why; its card asks to reconfirm or discard.
+  const laterItems = items.filter((entry) => later.has(entry.key) && !isComplete(draftOf(entry)) && !isStale(entry))
+  const unanswered = items.filter((entry) => OPEN_GROUPS.includes(entry.item.group) && !effectiveChoice(draftOf(entry)) && !isNoteOnly(draftOf(entry)) && !later.has(entry.key) && !isStale(entry))
   return (
     <div className="n2-card n2-copy" data-testid="n2-copy-pane">
       <p className="vt-small vt-faint n2-kicker">End of the inbox</p>
@@ -811,9 +837,10 @@ function CopyPane({ docs, answers, entries, later, onSelect }: NeedsProposalProp
                     <span className="n2-row-id vt-num">{entry.item.local_id}</span>
                     <span className="n2-review-text">
                       <span className="n2-review-title" title={questionText(entry.item)}>{questionText(entry.item)}</span>
-                      <span className={`vt-small ${complete ? 'vt-muted' : 'vt-tone-warn'}`}>
-                        {choice ? choiceLabel(entry.item, choice) : ''}
-                        {draft?.note.trim() ? ` · “${draft.note.trim()}”` : complete ? '' : ' · needs a note'}
+                      {/* The note as saved, never trimmed; pre-wrap keeps its lines (n2.css .n2-review-note). */}
+                      <span className={`vt-small n2-review-note ${complete || isNoteOnly(draft) ? 'vt-muted' : 'vt-tone-warn'}`}>
+                        {choice ? choiceLabel(entry.item, choice) : 'A note, no option'}
+                        {draft?.note.trim() ? ` · “${draft.note}”` : complete ? '' : ' · needs a note'}
                       </span>
                     </span>
                   </button>
@@ -826,25 +853,18 @@ function CopyPane({ docs, answers, entries, later, onSelect }: NeedsProposalProp
         )}
       </section>
 
-      {laterItems.length || unanswered.length ? (
-        <section className="n2-section">
-          <h3 className="n2-label">Not in the copy</h3>
-          <p className="vt-small vt-muted">
-            {laterItems.length ? (
-              <>
-                Later: <ItemLinks entries={laterItems} onSelect={onSelect} />.{' '}
-              </>
-            ) : null}
-            {unanswered.length ? (
-              <>
-                Unanswered: <ItemLinks entries={unanswered} onSelect={onSelect} />.
-              </>
-            ) : null}
-          </p>
-        </section>
-      ) : null}
-
-      <CopyOut docs={docs} answers={answers} label="Copy all answers" className="n2-copyout" />
+      {/* Copy names every draft it leaves out (stale ones with why); Later and Unanswered join that one line, so the
+          pane never prints "Not in the copy" twice. */}
+      <CopyOut
+        docs={docs}
+        answers={answers}
+        label="Copy all answers"
+        className="n2-copyout"
+        notInCopy={[
+          { label: 'Later', content: <ItemLinks entries={laterItems} onSelect={onSelect} />, count: laterItems.length },
+          { label: 'Unanswered', content: <ItemLinks entries={unanswered} onSelect={onSelect} />, count: unanswered.length },
+        ]}
+      />
     </div>
   )
 }
