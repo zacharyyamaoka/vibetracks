@@ -23,7 +23,9 @@ from .conftest import KINSIM_CURRICULUM_DIR, LOOP_DEV_DIR
 REPOSITORY = LOOP_DEV_DIR.parents[1]
 CURRICULUM_DIR = KINSIM_CURRICULUM_DIR
 DATA_HOME = Path(os.environ.get("BAM_CURRICULUM_HOME", "~/.local/share/bam_curriculum")).expanduser()
-CORPUS = LOOP_DEV_DIR / "bam_kinsim_dashboard" / "tests" / "api" / "citation_corpus.json"
+#: WHY the corpus vibetracks ships (next to citations.py), not the loop checkout's: that checkout's dashboard predates it,
+#: so reading it there skipped the shared rule's pin silently.
+CORPUS = Path(__file__).resolve().parents[2] / "citation_corpus.json"
 NOW = "2026-10-03T21:00:00+00:00"
 ACC_B1_LOG = "/home/bam/bam_ws/reports/media/kinematic-curriculum-wave1-2026-09-30/report-verify/acc_b1_log_v2.log"
 LOG_V2 = "src/core/mdp/env/sim/bam_eval/tests/test_log_v2_acceptance.py"
@@ -379,23 +381,16 @@ def test_f10_the_shared_citation_corpus():
 def test_f10_the_parser_agrees_with_the_dashboards_reference_on_random_text():
     """A differential check beside the corpus: 20,000 random texts, our parser vs the dashboard's cited_tokens().
 
-    The runtime never imports the dashboard (stdlib-only); this test does, and skips where it cannot.
+    The runtime never imports the dashboard (stdlib-only); this test imports its rule as ported into vibetracks.
     """
 
     import importlib
     import random
-    import sys
 
-    dashboard = LOOP_DEV_DIR / "bam_kinsim_dashboard"
-    if not (dashboard / "api" / "dashboard_core.py").is_file():
-        pytest.skip("the dashboard is not in this checkout")
-    sys.path.insert(0, str(dashboard))
-    try:
-        reference = importlib.import_module("api.dashboard_core")
-    except ImportError as error:
-        pytest.skip(f"the dashboard's module does not import here: {error}")
-    finally:
-        sys.path.remove(str(dashboard))
+    # WHY vibetracks.roadmap.citations and not the loop checkout's dashboard: moved into vibetracks, the dashboard's rule
+    # is ported here (the API and the page share it), and the kinsim loop's own checkout carries an older dashboard
+    # without cited_tokens. The two stay independent implementations: links.py imports nothing from citations.py.
+    reference = importlib.import_module("vibetracks.roadmap.citations")
     cores = ["/a/x.txt", "/b/y.log:3", "/c/z.json", "/h.py:2:9", "/f/../g.txt", "/i.png", "word", "copy.log", "", "-"]
     marks = ["", "", "", '"', "'", "`", "(", ")", "<", ">", "[", "]", ".", ",", ";", ":"]
     gaps = [" ", " ", " ", "\n", "\t", "  "]
@@ -450,8 +445,17 @@ def test_f11_a_stated_condition_with_no_data_stays_unknown(document):
 def test_f12_a_ledger_row_that_contradicts_itself_cannot_certify(name, change):
     """Codex F12: RB0's latest promotion row edited in memory (0/1000 at rate 1.0; NaN; inf) stayed green."""
 
+    # WHY the row RB0's gate cites, not the last rb0-promotion corpus row: SN1's promotion reuses that corpus (loop row
+    # sn1-promotion-20261005T003425Z), so "the last such row" contradicted SN1's evidence and left RB0's untouched.
+    base = rung(project(), "RB0")
+    base_gate = next(criterion for criterion in base["criteria"] if criterion["id"].endswith("#gate"))
+    cited = {item["id"]: item.get("run_id") for item in base["evidence"]}
+    promotion = [cited[eid] for eid in base_gate["evidence"] if str(cited.get(eid) or "").startswith("rb0-promotion")]
+    if not promotion:
+        pytest.skip("RB0's gate cites no promotion row today")
+
     def contradict(inputs):
-        row = [row for row in inputs.ledger if (row.get("metrics") or {}).get("corpus_id") == "rb0-promotion"][-1]
+        row = next(row for row in inputs.ledger if row.get("run_id") == promotion[0])
         for dotted, value in change.items():
             section, key = dotted.split(".")
             row[section][key] = value

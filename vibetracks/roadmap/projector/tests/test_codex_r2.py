@@ -365,7 +365,9 @@ def test_g09_ev1s_review_condition_rests_on_the_cited_audit(tmp_path):
 
     ev1 = rung(project_home(snapshot_home(tmp_path)), "EV1")
     audits = criteria_of(ev1, "audit")
-    assert audits and (audits[0]["verdict"], audits[0]["strength"]) == ("met", "record"), ev1["criteria"]
+    # WHY met or stale, not met: this reads the live loop, and code EV1's audit is scoped to has moved since 3f5f297b. The
+    # invariant G09 pins is that the condition is judged from the recorded audit (strength record), never left unknown.
+    assert audits and audits[0]["strength"] == "record" and audits[0]["verdict"] in ("met", "stale"), ev1["criteria"]
     by_id = {item["id"]: item for item in ev1["evidence"]}
     evidence = [by_id[evidence_id] for evidence_id in audits[0]["evidence"]]
     assert evidence and evidence[0]["kind"] == "audit" and str(evidence[0]["commit"]).startswith("3f5f297b"), evidence
@@ -377,7 +379,9 @@ def test_g09_ev2s_determinism_condition_rests_on_its_two_judged_runs(tmp_path):
 
     ev2 = rung(project_home(snapshot_home(tmp_path)), "EV2")
     determinism = [criterion for criterion in ev2["criteria"] if criterion["id"].endswith("#determinism")]
-    assert determinism and (determinism[0]["verdict"], determinism[0]["strength"]) == ("met", "record"), ev2["criteria"]
+    # WHY met or stale: as for EV1 above, the live loop's code moved since the two judged runs; the pinned invariant is
+    # that the condition rests on those runs' records, never unknown.
+    assert determinism and determinism[0]["strength"] == "record" and determinism[0]["verdict"] in ("met", "stale"), ev2["criteria"]
     by_id = {item["id"]: item for item in ev2["evidence"]}
     runs = sorted(by_id[evidence_id].get("run_id") for evidence_id in determinism[0]["evidence"])
     assert runs == sorted(BT2_RUNS), runs

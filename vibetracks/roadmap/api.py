@@ -106,7 +106,9 @@ RIG = LiveProjector(
 )
 def _grasping_inputs(sources: Mapping[str, str]) -> list[Path]:
     package = Path(sources["grasp_bench_dir"]) / "src" / "grasp_bench"
-    return [package / "curriculum.py", package / "contracts.py", package / "runner.py",
+    # registry.py is read from the working tree (each gate's env and model scope), so an uncommitted edit to it moves no
+    # HEAD; the scoped code itself is judged by commits since each row's, which HEAD already covers.
+    return [package / "curriculum.py", package / "contracts.py", package / "runner.py", package / "registry.py",
             Path(sources["grasp_bench_dir"]) / "out" / "ledger" / "runs.jsonl"]
 
 
