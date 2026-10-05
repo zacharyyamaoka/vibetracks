@@ -24,8 +24,9 @@
 // bam-triage-answer/1 stay exactly {ts, triage_id, choice, note}, because that loop resolves the choice against its
 // own file. When the loop recorded no words for the option, the quote says so instead of staying silent.
 //
-// WHY an `exact title:` twin under a heading whose title Markdown would change (edge spaces, markup characters): see
-// inlineTwinLines() in answerRules.ts; the heading line itself stays exactly as written.
+// WHY an `exact title:` (`exact id:`, `exact option label:`, `exact track title:`) twin under a line whose text Markdown
+// would change (edge spaces, markup that a parser would actually read as markup): see lineTextTwinLines() below; the
+// line itself stays exactly as written.
 // WHY every heading carries local_id AND the full title: the integrator must never have to ask which item an answer
 // is for (the pyblocks precedent). WHY the jsonl fence only for bam-triage-answer/1 tracks: those rows are appended
 // verbatim to triage_answers.jsonl and must validate (exactly {ts, triage_id, choice, note}); a chat-paste loop
@@ -48,7 +49,6 @@ import {
   effectiveChoice,
   exactLine,
   inlineExact,
-  inlineTwinLines,
   isComplete,
   isNoteOnly,
   markdownIsLossy,
@@ -60,6 +60,83 @@ import {
 import type { Choice, NeedsDoc, NeedsItem } from './types'
 
 export const ANSWER_ROW_SCHEMA = 'bam-triage-answer/1'
+
+// ------------------------------------------------------------------------------------------- inline twins
+
+/** CommonMark's Unicode whitespace (Zs plus tab, LF, FF, CR), and markdown-it's \v. */
+const MD_WHITESPACE = /[\t\n\v\f\r    -   　]/
+/** CommonMark 0.31's Unicode punctuation: general categories P and S (ASCII punctuation is all P or S). */
+const MD_PUNCTUATION = /[\p{P}\p{S}]/u
+/** An entity or numeric character reference, the only `&` a CommonMark parser decodes (spec §2.5). */
+const ENTITY_REFERENCE = /&(#\d+|#x[0-9a-f]+|[a-z][a-z0-9]*);/i
+
+/**
+ * True when some `*` or `_` delimiter run in `text` can open or close emphasis under CommonMark's flanking rules
+ * (spec §6.2), with the text's ends read as whitespace (on every line the exporter writes, each loop text sits between
+ * spaces or at a line end). A run that can do neither is literal in every parse; one that can do either is flagged
+ * even when nothing pairs with it (conservative: pairing also depends on the neighbours on the line).
+ */
+export function emphasisCanApply(text: string): boolean {
+  const chars = Array.from(text)
+  for (let start = 0; start < chars.length; ) {
+    const marker = chars[start]
+    if (marker !== '*' && marker !== '_') {
+      start++
+      continue
+    }
+    let end = start
+    while (end < chars.length && chars[end] === marker) end++
+    const before = start > 0 ? chars[start - 1] : ' '
+    const after = end < chars.length ? chars[end] : ' '
+    const beforeSpace = MD_WHITESPACE.test(before)
+    const afterSpace = MD_WHITESPACE.test(after)
+    const beforePunct = MD_PUNCTUATION.test(before)
+    const afterPunct = MD_PUNCTUATION.test(after)
+    const left = !afterSpace && (!afterPunct || beforeSpace || beforePunct)
+    const right = !beforeSpace && (!beforePunct || afterSpace || afterPunct)
+    // `*` opens when left-flanking and closes when right-flanking; `_` also refuses to open or close inside a word.
+    const canOpen = marker === '*' ? left : left && (!right || beforePunct)
+    const canClose = marker === '*' ? right : right && (!left || afterPunct)
+    if (canOpen || canClose) return true
+    start = end
+  }
+  return false
+}
+
+/**
+ * True when loop text set on one Markdown line (a heading, the answer line) may not parse back as the same characters:
+ * edge whitespace (a heading drops it, and a line's ends are trimmed), a backslash, backtick, bracket, `<`, `>` or `~`
+ * (escapes, code, links, raw HTML and autolinks, strikethrough), an `&` that starts an entity reference, a `*` or `_`
+ * run that can open or close emphasis, or a heading's closing `#` run.
+ *
+ * WHY precise for `&`, `*` and `_` (verifier, 2026-10-05, item f): the old test flagged any `&` or `_`, so
+ * "Sim to Real & Trajectory Tracking" and ids like "M5.contact_graspnet" carried a twin on every copy although every
+ * CommonMark parser reads them back unchanged; a twin on every line teaches the reader to skip twins. An `&` is read
+ * only as the start of a reference, and an intraword `_` never opens or closes emphasis. The remaining characters stay
+ * flagged on sight: a twin too many costs one line, a twin too few loses what Zach reviewed.
+ * WHY here and not answerRules.inlineIsLossy (the older, flag-on-sight test, still exported there): the exporter is
+ * the one writer of these lines, and answers.check.mjs measures this rule against markdown-it.
+ */
+export function lineTextIsLossy(text: string): boolean {
+  return (
+    text !== text.trim() ||
+    /[\\`[\]<>~]/.test(text) ||
+    ENTITY_REFERENCE.test(text) ||
+    emphasisCanApply(text) ||
+    /(^|\s)#+$/.test(text)
+  )
+}
+
+/**
+ * The `exact <label>: "<JSON>"` twin for loop text on a Markdown line, or [] when the line already carries it exactly.
+ * WHY the same rule as notes and option words (verifier, 2026-10-05): an item title with edge spaces lost them in the
+ * parsed heading, exactly the loss the `exact:` twin already repairs for a note and an option's words. inlineExact()
+ * already shows a line ending or a CR/NUL as JSON on the line itself, so those need no twin.
+ */
+export function lineTextTwinLines(text: string, label: string): string[] {
+  if (/[\r\n]/.test(text) || markdownIsLossy(text)) return []
+  return lineTextIsLossy(text) ? [exactLine(text, label)] : []
+}
 
 const CHOICE_LABEL: Record<Choice, string> = {
   accept_recommendation: 'Go with the recommendation',
@@ -173,12 +250,12 @@ export function exportTrack(doc: NeedsDoc, draftOf: DraftLookup, now: Date = new
     // `<`... as markup, so the parsed copy would not say exactly what was reviewed; the twin gives the text back.
     const lines = [
       `## ${inlineExact(item.local_id)} · ${inlineExact(item.title)}`,
-      ...inlineTwinLines(item.local_id, 'exact id'),
-      ...inlineTwinLines(item.title, 'exact title'),
+      ...lineTextTwinLines(item.local_id, 'exact id'),
+      ...lineTextTwinLines(item.title, 'exact title'),
       `- **Answer:** ${answer}`,
     ]
     if (choice) {
-      const labelTwin = inlineTwinLines(choiceLabel(item, choice), 'exact option label')
+      const labelTwin = lineTextTwinLines(choiceLabel(item, choice), 'exact option label')
       // The blank line ends the answer line's paragraph; without it the twin would continue it (lazy continuation).
       if (labelTwin.length) lines.push('', ...labelTwin)
       lines.push(...optionQuoteLines(item, choice))
@@ -203,7 +280,7 @@ export function exportTrack(doc: NeedsDoc, draftOf: DraftLookup, now: Date = new
   ]
   // WHY after the comment and a blank line: a reader with raw HTML off parses the comment line as a paragraph, and a
   // twin right under it would continue that paragraph instead of standing on its own.
-  const trackTwin = inlineTwinLines(doc.track_title, 'exact track title')
+  const trackTwin = lineTextTwinLines(doc.track_title, 'exact track title')
   if (trackTwin.length) header.push('', ...trackTwin)
   let markdown = `${header.join('\n')}\n\n${sections.join('\n\n')}`
   if (rowsCarryChoice) markdown += `\n\n\`\`\`jsonl\n${rows.join('\n')}\n\`\`\``

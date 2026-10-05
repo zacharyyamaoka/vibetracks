@@ -193,6 +193,55 @@ class BackendTest(unittest.TestCase):
         self.assertEqual(status, 409)
         self.assertNotIn(b"RETARGETED", body)
 
+    def test_snapshot_reload_after_a_retarget_recovers_without_projection_json_changing(self) -> None:
+        # WHY (verifier, 2026-10-05, leftover (a)): targets were recomputed only when projection.json's stamp changed,
+        # so an alias retargeted under an unchanged file kept the old revision: its URL answered 409 "reload" forever
+        # and the page's reload could never recover (a fake control). The reload must now yield a new revision.
+        root = Path(self.tmp.name)
+        alias = root / "alias.mp4"
+        alias.symlink_to(self.video)
+        other = root / "other.mp4"
+        other.write_bytes(b"RETARGETED, never listed when the first page loaded")
+        data = json.loads((self.home / "projection.json").read_text())
+        data["media"]["alias"] = {"id": "alias", "kind": "video", "label": "Alias", "path": str(alias)}
+        (self.home / "projection.json").write_text(json.dumps(data), encoding="utf-8")
+        stored = (self.home / "projection.json").read_bytes()
+        stamp = (self.home / "projection.json").stat().st_mtime_ns
+        first = self.rev()
+        self.assertEqual(self.get(f"/media/alias?rev={first}")[2], self.video.read_bytes())
+
+        alias.unlink()
+        alias.symlink_to(other)  # projection.json is not touched
+        self.assertEqual((self.home / "projection.json").stat().st_mtime_ns, stamp)
+        status, _, body = self.get(f"/media/alias?rev={first}")
+        self.assertEqual(status, 409)  # the old URL never serves the new target
+        self.assertNotIn(b"RETARGETED", body)
+
+        status, _, raw = self.get("/projection")  # the page's reload
+        self.assertEqual(status, 200)
+        second = json.loads(raw)["media_rev"]
+        self.assertNotEqual(second, first)
+        # Still the stored bytes, with only the new revision spliced in.
+        self.assertEqual(raw.replace(b',"media_rev":' + json.dumps(second).encode(), b"", 1), stored)
+        status, _, body = self.get(f"/media/alias?rev={second}")
+        self.assertEqual((status, body), (200, other.read_bytes()))
+        self.assertEqual(self.get(f"/media/alias?rev={first}")[0], 409)  # and the old one still refuses it
+        self.assertEqual(self.rev(), second)  # a poll with nothing changed keeps the URL (a playing video too)
+        status, _, health = self.get("/health")
+        self.assertEqual(json.loads(health)["media_rev"], second)
+
+    def test_snapshot_reload_lists_a_file_that_appeared_after_the_first_load(self) -> None:
+        # The same root, the other direction: a listed file missing at the first load is 404 under that revision,
+        # and a reload (projection.json unchanged) gets a revision that serves it.
+        first = self.rev()
+        self.assertEqual(self.get(f"/media/gone?rev={first}")[0], 404)
+        (Path(self.tmp.name) / "missing.mp4").write_bytes(b"arrived late")
+        second = self.rev()
+        self.assertNotEqual(second, first)
+        status, _, body = self.get(f"/media/gone?rev={second}")
+        self.assertEqual((status, body), (200, b"arrived late"))
+        self.assertEqual(self.get(f"/media/gone?rev={first}")[0], 404)
+
     def test_an_evicted_revision_is_409(self) -> None:
         revisions = server.MediaRevisions(limit=2)
         first = revisions.record({"a": {"path": "/x/a.mp4"}}, {"a": "/x/a.mp4"})

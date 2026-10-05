@@ -5,6 +5,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import type { PluginBackend } from '@clank/api'
 import { PROJECTION_SCHEMA, type Projection } from './model'
+import { sharedRequests, type SharedRequests } from '../needs/share'
 
 export class ApiError extends Error {
   readonly status: number
@@ -100,36 +101,67 @@ export interface ProjectionState {
   reload(options?: { rebuild?: boolean }): void
 }
 
+/** Every useProjection of one backend shares one in-flight /projection read per kind (a read, or a rebuild). */
+const sharedByBackend = new WeakMap<PluginBackend, SharedRequests<Projection>>()
+function projectionRequests(backend: PluginBackend): SharedRequests<Projection> {
+  let shared = sharedByBackend.get(backend)
+  if (!shared) {
+    shared = sharedRequests<Projection>()
+    sharedByBackend.set(backend, shared)
+  }
+  return shared
+}
+
 export function useProjection(backend: PluginBackend): ProjectionState {
   const [state, setState] = useState<{ projection: Projection | null; error: string | null; loading: boolean }>({
     projection: null,
     error: null,
     loading: true,
   })
-  const [request, setRequest] = useState<{ n: number; rebuild: boolean }>({ n: 0, rebuild: false })
+  // `notBefore` is the share point the reload was asked at (-1 on first load): a reload joins only a read that STARTED
+  // after it, so "reload" is never answered by a read that began before Zach asked (share.ts).
+  const [request, setRequest] = useState<{ n: number; rebuild: boolean; notBefore: number }>({ n: 0, rebuild: false, notBefore: -1 })
   const ticket = useRef(0)
 
   useEffect(() => {
     const mine = ++ticket.current
-    const controller = new AbortController()
+    let live = true
     setState((previous) => ({ ...previous, loading: true }))
-    fetchProjection(backend, { rebuild: request.rebuild, signal: controller.signal }).then(
+    // WHY shared and not one fetch per hook (verifier, 2026-10-05): one first load started four /projection reads
+    // (React's development double effect times the second viewer Clank keeps in a hidden tab); two were aborted and
+    // two completed, so the backend ran two full live builds for one page open. Every caller now joins one read.
+    // Leaving never cancels it for the others: it is aborted only when nobody waits any more (share.ts).
+    const shared = projectionRequests(backend).get(
+      request.rebuild ? 'rebuild' : 'read',
+      (signal) => fetchProjection(backend, { rebuild: request.rebuild, signal }),
+      request.notBefore,
+    )
+    shared.promise.then(
       (projection) => {
-        if (mine !== ticket.current) return
+        if (!live || mine !== ticket.current) return
         setState({ projection, error: null, loading: false })
         projectionsLoaded += 1
         for (const listener of [...loadedListeners]) listener()
       },
       (error: unknown) => {
-        if (mine !== ticket.current || controller.signal.aborted) return
+        if (!live || mine !== ticket.current) return
         // WHY keep the last good projection on a failed reload: a transient backend restart should not blank the page.
         setState((previous) => ({ projection: previous.projection, error: error instanceof Error ? error.message : String(error), loading: false }))
       },
     )
-    return () => controller.abort()
+    return () => {
+      live = false
+      shared.release()
+    }
   }, [backend, request])
 
-  const reload = useCallback((options?: { rebuild?: boolean }) => setRequest((previous) => ({ n: previous.n + 1, rebuild: Boolean(options?.rebuild) })), [])
+  const reload = useCallback(
+    (options?: { rebuild?: boolean }) => {
+      const notBefore = projectionRequests(backend).mark()
+      setRequest((previous) => ({ n: previous.n + 1, rebuild: Boolean(options?.rebuild), notBefore }))
+    },
+    [backend],
+  )
   useEffect(() => {
     const listener = () => reload()
     reloadListeners.add(listener)

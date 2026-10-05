@@ -10,7 +10,8 @@ Routes (Clank proxies ``/api/plugins/vibetracks/<rest>`` here, clank-workbench C
 - ``GET /projection``        -> LIVE when the workspace's ``.vtdash`` names a work-track registry: built on each
   request from the registry by ``vibetracks.dashboard.build.LiveBuilder`` (adapters rerun only when a note, an
   adapter module or a declared source file changed); ``?rebuild=1`` drops that cache first. Without a registry,
-  ``projection.json`` from the data home, re-read when it changes on disk; ``?rebuild=1`` first reruns
+  ``projection.json`` from the data home, re-read when it changes on disk, its media targets re-resolved on every
+  request (so ``media_rev`` follows a retargeted alias even when the file is unchanged); ``?rebuild=1`` first reruns
   ``python3 -m vibetracks.dashboard.build --snapshot`` (the snapshot adapter).
 - ``POST /tracks/<id>/title`` -> rename one work track: JSON ``{title, revision}`` (``Content-Type:
   application/json``, else 415). Revision-fenced (409 when the note changed since ``revision``), atomic, and it
@@ -96,7 +97,12 @@ def default_home() -> Path:
 
 
 DEFAULT_HOME = default_home()
-MEDIA_ID = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,200}$")
+#: A media id's spelling. WHY ":" is allowed (verifier, 2026-10-05, leftover (d)): adapters namespace ids by track
+#: ("grasping:gallery-preview"), and a regex that forbade ":" made those ids 404 forever beside a dead "Open in new
+#: tab" link. Renaming ids to fit the regex was rejected: an id is a reference other entries and links carry, and the
+#: client already sends it through encodeURIComponent (":" travels as %3A and is unquoted before this check). Still no
+#: "/", "%", "?", "#", whitespace or a leading dot, so an id can never read as a path or a query.
+MEDIA_ID = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._:-]{0,200}$")
 RENAME_ROUTE = re.compile(r"^/tracks/([^/]+)/title$")
 #: A rename body is a title and a revision; anything near this size is not one.
 MAX_JSON_BODY = 64 * 1024
@@ -286,7 +292,8 @@ def with_media_rev(raw: bytes, data: Any, revision: str) -> bytes:
 
 
 class Projection:
-    """projection.json, re-read when its mtime or size changes; the media allowlist comes from it."""
+    """projection.json, re-read when its mtime or size changes; the media allowlist comes from it, its targets
+    re-resolved on every load."""
 
     live = False
     registry: Path | None = None
@@ -296,6 +303,9 @@ class Projection:
         self.path = home / "projection.json"
         self._lock = threading.Lock()
         self._stamp: tuple[int, int] | None = None
+        #: projection.json's bytes and parsed value as last read (snapshot mode); ``_raw`` is them plus ``media_rev``
+        self._stored: bytes | None = None
+        self._data: Any = None
         self._raw: bytes | None = None
         self._media: dict[str, dict[str, Any]] = {}
         #: media id -> the canonical file its path resolved to when the allowlist was built (None: not servable then)
@@ -305,23 +315,34 @@ class Projection:
         self.revisions = MediaRevisions()
 
     def load(self) -> bytes | None:
+        """projection.json plus the ``media_rev`` of the targets its media paths resolve to NOW.
+
+        WHY the targets are re-resolved on every load and not only when the file's stamp changes (verifier, 2026-10-05,
+        leftover (a)): an alias retargeted while projection.json stays byte-identical used to keep the old revision,
+        so its URL answered 409 "reload" forever and the page's reload control could never recover. Re-resolving here
+        gives that reload a new revision that lists what the path names now; the old revision still holds its own
+        recorded targets, so it never serves the new file. Same files, same digest: a poll changes no URL.
+        """
         with self._lock:
             try:
                 info = self.path.stat()
             except FileNotFoundError:
-                self._stamp, self._raw, self._media, self._targets, self._rev = None, None, {}, {}, None
+                self._stamp, self._stored, self._data, self._raw = None, None, None, None
+                self._media, self._targets, self._rev = {}, {}, None
                 return None
             stamp = (info.st_mtime_ns, info.st_size)
-            if stamp != self._stamp:
+            if stamp != self._stamp or self._stored is None:
                 raw = self.path.read_bytes()
                 data = json.loads(raw)
                 media = data.get("media") if isinstance(data, dict) else None
+                self._stored, self._data, self._stamp = raw, data, stamp
                 self._media = media if isinstance(media, dict) else {}
-                self._targets = canonical_targets(self._media)
-                self._rev = self.revisions.record(self._media, self._targets)
-                self._raw, self._stamp = with_media_rev(raw, data, self._rev), stamp
-            else:
-                self.revisions.record(self._media, self._targets)  # the revision on screen stays the newest kept
+                self._raw = None
+            self._targets = canonical_targets(self._media)
+            revision = self.revisions.record(self._media, self._targets)  # also keeps the revision on screen newest
+            if revision != self._rev or self._raw is None:
+                self._rev = revision
+                self._raw = with_media_rev(self._stored, self._data, revision)
             return self._raw
 
     def media(self, media_id: str, revision: str | None) -> Path | None:

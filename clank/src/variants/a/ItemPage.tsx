@@ -8,6 +8,7 @@ import {
   Breadcrumb,
   MediaView,
   N1_WORD,
+  StaleMediaLine,
   Sparkline,
   StatusWord,
   evidenceStatusTone,
@@ -15,6 +16,7 @@ import {
   formatNumber,
   iterationById,
   trackById,
+  useMediaRefusals,
   valueDomain,
 } from '../../shared'
 import type { Nav } from './nav'
@@ -198,12 +200,29 @@ export function ItemPage({ projection, track, item, title, nav, mediaUrl }: {
  * unreadable played once, but an 85 MB bench recording must not loop on its own. */
 function VideoPair({ pair, mediaUrl }: { pair: MediaRef[]; mediaUrl: (id: string) => string }) {
   const refs = useRef<Array<HTMLVideoElement | null>>([])
+  const urls = pair.map((media) => mediaUrl(media.id))
+  // WHY the pair asks the backend like MediaView does (verifier, 2026-10-05, item c): on a 409 it used to keep two
+  // dead players at 0:00 and two "open in new tab" links that would only 409 again (fake controls). Now a refused
+  // pair shows MediaView's one calm line instead, with no players, no links and no "Play both".
+  const checks = useMediaRefusals(urls)
   const playBoth = () => {
     for (const video of refs.current) {
       if (!video) continue
       video.currentTime = 0
       void video.play().catch(() => undefined)
     }
+  }
+  if (checks.stale) {
+    return (
+      <section className="vt-a-section" data-testid="vt-a-pair" data-stale="true">
+        {/* One span: the bar is a flex row with a gap, which would pad a separator unevenly between two spans. WHY "and"
+            and not " · ": the labels use " · " themselves ("Real · slow_step · ff_fb"), so it would blur the two. */}
+        <p className="vt-a-pairbar vt-small">
+          <span className="vt-strong">{pair.map((media) => media.label).join(' and ')}</span>
+        </p>
+        <StaleMediaLine />
+      </section>
+    )
   }
   return (
     <section className="vt-a-section" data-testid="vt-a-pair">
@@ -214,32 +233,40 @@ function VideoPair({ pair, mediaUrl }: { pair: MediaRef[]; mediaUrl: (id: string
         <span className="vt-faint">real and sim of this run, restarted together</span>
       </p>
       <div className="vt-a-pair">
-        {pair.map((media, index) => (
-          <figure key={media.id}>
-            <figcaption className="vt-small">
-              <span className="vt-strong">{media.label}</span>
-              {' · '}
-              <a href={mediaUrl(media.id)} target="_blank" rel="noreferrer">
-                open in new tab
-              </a>
-            </figcaption>
-            <video
-              ref={(element) => {
-                refs.current[index] = element
-              }}
-              src={mediaUrl(media.id)}
-              controls
-              preload="metadata"
-              playsInline
-              muted
-              aria-label={media.label}
-              data-testid="vt-video"
-              onLoadedMetadata={(event) => {
-                event.currentTarget.loop = event.currentTarget.duration < 10
-              }}
-            />
-          </figure>
-        ))}
+        {pair.map((media, index) => {
+          const url = urls[index]
+          const refusal = checks.refusal(url)
+          return (
+            <figure key={media.id}>
+              <figcaption className="vt-small">
+                <span className="vt-strong">{media.label}</span>
+                {' · '}
+                <a href={url} target="_blank" rel="noreferrer">
+                  open in new tab
+                </a>
+              </figcaption>
+              {refusal ? (
+                <p className="vt-error" data-testid="vt-media-error">Could not load: {refusal}</p>
+              ) : (
+                <video
+                  ref={(element) => {
+                    refs.current[index] = element
+                  }}
+                  src={url}
+                  controls
+                  preload="metadata"
+                  playsInline
+                  muted
+                  aria-label={media.label}
+                  data-testid="vt-video"
+                  onLoadedMetadata={(event) => {
+                    event.currentTarget.loop = event.currentTarget.duration < 10
+                  }}
+                />
+              )}
+            </figure>
+          )
+        })}
       </div>
     </section>
   )

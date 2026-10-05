@@ -141,10 +141,48 @@ Every other track (rig's `chat_paste`, detection's `note_paste`, …) gets no fe
 
 **A note with no option** (an item that offers no "Something else") is never exported as `other`. On a markdown-only channel (`chat_paste`, `note_paste`) it goes out as `- **Answer:** no option chosen (note only)` plus its note; on a channel whose rows need a choice (`bam-triage-answer/1`: needs.py reads only rows whose choice is one of the three) it is left out and named: "note only, this loop needs an option".
 
-**`exact:` lines.** Markdown cannot give every text back as typed: CommonMark turns a CR or CRLF into LF and NUL into U+FFFD, a lone surrogate cannot be written as UTF-8, and a quote drops its text's leading and trailing whitespace. When that would happen, the copy adds one line that carries the text losslessly: the label, then the text as a JSON string in a code span (no Markdown reader unescapes inside one), so `JSON.parse` of the span gives back exactly what was typed or written (`exactLine`, answerRules.ts). Ordinary answers carry none.
+**`exact …:` lines.** Markdown cannot give every text back as typed: CommonMark turns a CR or CRLF into LF and NUL into U+FFFD, a lone surrogate cannot be written as UTF-8, a quote drops its text's leading and trailing whitespace, and a heading or answer line reads some characters as markup. When that would happen, the copy adds one line that carries the text losslessly: the label, then the text as a JSON string in a code span (no Markdown reader unescapes inside one), so `JSON.parse` of the span gives back exactly what was typed or written (`exactLine`, answerRules.ts). Ordinary answers carry none. These are every such line the exporter (`exportAnswers.ts`) can write, two spaces in, in the order they appear:
 
-- `exact option words:` follows the option's quote when its words hold a CR, NUL or lone surrogate, or have leading or trailing whitespace. It sits after a blank line, so it cannot be read as part of the loop's quoted words. Every channel, kinsim included.
-- `exact:` follows the note's fenced block when the note holds a CR, NUL or lone surrogate (the fence keeps edge whitespace already). Only where no JSONL row carries the note, which means the markdown-only channels (`chat_paste`, `note_paste`). On `bam-triage-answer/1` the row's `note` is the raw string, so there is no `exact:` line.
+| Line | Where it sits | When it is written |
+|---|---|---|
+| `exact track title:` | after the header's `<!-- … -->` comment and a blank line | the track's title would not read back from the `# Answers · … ·` heading as written (rule below) |
+| `exact id:` | right under the item's `## <id> · <title>` heading | the item's `local_id` would not read back from the heading as written |
+| `exact title:` | under the heading, after `exact id:` when both are there | the item's title would not read back from the heading as written |
+| `exact option label:` | after the `- **Answer:**` line and a blank line, before the option's quote | the chosen option's label would not read back from the answer line as written |
+| `exact option words:` | after the option's quote and a blank line | the option's words hold a CR, NUL or lone surrogate, or have leading or trailing whitespace. Every channel, kinsim included |
+| `exact:` | right after the note's fenced block | the note holds a CR, NUL or lone surrogate (the fence keeps edge whitespace already). Only where no JSONL row carries the note: the markdown-only channels (`chat_paste`, `note_paste`). On `bam-triage-answer/1` the row's `note` is the raw string, so there is no `exact:` line |
+
+Each blank line before a twin keeps it out of the paragraph or quote above it (lazy continuation would otherwise make it read as the loop's words or as part of the answer).
+
+**When a line's text "would not read back as written"** (`lineTextIsLossy`, exportAnswers.ts; for the track title, id, title and option label). It is lossy when it:
+- has leading or trailing whitespace (a heading drops it, and a line's ends are trimmed);
+- holds a backslash, a backtick, `[`, `]`, `<`, `>` or `~` (escapes, code spans, links, raw HTML and autolinks, strikethrough);
+- holds an `&` that starts an entity reference (`&amp;`, `&#38;`, `&#x26;`). Any other `&` is literal: "Sim to Real & Trajectory Tracking" gets no twin;
+- holds a `*` or `_` run that can open or close emphasis under CommonMark's flanking rules, with the text's ends read as whitespace. An intraword `_` never can: "M5.contact_graspnet" and "slow_step_045deg" get no twin, while `*a*`, `_why_` and `__init__` do;
+- ends in a `#` run that starts the text or follows whitespace (a heading's closing sequence).
+
+A text that holds a line ending, CR, NUL or lone surrogate never gets a twin: it is written on its line itself as a JSON string in a code span (`inlineExact`), so it cannot break the line. `answers.check.mjs` sweeps every string up to four characters over the hazard alphabet through the exporter and markdown-it and finds no lossy text without its twin; `tests/browser/export_twins_live.mjs` does the same for every live title and id on the lane and expects no redundant twin either.
+
+The real exporter's output for a `chat_paste` track whose title holds `<…>`, an item whose id and title have emphasis runs, and an option label in `*…*` (track, id, title and label each get their twin; the `&` gets none):
+
+````markdown
+# Answers · Rig <can16> & bench · 2026-10-05 12:40 PDT
+<!-- vibetracks-needs/1 · track=rig · source=chat · channel=chat_paste -->
+
+  exact track title: `"Rig <can16> & bench"`
+
+## __init__ · Keep *slow_step* as the gate?
+  exact id: `"__init__"`
+  exact title: `"Keep *slow_step* as the gate?"`
+- **Answer:** Keep *waiting* (use_default)
+
+  exact option label: `"Keep *waiting*"`
+  > Stay on slow_step until the bench is back.
+- **Note:**
+  ```text
+  fine
+  ```
+````
 
 The real exporter's output for a `chat_paste` answer whose option words start with two spaces, contain a CRLF and end with two spaces, and whose note contains a CRLF:
 
@@ -163,7 +201,7 @@ The real exporter's output for a `chat_paste` answer whose option words start wi
   exact: `"ok, but log\r\nthe readback"`
 ````
 
-A reader that needs the exact text takes the code span after `exact option words:` or `exact:` and `JSON.parse`s it. The quote and the fenced block stay the readable form. A heading's title or an answer label that holds a line break or a character Markdown cannot carry is written inline the same way, as a JSON string in a code span (`inlineExact`), so it cannot break its line.
+A reader that needs the exact text takes the code span after any `exact …:` label and `JSON.parse`s it. The heading, the answer line, the quote and the fenced block stay the readable form. A heading's title or an answer label that holds a line break or a character Markdown cannot carry is written inline the same way, as a JSON string in a code span (`inlineExact`), so it cannot break its line.
 
 ## CSS
 

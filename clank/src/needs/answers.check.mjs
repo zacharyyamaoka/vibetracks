@@ -561,7 +561,7 @@ test('any title: the parsed heading or its exact title twin gives the title back
       assert.deepEqual(twins, [{ label: 'exact title', value: title }], `the heading reads ${JSON.stringify(heading)} for ${JSON.stringify(title)}`)
     }
   }
-  for (const title of ['Bus voltage for the bench?', 'two  spaces inside', 'Issue #12']) {
+  for (const title of ['Bus voltage for the bench?', 'two  spaces inside', 'Issue #12', 'Run slow_step_045deg_slow at 44 V']) {
     const item = makeItem({ title })
     const result = exporter.exportTrack(makeDoc([item], CHAT), lookup(rules.boundDraft(item, 'use_default', '', NOW)), NOW)
     assert.deepEqual(exactTwins(result.markdown), [], JSON.stringify(title))
@@ -586,4 +586,130 @@ test("an option label or track title Markdown would change gets its twin; the an
     const comment = new MarkdownIt({ html: true }).parse(result.markdown, {}).find((token) => token.type === 'html_block')
     assert.ok(comment && comment.content.startsWith('<!-- vibetracks-needs/1'), channelName)
   }
+})
+
+// ------------------------------------------------------------------------------------------- verifier 2026-10-05: item f
+// The copy flagged every "&" and "_" as lossy, so "Sim to Real & Trajectory Tracking" and ids like "M5.contact_graspnet"
+// carried a redundant `exact …:` twin on every copy although markdown-it (any CommonMark parser) reads them back
+// unchanged. The precise rule (exportAnswers.lineTextIsLossy): `&` only where it starts an entity reference, `*` and
+// `_` only where a delimiter run can open or close emphasis. The first test fails against 56c75c0's exporter; the
+// second is the oracle sweep that keeps the precise rule from ever dropping a twin a parser needs.
+
+/** The export of one item whose id, title, option label or track title is `text`; plus what markdown-it reads back. */
+function exportOne(field, text) {
+  const base = makeItem()
+  const item =
+    field === 'id'
+      ? makeItem({ local_id: text })
+      : field === 'title'
+        ? makeItem({ title: text })
+        : field === 'option label'
+          ? makeItem({ options: [option('use_default', text, 'Stay at 40 V.'), ...base.options.slice(2)] })
+          : base
+  const doc = { ...makeDoc([item], CHAT), ...(field === 'track title' ? { track_title: text } : {}) }
+  const result = exporter.exportTrack(doc, lookup(rules.boundDraft(item, 'use_default', '', NOW)), NOW)
+  const tokens = md.parse(result.markdown, {})
+  const after = (type, tag) => tokens[tokens.findIndex((token) => token.type === type && token.tag === tag) + 1]
+  const read =
+    field === 'track title'
+      ? parsedText(after('heading_open', 'h1'))
+      : field === 'option label'
+        ? parsedText(tokens.find((token) => token.type === 'inline' && token.content.startsWith('**Answer:**')))
+        : parsedText(after('heading_open', 'h2'))
+  const want =
+    field === 'track title'
+      ? `Answers · ${text} · `
+      : field === 'option label'
+        ? `Answer: ${text} (use_default)`
+        : field === 'id'
+          ? `${text} · ${item.title}`
+          : `${item.local_id} · ${text}`
+  const exact = field === 'track title' ? read.startsWith(want) : read === want
+  return { exact, read, twins: exactTwins(result.markdown).filter((twin) => twin.label === `exact ${field}`) }
+}
+
+const FIELDS = ['id', 'title', 'option label', 'track title']
+
+test('"&" outside an entity reference and an intraword "_" get no twin: a parser reads them back unchanged', () => {
+  const plain = [
+    'Sim to Real & Trajectory Tracking',
+    'Object Detection & Hyperspectral',
+    'M5.contact_graspnet',
+    'w3-pin_move-25',
+    'Run slow_step_045deg_slow at 44 V',
+    'R&D & ops',
+    'AT&T',
+    'a & b; c',
+    'snake_case_name',
+    'C++ & C#',
+  ]
+  for (const field of FIELDS) {
+    for (const text of plain) {
+      const { exact, read, twins } = exportOne(field, text)
+      assert.ok(exact, `markdown-it reads ${field} ${JSON.stringify(text)} back unchanged (got ${JSON.stringify(read)})`)
+      assert.deepEqual(twins, [], `no redundant twin for ${field} ${JSON.stringify(text)}`)
+    }
+  }
+})
+
+test('"&" that starts an entity reference and "*"/"_" that can open or close emphasis keep their twin', () => {
+  const lossy = ['Tom &amp; Jerry', 'x &#38; y', 'x &#x26; y', 'a *b* c', '_why_ not', 'end_', '__init__ hook', '*star', 'a**b**c']
+  for (const field of FIELDS) {
+    for (const text of lossy) {
+      assert.ok(exporter.lineTextIsLossy(text), `${JSON.stringify(text)} is flagged`)
+      assert.deepEqual(exportOne(field, text).twins, [{ label: `exact ${field}`, value: text }], `${field} ${JSON.stringify(text)}`)
+    }
+  }
+})
+
+test('oracle sweep: whenever markdown-it reads a text back changed, the copy carries its exact twin', () => {
+  // Every string of up to four characters over an alphabet of the hazards in play, in every line the exporter writes.
+  const alphabet = ['a', ' ', '*', '_', '&', '#', ';', '.', 'x', '1']
+  // WHY no empty string: an empty title leaves the heading's own separator space at the line end, which is not the
+  // title's loss (and the loops never write one).
+  const strings = []
+  let frontier = ['']
+  for (let length = 1; length <= 4; length++) {
+    frontier = frontier.flatMap((prefix) => alphabet.map((char) => prefix + char))
+    strings.push(...frontier)
+  }
+  // Plus longer shapes the four-character sweep cannot reach.
+  strings.push('a_b_c', 'x &copy; y', 'x &#123; y', 'x &#xAF; y', 'a *b_c* d', 'foo_bar_', '_foo_bar', '"*quoted*"', '(_x_)', 'a*"b"*c', 'é_é', 'x_.y', '._x', '*.*')
+  let flaggedButExact = 0
+  for (const field of ['title', 'track title']) {
+    for (const text of strings) {
+      const { exact, read, twins } = exportOne(field, text)
+      if (!exact) assert.deepEqual(twins, [{ label: `exact ${field}`, value: text }], `${field} ${JSON.stringify(text)} reads ${JSON.stringify(read)}`)
+      else if (twins.length) flaggedButExact++
+      if (twins.length) assert.equal(twins[0].value, text)
+    }
+  }
+  // Conservative, not noisy: most flagged-but-exact strings hold an unpaired opener such as "*a" or a "#" run.
+  console.log(`# oracle sweep: ${strings.length} strings x 2 lines, ${flaggedButExact} flagged conservatively`)
+})
+
+test('NEEDS-KIT.md documents every `exact …:` label the exporter writes, and its example is the real exporter output', async () => {
+  const { readFile } = await import('node:fs/promises')
+  const kit = await readFile(new URL('../../../docs/dashboard/NEEDS-KIT.md', import.meta.url), 'utf8')
+  const source = await readFile(new URL('./exportAnswers.ts', import.meta.url), 'utf8')
+  // Every label the exporter can pass to exactLine / lineTextTwinLines, read from its source, has a row in the table.
+  const labels = new Set([...source.matchAll(/(?:exactLine|lineTextTwinLines)\([^,()]+(?:\([^()]*\))?, '([^']+)'\)/g)].map((match) => match[1]))
+  labels.add('exact') // exactLine's default label (the note's twin)
+  assert.deepEqual([...labels].sort(), ['exact', 'exact id', 'exact option label', 'exact option words', 'exact title', 'exact track title'])
+  for (const label of labels) assert.ok(kit.includes(`| \`${label}:\` |`), `NEEDS-KIT.md has a row for ${label}:`)
+  // The worked example, regenerated: same inputs, same text (the heading's local time is compared by shape only).
+  const item = makeItem({
+    id: 'rig:__init__',
+    local_id: '__init__',
+    title: 'Keep *slow_step* as the gate?',
+    ask: 'Keep *slow_step* as the gate?',
+    options: [option('use_default', 'Keep *waiting*', 'Stay on slow_step until the bench is back.'), option('other', 'Something else', null, { needs_note: true })],
+  })
+  const doc = { ...makeDoc([item], { kind: 'chat_paste', target: null, row_schema: null }), track: 'rig', track_title: 'Rig <can16> & bench', source: { adapter: 'chat', paths: [], commit: null, live: false, note: null } }
+  const markdown = exporter.exportTrack(doc, () => rules.boundDraft(item, 'use_default', 'fine', NOW), NOW).markdown
+  const start = kit.indexOf('# Answers · Rig <can16> & bench · ')
+  assert.ok(start > 0, 'the example is in NEEDS-KIT.md')
+  const example = kit.slice(start, kit.indexOf('\n````', start))
+  const stamp = /^(# Answers · Rig <can16> & bench · )\d{4}-\d\d-\d\d \d\d:\d\d(?: \S+)?$/m
+  assert.equal(example.replace(stamp, '$1<time>'), markdown.replace(stamp, '$1<time>'))
 })
