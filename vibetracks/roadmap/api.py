@@ -136,9 +136,14 @@ def _grasping_inputs(sources: Mapping[str, str]) -> list[Path]:
     # HEAD; the scoped code itself is judged by commits since each row's, which HEAD already covers.
     # gallery.py, ledger.py and attestations.jsonl are the bench's verdict (grasp_bench_bridge runs them): a change to its
     # rule or to what vouches for a row moves the verdict without moving the ledger or HEAD.
-    ledger = Path(sources["grasp_bench_dir"]) / "out" / "ledger"
-    return [package / "curriculum.py", package / "contracts.py", package / "runner.py", package / "registry.py",
-            package / "gallery.py", package / "ledger.py", ledger / "runs.jsonl", ledger / "attestations.jsonl"]
+    # WHY every .py in the package and the venv's interpreter (Codex A01/A02, 2026-10-05): the verdict is whatever the
+    # bench's own code computes in its own venv, and gallery.py reaches registry/contracts/envs through imports; a fixed
+    # list missed some, and a removed or replaced venv left the cached document looking fresh. A few dozen stats.
+    bench = Path(sources["grasp_bench_dir"])
+    ledger = bench / "out" / "ledger"
+    code = sorted(package.rglob("*.py")) if package.is_dir() else []
+    return [*code, bench / ".venv" / "bin" / "python", bench / ".venv" / "pyvenv.cfg", ledger / "runs.jsonl",
+            ledger / "attestations.jsonl"]
 
 
 GRASPING = LiveProjector(
