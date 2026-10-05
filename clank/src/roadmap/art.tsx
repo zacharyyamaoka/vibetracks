@@ -9,6 +9,7 @@ import {
   Lock, type LucideIcon, Moon, MoveHorizontal, NotebookTabs, Orbit, PencilRuler, Recycle, Repeat, Rotate3d, RotateCcw,
   Ruler, Scale, Scan, ScanEye, Shapes, ShieldCheck, Sigma, Target, Timer, Users,
 } from 'lucide-react'
+import { badgeFontSize } from './artBadge'
 import type { RoadRung } from './graph'
 
 const AXIS_ICON: Record<string, LucideIcon> = {
@@ -66,8 +67,17 @@ export function ArtView({ art, size, artBase, className }: { art: Art; size: num
   const n = Math.min(art.renders.length ? art.count : 1, 4)
   const step = n > 1 ? (size * 0.42) / (1 + (n - 1) * 0.42) : 0
   const imageWidth = n > 1 ? size / (1 + (n - 1) * 0.42) : size
+  // WHY the badge is sized to the box, and dropped (into the title) when it cannot fit: see artBadge.ts.
+  const badgeSize = art.badge ? badgeFontSize(art.badge, size) : null
+  const dropped = art.badge !== null && badgeSize === null
+  const title = art.badge ? `${art.caption} · ${art.badge}` : undefined
   return (
-    <span className={`vt-rm-art ${className ?? ''}`} style={{ width: size, height: size * 0.75 }}>
+    <span
+      className={`vt-rm-art ${className ?? ''}`}
+      style={{ width: size, height: size * 0.75 }}
+      title={title}
+      {...(dropped ? { role: 'img', 'aria-label': title } : {})}
+    >
       {art.renders.length
         ? Array.from({ length: n }, (_, i) => (
             <img
@@ -79,7 +89,7 @@ export function ArtView({ art, size, artBase, className }: { art: Art; size: num
             />
           ))
         : <art.Icon aria-hidden className="vt-rm-art-icon" style={{ width: size * 0.5, height: size * 0.5 }} strokeWidth={1.7} />}
-      {art.badge ? <b className="vt-rm-art-badge">{art.badge}</b> : null}
+      {art.badge && badgeSize !== null ? <b className="vt-rm-art-badge" style={{ fontSize: badgeSize, lineHeight: `${Math.ceil(badgeSize + 3)}px` }}>{art.badge}</b> : null}
     </span>
   )
 }

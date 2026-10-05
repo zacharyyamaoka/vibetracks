@@ -6,6 +6,12 @@
    WHY one quiet green: proven (green) and claimed are the same hue, filled vs hollow, so the claimed distinction needs
    no new colour; triage (needs Zach) is the one risk mark, stale the calm stale tone. */
 
+/* WHY every rule for a `.vt-btn` here is written `.vt-dash .vt-btn.vt-rm-…` (0,3,0): shared/calm.css resets every button
+   with `.vt-dash button.vt-btn { all: unset }` (0,2,1), and `all` beats a lower-specificity rule whatever its declarations
+   say, so a plain `.vt-dash .vt-rm-chip` (0,2,0) renders as bare text with no display, padding, border or font. A rule
+   that also styles non-buttons (.vt-rm-link, .vt-rm-sm) lists both selectors. src/roadmap/cascade_check.py renders the
+   stories and fails when any authored declaration is discarded, so a new button class cannot regress this unseen. */
+
 @layer base {
   .vt-dash {
     --vt-rm-green: #448361;
@@ -20,7 +26,8 @@
   .vt-dash .vt-rm-xs {
     font-size: 11.5px;
   }
-  .vt-dash .vt-rm-sm {
+  .vt-dash .vt-rm-sm,
+  .vt-dash .vt-btn.vt-rm-sm {
     font-size: 12.5px;
   }
   .vt-dash .vt-rm-mono {
@@ -46,7 +53,7 @@
     clip: rect(0 0 0 0);
     white-space: nowrap;
   }
-  .vt-dash .vt-rm-textlink {
+  .vt-dash .vt-btn.vt-rm-textlink {
     display: inline-flex;
     align-items: center;
     gap: 3px;
@@ -55,7 +62,7 @@
     text-decoration-color: var(--vt-line);
     text-underline-offset: 2px;
   }
-  .vt-dash .vt-rm-textlink:hover {
+  .vt-dash .vt-btn.vt-rm-textlink:hover {
     text-decoration-color: var(--vt-grey);
   }
 
@@ -406,15 +413,16 @@
   }
   .vt-dash .vt-rm-art-badge {
     position: absolute;
-    right: -2px;
-    bottom: -2px;
-    padding: 0 4px;
+    right: 0;
+    bottom: 0;
+    max-width: 100%;
+    padding: 0 2px;
+    overflow: hidden;
     border-radius: 3px;
     background: var(--vt-fg);
     color: var(--vt-bg);
     font-family: var(--vt-mono);
-    font-size: 9px;
-    line-height: 14px;
+    white-space: nowrap;
   }
 
   /* ---- the focus panel: grows out of the picked card and overlays the board's right edge (scroll.ts PANEL_RESERVE) */
@@ -442,17 +450,17 @@
     padding: 6px 10px;
     border-bottom: 1px solid var(--vt-line);
   }
-  .vt-dash .vt-rm-icon-btn {
+  .vt-dash .vt-btn.vt-rm-icon-btn {
     display: inline-flex;
     padding: 3px;
     border-radius: 4px;
     color: var(--vt-grey);
   }
-  .vt-dash .vt-rm-icon-btn:hover {
+  .vt-dash .vt-btn.vt-rm-icon-btn:hover {
     background: var(--vt-hover);
     color: var(--vt-fg);
   }
-  .vt-dash .vt-rm-close {
+  .vt-dash .vt-btn.vt-rm-close {
     margin-left: auto;
   }
   .vt-dash .vt-rm-trail {
@@ -468,12 +476,12 @@
     display: inline-flex;
     gap: 4px;
   }
-  .vt-dash .vt-rm-crumb {
+  .vt-dash .vt-btn.vt-rm-crumb {
     padding: 0 5px;
     border-radius: 3px;
     color: var(--vt-grey);
   }
-  .vt-dash .vt-rm-crumb:hover {
+  .vt-dash .vt-btn.vt-rm-crumb:hover {
     background: var(--vt-hover);
     color: var(--vt-fg);
   }
@@ -571,7 +579,7 @@
     padding: 6px 10px;
     border-left: 2px solid var(--vt-risk-dot);
   }
-  .vt-dash .vt-rm-chip {
+  .vt-dash .vt-btn.vt-rm-chip {
     display: inline-flex;
     align-items: center;
     gap: 4px;
@@ -582,7 +590,7 @@
     font-size: 11.5px;
     font-weight: 600;
   }
-  .vt-dash .vt-rm-chip:hover {
+  .vt-dash .vt-btn.vt-rm-chip:hover {
     border-color: var(--vt-grey);
   }
   .vt-dash .vt-rm-criteria > li {
@@ -618,7 +626,8 @@
     align-items: center;
     gap: 4px 8px;
   }
-  .vt-dash .vt-rm-link {
+  .vt-dash .vt-rm-link,
+  .vt-dash .vt-btn.vt-rm-link {
     display: inline-flex;
     align-items: center;
     gap: 4px;
@@ -708,7 +717,7 @@
     align-items: center;
     padding-top: 20px;
   }
-  .vt-dash .vt-rm-mini {
+  .vt-dash .vt-btn.vt-rm-mini {
     display: flex;
     width: 100%;
     align-items: center;
@@ -719,19 +728,27 @@
     font-size: 10.5px;
     line-height: 1.3;
   }
-  .vt-dash .vt-rm-mini:hover {
+  .vt-dash .vt-btn.vt-rm-mini:hover {
     border-color: var(--vt-grey);
   }
-  .vt-dash .vt-rm-mini-strong {
+  .vt-dash .vt-btn.vt-rm-mini-strong {
     flex-direction: column;
     border: 1.5px solid var(--vt-fg);
     text-align: center;
   }
+  /* WHY an auto label column, not a fixed 86px: KPI and fact names are the loop's own keys ("compute_s_p95"); a fixed
+     column let a long one run under its value. The column takes the longest name up to 16em, then wraps it (every
+     character kept). */
   .vt-dash .vt-rm-facts {
     display: grid;
-    grid-template-columns: 86px minmax(0, 1fr);
+    grid-template-columns: auto minmax(0, 1fr);
     gap: 4px 8px;
     margin: 0;
+  }
+  .vt-dash .vt-rm-facts dt {
+    min-width: 86px;
+    max-width: 16em;
+    overflow-wrap: anywhere;
   }
   .vt-dash .vt-rm-facts dd {
     margin: 0;
