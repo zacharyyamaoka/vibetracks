@@ -17,13 +17,14 @@ import { type Art, artFor } from './art'
 import type { RoadmapDoc } from './doc'
 import { cardLine, modelFromDoc } from './docModel'
 import { FocusPanel } from './FocusPanel'
+import { restoreBoardFocus, viewKey } from './focus'
 import { freshness } from './freshness'
 import { type RoadmapData, createRoadmapLoader } from './loader'
 import { createPoller } from './poll'
 import { KEYS_HINT, LENS_CAPTION, Legend, LensBar, RoadmapBoard } from './RoadmapBoard'
 import { edgeStyle, type RoadmapSettings } from './settings'
 import { type RoadView, type RoadmapWidgetState, resolveView } from './state'
-import { SHOWN, calmSentence, calmSummary, stageLabel } from './summary'
+import { SHOWN, calmSentence, calmSummary, phaseToken, stageLabel } from './summary'
 import './roadmap.css'
 
 export { ROADMAP_SETTINGS_SECTION, defaultRoadmapSettings, type RoadmapSettings } from './settings'
@@ -127,7 +128,7 @@ function CalmAnswer({ data, summary, onOpenRung, onOpenEvidence }: {
     parts.push({
       key: 'current',
       node: (
-        <span className="vt-rm-lead" data-testid="vt-roadmap-current">
+        <span className="vt-rm-lead" data-testid="vt-roadmap-current" title={phaseToken(summary) ? `phase: ${phaseToken(summary)}` : undefined}>
           {stage}{stage && summary.current.length ? <span className="vt-faint"> · </span> : null}
           {summary.current.length ? <>climbing {rungs(summary.current, SHOWN.current)}</> : null}
         </span>
@@ -181,7 +182,12 @@ function CalmAnswer({ data, summary, onOpenRung, onOpenEvidence }: {
 function FullRoadmap({ state, onState, onOpenRung, onOpenEvidence, settings, data, model }: RoadmapWidgetProps & { data: RoadmapData; model: ReturnType<typeof modelFromDoc> }) {
   const view = resolveView(state, (id) => model.byId.has(id), model.hasWaves)
   // Every change goes out through onState, merged over the state as given, so keys the variant keeps survive.
-  const onView = useCallback((next: Partial<RoadView>) => onState({ ...state, ...next }), [onState, state])
+  // The view this widget last asked for: a view that differs from it arrived from outside (history Back/Forward).
+  const asked = useRef<string | null>(null)
+  const onView = useCallback((next: Partial<RoadView>) => {
+    asked.current = viewKey(resolveView({ ...state, ...next }, (id) => model.byId.has(id), model.hasWaves))
+    onState({ ...state, ...next })
+  }, [onState, state, model])
   const art = useMemo(() => {
     const cache = new Map<string, Art>()
     return (id: string) => {
@@ -210,6 +216,14 @@ function FullRoadmap({ state, onState, onOpenRung, onOpenEvidence, settings, dat
       cardArrived((count) => count + 1)
     }
   }, [])
+  // WHY the picked card gets focus back after history Back/Forward (focus.ts): the restored state has no focused button,
+  // and the board's arrow keys only work from one. A mount counts as restored too: Back can bring the whole board back.
+  const shownKey = viewKey(view)
+  useEffect(() => {
+    const restored = asked.current !== shownKey
+    asked.current = null
+    restoreBoardFocus(restored, sel, cards.current, document)
+  }, [shownKey])
   // WHY Proof first on every fresh pick (Zach: "when it says it's done I want to see proof"); a hop inside the panel keeps its tab.
   const pick = (id: string | null) => onView({ sel: id, trail: [], tab: 'proof' })
 

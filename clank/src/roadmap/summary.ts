@@ -113,9 +113,18 @@ export const SHOWN = { current: 2, next: 2, needs: 1 }
 
 export const more = (n: number) => (n > 0 ? ` +${n}` : '')
 
-/** "Wave 4", "Wave 4, paused", "Paused", or null. WHY "running" is not said: it is the default, and calm says only exceptions. */
+/** The loop's raw phase token when the calm head names one ("between_waves"); null for no phase or the default "running". */
+export function phaseToken(summary: Pick<CalmSummary, 'phase'>): string | null {
+  return summary.phase && summary.phase !== 'running' ? summary.phase : null
+}
+
+/** "Wave 4", "Wave 4, paused", "Wave 4, between waves", "Paused", or null. WHY "running" is not said: it is the default,
+ * and calm says only exceptions. WHY the phase is words (the dashboard's own header says "Between waves" for the same
+ * state): the token is the loop's file spelling. The head's title keeps the raw token (phaseToken), so no characters
+ * are hidden without a way to see them. */
 export function stageLabel(summary: Pick<CalmSummary, 'wave' | 'phase'>): string | null {
-  const phase = summary.phase && summary.phase !== 'running' ? summary.phase : null
+  const token = phaseToken(summary)
+  const phase = token === null ? null : token.replace(/_/g, ' ')
   if (summary.wave !== null) return phase ? `Wave ${summary.wave}, ${phase}` : `Wave ${summary.wave}`
   return phase ? phase.charAt(0).toUpperCase() + phase.slice(1) : null
 }

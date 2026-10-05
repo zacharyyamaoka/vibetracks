@@ -2,7 +2,7 @@ import { readFileSync } from 'node:fs'
 import { describe, expect, it } from 'vitest'
 import { blankRung, type RoadmapDoc, type RoadmapRung } from './doc'
 import { parseRoadmapDoc } from './docModel'
-import { calmSentence, calmSummary } from './summary'
+import { calmSentence, calmSummary, phaseToken, stageLabel } from './summary'
 
 const DOCS = '/home/bam/bam_ws/reports/media/bam-roadmap-format-2026-10-03'
 const real = (name: string) => parseRoadmapDoc(JSON.parse(readFileSync(`${DOCS}/${name}.json`, 'utf8')))
@@ -134,5 +134,18 @@ describe('calmSummary rules', () => {
     const doc = tiny([{ id: 'A0', axis: 'a' }], ['A0'], undefined, { phase: 'paused' })
     expect(calmSentence(calmSummary(doc))).toBe('Wave 1, paused · climbing A0 · 0 of 1 proven')
     expect(calmSentence(calmSummary(tiny([{ id: 'A0', axis: 'a' }], ['A0'], undefined, { wave: null, phase: 'paused' })))).toBe('Paused · climbing A0 · 0 of 1 proven')
+  })
+
+  it('says the phase in words: underscores become spaces (a hyphen is English and stays), lowercase after the wave, capital only first', () => {
+    expect(stageLabel({ wave: 4, phase: 'between_waves' })).toBe('Wave 4, between waves')
+    expect(stageLabel({ wave: 4, phase: 're-planning' })).toBe('Wave 4, re-planning')
+    expect(stageLabel({ wave: null, phase: 'between_waves' })).toBe('Between waves')
+    expect(stageLabel({ wave: 4, phase: 'running' })).toBe('Wave 4')
+  })
+
+  it('keeps the loop\'s raw phase token for the head\'s title (nothing hidden without a way to see it)', () => {
+    expect(phaseToken({ phase: 'between_waves' })).toBe('between_waves')
+    expect(phaseToken({ phase: 'running' })).toBeNull()
+    expect(phaseToken({ phase: null })).toBeNull()
   })
 })
