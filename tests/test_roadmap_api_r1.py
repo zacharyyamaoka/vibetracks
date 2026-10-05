@@ -180,16 +180,16 @@ class V07CodexReproductionTest(unittest.TestCase):
         if not os.path.isfile("/etc/hostname"):
             self.skipTest("/etc/hostname does not exist here")
         injected = {"path": "/etc/hostname", "abs": "/etc/hostname"}
-        real_read = grasping_projector.read_jsonl
+        real_read = grasping_projector.read_ledger
 
-        def read_jsonl(*args, **kwargs):
-            rows = real_read(*args, **kwargs)
+        def read_ledger(*args, **kwargs):  # the projector reads rows and their line digests together (Codex A01)
+            rows, digests = real_read(*args, **kwargs)
             for row in rows:
                 protocol = row.get("protocol") if isinstance(row.get("protocol"), dict) else {}
                 row["protocol"] = {**protocol, "extra_metadata": dict(injected)}
-            return rows
+            return rows, digests
 
-        with mock.patch.object(grasping_projector, "read_jsonl", read_jsonl):
+        with mock.patch.object(grasping_projector, "read_ledger", read_ledger):
             status, body = get("/doc", "track=grasping")
             self.assertEqual(status, 200, body[:500])
             self.assertIn('"extra_metadata": {\n', body.decode("utf-8"), "the injected row reached the document")

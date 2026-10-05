@@ -14,6 +14,7 @@ loop's own ``gallery.env_verdict`` (run read-only, ``-B``) as an independent ora
 
 from __future__ import annotations
 
+import hashlib
 import json
 import os
 import subprocess
@@ -82,18 +83,22 @@ class FakeBench:
     """``grasp_bench_bridge.verdict`` over a fixture bench: ``bench(bench_dir)`` -> grasp-bench-verdict/2.
 
     ``patch`` edits the finished document (a test's way of making the bench say something else); ``error`` makes the
-    bench unable to answer. ``calls`` counts how often the projector asked.
+    bench unable to answer; ``rows`` is the ledger the bench read when it is not the file's (a ledger that changed
+    between the two reads); ``digests=False`` is a bridge that gives no ``line_sha256`` (the bridge before it landed).
+    ``calls`` counts how often the projector asked.
     """
 
-    def __init__(self, patch=None, error: str | None = None) -> None:
-        self.patch, self.error, self.calls = patch, error, 0
+    def __init__(self, patch=None, error: str | None = None, rows: list[dict] | None = None, digests: bool = True) -> None:
+        self.patch, self.error, self.rows, self.digests, self.calls = patch, error, rows, digests, 0
 
     def __call__(self, bench_dir, **_unused) -> dict:
         self.calls += 1
         if self.error:
             return {"schema": "grasp-bench-verdict/2", "envs": {}, "runs": {}, "headline": {}, "bench_head": None, "error": self.error}
         bench = Path(bench_dir)
-        rows = [json.loads(line) for line in (bench / "out" / "ledger" / "runs.jsonl").read_text(encoding="utf-8").splitlines() if line.strip()]
+        lines = ([json.dumps(row) for row in self.rows] if self.rows is not None
+                 else [line for line in (bench / "out" / "ledger" / "runs.jsonl").read_text(encoding="utf-8").split("\n") if line.strip()])
+        rows = [json.loads(line) for line in lines]
         gates = read_curriculum(bench / "src" / "grasp_bench" / "curriculum.py", bench / "src" / "grasp_bench" / "contracts.py").tables["GATES"]
         runs = {}
         for index, row in enumerate(rows):
@@ -104,6 +109,8 @@ class FakeBench:
                       and (protocol["name"], protocol["episodes"], protocol["split"], protocol["k"], protocol["seed"]) == (name, episodes, "test", k, 20261004))
             runs[str(index)] = {"frozen": frozen, "gap": gap, "privileged": row["model_info"]["input"] == "privileged",
                                 "started_at": row["started_at"], "env": row["env"], "model": row["model"]}
+            if self.digests:
+                runs[str(index)]["line_sha256"] = hashlib.sha256(lines[index].encode("utf-8")).hexdigest()
         headline: dict[str, int] = {}
         for index, row in enumerate(rows):
             def key(position: int) -> tuple:
@@ -307,24 +314,94 @@ def test_a_privileged_row_never_proves(tmp_path):
     assert "privileged run never proves" in gate["targets"][0]["note"] and resting["facts"]["privileged"] is True
 
 
-@pytest.mark.parametrize("change", [
-    lambda document: document["runs"].pop("2"),                                  # the bench has no row at that position
-    lambda document: document["runs"]["2"].update(started_at="2026-10-05T09:09:09+00:00"),   # a different row stands there
-    lambda document: document["runs"]["2"].update(env="toy/xy"),
-    lambda document: document["runs"]["2"].update(model="M9.other"),
-])
-def test_a_row_the_bench_did_not_read_there_is_only_a_claim(tmp_path, change):
-    """The ledger changed between this projection's read and the bridge's: a position the bridge lacks, or one whose
-    started_at (env, model) differs, is not the row the bench judged, so it is cited at claim with a note."""
+def swapped_ledger(rows: list[dict]) -> list[dict]:
+    """Codex A01: the smoke run (r04) and the frozen winner (r03) share one started_at, env and model; the bench read
+    them in the other order."""
 
+    shared = {**rows[3], "started_at": rows[2]["started_at"]}
+    projector_view = [*rows[:3], shared, *rows[4:]]
+    bench_view = [*rows[:2], shared, rows[2], *rows[4:]]
+    return projector_view, bench_view
+
+
+def test_a_reordered_ledger_cannot_lend_one_runs_record_proof_to_another(tmp_path):
+    """Codex A01: index plus started_at/env/model is not unique. Position 3 is the frozen winner for the bench but the
+    smoke run for the projector; the bridge's digest of its own bytes differs from the smoke row's, so the smoke row is
+    cited at claim with the note, never at record."""
+
+    bench, sha = make_bench(tmp_path)
+    projector_view, bench_view = swapped_ledger(fixture_rows(sha))
+    write_ledger(bench, projector_view)
+    bench_says = FakeBench(rows=bench_view)(bench)
+    assert bench_says["envs"]["toy/x"]["best_run"] == "3" and bench_says["runs"]["3"]["frozen"] is True
+    document = project(bench, FakeBench(rows=bench_view))
+    gate = criterion(document, "toy.x#gate")
+    resting = evidence(document, "toy.x", gate["targets"][0]["evidence"][0])
+    assert resting["run_id"] == "r04_bandit_toy_x_smoke"
+    assert (gate["verdict"], gate["strength"], resting["strength"]) == ("met", "claim", "claim")
+    assert "bridge row digest differs (ledger changed between reads)" in gate["targets"][0]["note"]
+    assert resting["facts"]["frozen"] is False  # the bridge's flags are not lent to a row whose bytes it did not judge
+    assert rung(document, "toy.x")["claimed_status"] == "green" and rung(document, "toy.x")["status"] == "claimed"
+    assert any("ledger rows are not the rows the bench judged" in warning for warning in document["warnings"])
+
+
+def test_an_equal_digest_keeps_record_strength(tmp_path):
+    bench, sha = make_bench(tmp_path)
+    projector_view, _bench_view = swapped_ledger(fixture_rows(sha))
+    write_ledger(bench, projector_view)
+    document = project(bench)  # the bench read the same bytes
+    gate = criterion(document, "toy.x#gate")
+    assert (gate["verdict"], gate["strength"]) == ("met", "record")
+    assert not any("judged" in warning or "digest" in warning for warning in document["warnings"])
+
+
+def test_a_bridge_that_gives_no_row_digest_proves_nothing(tmp_path):
+    """Today's bridge has no ``line_sha256``: its verdict still decides the claim, but no row can be shown to be the
+    row it judged, so every cited row is a claim, and the document says why once."""
+
+    bench, _sha = make_bench(tmp_path)
+    document = project(bench, FakeBench(digests=False))
+    gate = criterion(document, "toy.x#gate")
+    resting = evidence(document, "toy.x", gate["targets"][0]["evidence"][0])
+    assert (gate["verdict"], gate["strength"], resting["strength"]) == ("met", "claim", "claim")
+    assert "bridge gave no row digest" in gate["targets"][0]["note"]
+    assert rung(document, "toy.x")["claimed_status"] == "green" and rung(document, "toy.x")["status"] == "claimed"
+    assert document["summary"]["beaten"] == ["toy.x"]
+    assert [warning for warning in document["warnings"] if "no row digest" in warning]
+    assert not any("changed between the two reads" in warning for warning in document["warnings"])
+
+
+@pytest.mark.parametrize("change, note", [
+    (lambda document: document["runs"].pop("2"), "has no row at position 2"),        # the bench has no row there
+    (lambda document: document["runs"]["2"].update(line_sha256="0" * 64), "bridge row digest differs"),
+    (lambda document: document["runs"]["2"].pop("line_sha256"), "bridge gave no row digest"),
+])
+def test_a_row_the_bench_did_not_digest_there_is_only_a_claim(tmp_path, change, note):
     bench, _sha = make_bench(tmp_path)
     document = project(bench, FakeBench(change))
     gate = criterion(document, "toy.x#gate")
     resting = evidence(document, "toy.x", gate["targets"][0]["evidence"][0])
     assert (gate["verdict"], gate["strength"], resting["strength"]) == ("met", "claim", "claim")
-    assert "is not the row the bench judged at position 2" in gate["targets"][0]["note"]
-    assert any("ledger rows are not the rows the bench judged" in warning for warning in document["warnings"])
+    assert note in gate["targets"][0]["note"]
     assert rung(document, "toy.x")["claimed_status"] == "green" and rung(document, "toy.x")["status"] == "claimed"
+
+
+def test_the_ledger_is_read_and_digested_from_the_same_bytes(tmp_path):
+    """The digest is of a row's exact bytes without its newline: CRLF, a U+2028 inside a row, a blank line and a crash
+    fragment each leave every other row's digest, and its index, as the bench's reader would have them."""
+
+    from vibetracks.roadmap.projector.grasping import read_ledger
+
+    ledger = tmp_path / "runs.jsonl"
+    first = '{"run_id": "a", "note": "x\u2028y"}'  # a raw U+2028 inside the row (the line is not split there)
+    raw = [first.encode(), b'{"run_id": "b"}\r', b"", b"{broken", b'{"run_id": "c"}', b"[1]"]
+    ledger.write_bytes(b"\n".join(raw) + b"\n\n")
+    rows, digests = read_ledger(ledger)
+    assert [row["run_id"] for row in rows] == ["a", "b", "c"] and [row["_line"] for row in rows] == [1, 2, 5]
+    assert digests == [hashlib.sha256(chunk).hexdigest() for chunk in (raw[0], raw[1], raw[4])]
+    ledger.write_bytes('{"run_id": "u", "text": "a\u2028b"}\n'.encode() + b'{"run_id": "v"}\n')
+    rows, _digests = read_ledger(ledger)
+    assert [row["run_id"] for row in rows] == ["u", "v"]  # splitlines would have cut the first row in two
 
 
 def test_a_beaten_env_whose_best_row_this_projection_did_not_read_is_claimed_not_proven(tmp_path):
@@ -793,6 +870,12 @@ def test_the_live_grasping_loop_projects_and_validates():
     print(f"[grasping] bridge beaten {sorted(bridge_beaten)}; provisional {provisional}; proven {sorted(proven)}; claimed {sorted(claimed)}")
     assert proven <= bridge_beaten
     assert proven | claimed == bridge_beaten
+    # WHY a branch on the field (Codex A01): until the bridge digests each ledger row (``line_sha256``) no row can be shown
+    # to be the one it judged, so nothing may be proven, and the claim alone carries the beaten set. Once it does, every
+    # beaten env is proven or claimed as above, and proof is back.
+    digested = bool(bridge["runs"]) and all("line_sha256" in said for said in bridge["runs"].values())
+    if not digested:
+        assert proven == set()
     assert not claimed & set(provisional)
     assert len(gated) == 10
     assert document["summary"]["frontier"]

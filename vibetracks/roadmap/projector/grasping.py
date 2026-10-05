@@ -17,7 +17,7 @@ How the curriculum becomes a roadmap:
   Its evidence is the bridge's best ledger row, bound to the row's own ``git_sha``; a row whose ``git_dirty`` is true
   (or unstated) is ``artifact-dirty``, so only a claim (``evaluate.git_record_binding``), and so is a row the bench
   does not call frozen (its ``provenance_gap``, verbatim, is the note), a privileged row, and a row the bridge's reading
-  does not match (the ledger changed between the two reads). The row goes stale when the code it ran and was scored by
+  does not carry the bridge's digest of its own bytes (the ledger changed between the two reads, or the bridge gave none). The row goes stale when the code it ran and was scored by
   changed after its commit: runner.py's import closure (``@runner``) plus the env and model modules registry.py names for it;
 - an ungated environment (the datasets, the bandits, tiers 5-8) has a ``stated`` criterion: the curriculum gives it
   no bar, only prose, so it is never met, whatever is measured; its runs are shown as context evidence and KPIs;
@@ -30,6 +30,8 @@ How the curriculum becomes a roadmap:
 from __future__ import annotations
 
 import ast
+import hashlib
+import json
 import operator
 import re
 from collections.abc import Callable, Iterable, Mapping, Sequence
@@ -40,7 +42,7 @@ from typing import Any
 from ...benches import grasp_bench_bridge
 from . import links, model, proof
 from .evaluate import Evaluator, Judgement, capped, git_record_binding
-from .files import LINE_KEY, ProjectionError, file_sha256, read_jsonl
+from .files import LINE_KEY, ProjectionError, file_sha256
 from .gitinfo import Repo
 from .links import EvidenceBook, Roots
 from .scope import CodeIndex
@@ -736,6 +738,31 @@ def _number(value: Any) -> float | None:
 
 
 # ---------------------------------------------------------------- the projection
+def read_ledger(path: Path) -> tuple[list[dict[str, Any]], list[str]]:
+    """The ledger's rows (each stamped with its physical 1-based line under ``_line``) and, index-aligned, the sha256 of
+    each row's exact bytes without its newline: what the bridge's ``line_sha256`` is compared with (Codex A01).
+
+    WHY one pass over bytes: the digest and the JSON parse must be of the same bytes, split the one way the loops write
+    them (b"\\n" only: ``str.splitlines`` would split inside a row at U+2028). A line that is blank or not a JSON object
+    (a crash fragment) is skipped, as the loops' readers skip it, so a row's index is its position among the rows.
+    """
+
+    rows: list[dict[str, Any]] = []
+    digests: list[str] = []
+    for number, line in enumerate(Path(path).read_bytes().split(b"\n"), 1):
+        if not line.strip():
+            continue
+        try:
+            row = json.loads(line.decode("utf-8"))
+        except ValueError:  # includes UnicodeDecodeError and JSONDecodeError
+            continue
+        if isinstance(row, dict):
+            row[LINE_KEY] = number
+            rows.append(row)
+            digests.append(hashlib.sha256(line).hexdigest())
+    return rows, digests
+
+
 def project_grasping(grasp_bench_dir: Path, *, now: str, head: str | None = None, ledger_path: Path | None = None,
                      verdict_fn: Callable[..., Mapping[str, Any]] | None = None) -> dict[str, Any]:
     """bam-roadmap/1 for the grasping track, judged at ``head`` (default: the checkout's HEAD).
@@ -759,7 +786,7 @@ def project_grasping(grasp_bench_dir: Path, *, now: str, head: str | None = None
     if not repo.available:
         raise ProjectionError(f"{bench} is not inside a git checkout")
     roots = Roots(repo=repo.root, data_home=ledger.parent.parent, repo_aliases=repo.other_checkouts())
-    rows = read_jsonl(ledger, numbered=True) if ledger.is_file() else []
+    rows, digests = read_ledger(ledger) if ledger.is_file() else ([], [])
     # WHY no call without a ledger: with no row there is nothing to judge, so no env is beaten and no verdict is needed
     # (the bridge itself would answer "ledger missing", which is the state this projection already shows).
     judged: Mapping[str, Any] = {"envs": {}, "runs": {}, "headline": {}, "error": None}
@@ -768,7 +795,7 @@ def project_grasping(grasp_bench_dir: Path, *, now: str, head: str | None = None
         if judged.get("error"):
             raise ProjectionError(f"bench verdict unavailable: {judged['error']}")
     return _GraspingProjector(bench=bench, curriculum=curriculum, protocols=protocols, ledger=ledger, repo=repo,
-                              roots=roots, rows=rows, judged=judged).document(now)
+                              roots=roots, rows=rows, digests=digests, judged=judged).document(now)
 
 
 def rung_id_of(env_id: str) -> str:
@@ -783,7 +810,7 @@ def _pointer(*parts: Any) -> str:
 
 class _GraspingProjector:
     def __init__(self, *, bench: Path, curriculum: Curriculum, protocols: FrozenProtocols, ledger: Path, repo: Repo,
-                 roots: Roots, rows: list[dict[str, Any]], judged: Mapping[str, Any]) -> None:
+                 roots: Roots, rows: list[dict[str, Any]], digests: list[str], judged: Mapping[str, Any]) -> None:
         self.bench, self.curriculum, self.protocols, self.ledger, self.repo, self.roots = bench, curriculum, protocols, ledger, repo, roots
         self.package = bench / PACKAGE
         self.curriculum_path = self.package / "curriculum.py"
@@ -804,9 +831,12 @@ class _GraspingProjector:
         self.published = tables.get("PUBLISHED_AP") if isinstance(tables.get("PUBLISHED_AP"), Mapping) else {}
         self.frozen_of = {env["id"]: frozen_protocol(env, protocols) for env in self.envs}
         self.rows = rows
-        # WHY the bridge's run_id is the row's position in runs.jsonl (as read here, by ``read_jsonl``), cross-checked
-        # on started_at, env and model before any of its judgement is applied to a row.
+        # WHY the bridge's run_id is the row's position in runs.jsonl (as read here, by ``read_ledger``), and its
+        # ``line_sha256`` must equal the digest of this row's own bytes before the row may earn record strength (Codex
+        # A01: started_at, env and model are not unique, so a reorder or rewrite between the reads could lend one run's
+        # frozen verdict to another).
         self.position = {id(row): index for index, row in enumerate(rows)}
+        self.digest = {id(row): digest for row, digest in zip(rows, digests)}
         self.bench_runs: Mapping[str, Any] = judged.get("runs") or {}
         self.bench_envs: Mapping[str, Any] = judged.get("envs") or {}
         uncovered = [env_id for env_id in self.gates if env_id not in self.bench_envs] if rows else []
@@ -883,14 +913,28 @@ class _GraspingProjector:
 
     # ------------------------------------------------------------ what the bench says about a row or an env
     def _bench_row(self, row: Mapping[str, Any]) -> Mapping[str, Any] | None:
-        """The bridge's judgement of this ledger row (``frozen``, ``gap``, ``privileged``), or None when it is not the
-        row the bridge read at that position: the ledger grew or was rewritten between the two reads."""
+        """The bridge's judgement (``frozen``, ``gap``, ``privileged``) at this ledger row's position, or None when the
+        bridge has no row there or its digest says it judged different bytes (the ledger changed between the two reads).
+
+        A bridge that gives no digest at all is still read for what it calls a row (frozen, privileged: shown as such),
+        but ``_row_verdict`` never lets such a row prove anything.
+        """
 
         found = self.bench_runs.get(str(self.position.get(id(row))))
         if not isinstance(found, Mapping):
             return None
-        same = all(str(found.get(key)) == str(row.get(key)) for key in ("started_at", "env", "model"))
-        return found if same else None
+        theirs = found.get("line_sha256")
+        return None if theirs is not None and theirs != self.digest.get(id(row)) else found
+
+    def _row_verdict(self, row: Mapping[str, Any]) -> str:
+        """"verified" (the bridge's digest is this row's), "no digest", "differs" or "absent" (no bridge row there)."""
+
+        found = self.bench_runs.get(str(self.position.get(id(row))))
+        if not isinstance(found, Mapping):
+            return "absent"
+        if found.get("line_sha256") is None:
+            return "no digest"
+        return "verified" if found["line_sha256"] == self.digest.get(id(row)) else "differs"
 
     def _is_privileged(self, row: Mapping[str, Any]) -> bool:
         found = self._bench_row(row)
@@ -1027,10 +1071,15 @@ class _GraspingProjector:
         dirty = sum(1 for row in self.rows if row.get("git_dirty") is not False)
         if dirty:
             warnings.append(f"{dirty} of {len(self.rows)} ledger rows ran on a dirty or unrecorded tree, so they are claims")
-        unmatched = sum(1 for row in self.rows if self._bench_row(row) is None)
-        if unmatched:
-            warnings.append(f"{unmatched} of {len(self.rows)} ledger rows are not the rows the bench judged (the ledger changed "
+        states = [self._row_verdict(row) for row in self.rows]
+        changed = sum(1 for state in states if state in ("absent", "differs"))
+        undigested = sum(1 for state in states if state == "no digest")
+        if changed:
+            warnings.append(f"{changed} of {len(self.rows)} ledger rows are not the rows the bench judged (the ledger changed "
                             "between the two reads), so they are claims")
+        if undigested:
+            warnings.append(f"the bench's verdict gave no row digest for {undigested} of {len(self.rows)} ledger rows, so none "
+                            "can be shown to be the row it judged: they are claims")
         unnamed = [f"{cell.get('model')}@{cell.get('env')}" for cell in self.cells if cell.get("status") == "needs" and not str(cell.get("why") or "").strip()]
         if unnamed:
             warnings.append(f"needs cells with no named blocker (not shown as blockers): {', '.join(unnamed)}")
@@ -1238,15 +1287,17 @@ class _GraspingProjector:
         """Why this ledger row can only be a claim (empty: it may earn record strength), from the bench's reading of it.
 
         ``gap`` is ``gallery.provenance_gap`` verbatim; a row that is not frozen with no gap is simply not the frozen
-        protocol (a smoke, a re-seeded run). An unmatched row (its position, started_at, env or model differ from the
-        bridge's) is a ledger that changed between the two reads.
+        protocol (a smoke, a re-seeded run). Only a row whose own bytes the bridge digested (``line_sha256``) may earn record
+        strength; no bridge row, a different digest (the ledger changed between the two reads) or no digest at all caps it.
         """
 
-        found = self._bench_row(row)
         run_id = row.get("run_id")
-        if found is None:
-            return [f"{run_id}'s ledger row is not the row the bench judged at position {self.position.get(id(row))} (the ledger "
-                    "changed between the two reads), so it is the loop's word"]
+        verdict = self._row_verdict(row)
+        if verdict != "verified":
+            say = {"absent": f"the bench's verdict has no row at position {self.position.get(id(row))} (ledger changed between reads)",
+                   "no digest": "bridge gave no row digest", "differs": "bridge row digest differs (ledger changed between reads)"}
+            return [f"{run_id}: {say[verdict]}, so this row is the loop's word, not proof"]
+        found = self._bench_row(row) or {}
         notes = []
         if found.get("privileged"):
             notes.append(f"{run_id} is a privileged run (it reads ground truth), and a privileged run never proves")
