@@ -1,8 +1,8 @@
 // The roadmap: one widget inside the dashboard (docs/dashboard/VARIANTS.md, "Roadmap widget slot"; Zach: "the roadmap
 // is just like one widget that is part of the dashboard, which is more about layout"). Every variant places
-// <RoadmapWidget> at L2 under its KPI view, as a quiet collapsed "Roadmap" section: closed it is density 'calm', ONE
-// calm answer (summary.ts) and a thin per-lane strip; expanded it is density 'full', the lens bar, the swimlane board and
-// the focus card. Its state lives in the URL hash under `rm` (JSON) and is controlled by the variant (state.ts); its
+// <RoadmapWidget> at L2 directly under its KPI rows, as a first-class "Roadmap" section: its head is density 'calm', ONE
+// calm answer (summary.ts: current rung, next, banked) and a thin per-lane strip; expanded it is density 'full', the lens
+// bar, the swimlane board and the focus card. Its state lives in the URL hash under `rm` (JSON) and is controlled by the variant (state.ts); its
 // view options live on the dashboard's settings page (ROADMAP_SETTINGS_SECTION), never in a toolbar.
 // It reads one bam-roadmap/1 document per track (GET /roadmap/doc, vibetracks/roadmap/api.py) and adapts it to the
 // board's model (docModel.ts). Ported from the kinsim dashboard's roadmap (clank-kinsim src/roadmap @ 69e91af).
@@ -20,7 +20,7 @@ import { FocusPanel } from './FocusPanel'
 import { KEYS_HINT, LENS_CAPTION, Legend, LensBar, RoadmapBoard } from './RoadmapBoard'
 import { edgeStyle, type RoadmapSettings } from './settings'
 import { type RoadView, type RoadmapWidgetState, resolveView } from './state'
-import { SHOWN, calmSentence, calmSummary } from './summary'
+import { SHOWN, calmSentence, calmSummary, stageLabel } from './summary'
 import './roadmap.css'
 
 export { ROADMAP_SETTINGS_SECTION, defaultRoadmapSettings, type RoadmapSettings } from './settings'
@@ -47,7 +47,9 @@ export interface RoadmapWidgetProps {
   onOpenRung: (rungId: string) => void
   /** Go to the L3 file view at that path (and line). */
   onOpenEvidence: (ref: { path: string; line?: number }) => void
-  /** 'calm' while the section is closed, 'full' when the reader expands it. */
+  /** True while useRoadmap is still fetching: the empty-state line must not flash on a slow load. */
+  loading?: boolean
+  /** 'calm' is the section's head (current rung, next, how much is banked); 'full' is the expanded board. */
   density: 'calm' | 'full'
   settings: RoadmapSettings
 }
@@ -72,8 +74,11 @@ export function RoadmapWidget(props: RoadmapWidgetProps): JSX.Element {
     }
   }, [data])
   if (!data || !built) {
+    // WHY the loading line is the same faint style and not blank: the section is first-class on the track page, and
+    // "No roadmap reported yet." must not flash while a slow fetch is still on its way (it would read as a verdict).
+    if (props.loading) return <p className="vt-faint vt-small" data-testid="vt-roadmap-loading">Loading roadmap…</p>
     // WHY calm and not an error: a track whose loop writes no roadmap yet is a normal state (the backend's 404).
-    return <p className="vt-faint vt-small" data-testid="vt-roadmap-none">No roadmap for this track yet.</p>
+    return <p className="vt-faint vt-small" data-testid="vt-roadmap-none">No roadmap reported yet.</p>
   }
   if (built.error !== null || !built.model || !built.summary) {
     return <p className="vt-small vt-tone-risk" role="alert" data-testid="vt-roadmap-error">The roadmap could not be drawn: {built.error}</p>
@@ -82,8 +87,9 @@ export function RoadmapWidget(props: RoadmapWidgetProps): JSX.Element {
   return <FullRoadmap {...props} data={data} model={built.model} />
 }
 
-/** The collapsed section: one sentence and a thin strip, nothing else (feedback_calm_ui_progressive_disclosure). Rung
- * ids open their latest run (onOpenRung); a triage id opens where the question is written, when the document links it. */
+/** The section's head, and its whole body at calm density: one sentence and a thin strip, nothing else
+ * (feedback_calm_ui_progressive_disclosure). Current rung(s) first, then what they unlock, then how much is banked.
+ * Rung ids open their latest run (onOpenRung); a triage id opens where the question is written, when the document links it. */
 function CalmAnswer({ data, summary, onOpenRung, onOpenEvidence }: {
   data: RoadmapData
   summary: ReturnType<typeof calmSummary>
@@ -94,36 +100,54 @@ function CalmAnswer({ data, summary, onOpenRung, onOpenEvidence }: {
     <button key={id} type="button" className="vt-btn vt-rm-textlink" data-testid={`vt-roadmap-calm-rung-${id}`} title={`${id}: open its latest run`} onClick={() => onOpenRung(id)}>{id}</button>
   )
   const join = (items: JSX.Element[]) => items.flatMap((item, i) => (i ? [', ', item] : [item]))
-  const more = (n: number) => (n > 0 ? <span className="vt-faint"> +{n}</span> : null)
+  const rungs = (ids: string[], shown: number) => <>{join(ids.slice(0, shown).map(rungLink))}{ids.length > shown ? <span className="vt-faint"> +{ids.length - shown}</span> : null}</>
   const sources = new Map(data.document.rungs.flatMap((rung) => rung.blockers.map((blocker) => [blocker.id, blocker.source] as const)))
-  const nextShown = summary.next.slice(0, SHOWN.next)
   const needsShown = summary.needs.slice(0, SHOWN.needs)
+  const stage = stageLabel(summary)
+  // WHY each clause is its own part: the sentence is "current · next · banked · needs you", and a clause with nothing to
+  // say (no next, no claimed, no blocker) is left out whole instead of reading "next: none".
+  const parts: Array<{ key: string; node: JSX.Element }> = []
+  if (stage || summary.current.length) {
+    parts.push({
+      key: 'current',
+      node: (
+        <span className="vt-rm-lead" data-testid="vt-roadmap-current">
+          {stage}{stage && summary.current.length ? <span className="vt-faint"> · </span> : null}
+          {summary.current.length ? <>climbing {rungs(summary.current, SHOWN.current)}</> : null}
+        </span>
+      ),
+    })
+  }
+  if (summary.next.length) parts.push({ key: 'next', node: <span data-testid="vt-roadmap-next">next {rungs(summary.next, SHOWN.next)}</span> })
+  parts.push({ key: 'proven', node: <span className="vt-num">{summary.proven} of {summary.total} proven</span> })
+  if (summary.claimed) parts.push({ key: 'claimed', node: <span className="vt-num" title="the loop says green; its evidence does not prove it">{summary.claimed} claimed</span> })
+  if (summary.stale) parts.push({ key: 'stale', node: <span className="vt-num vt-tone-stale">{summary.stale} stale</span> })
+  if (needsShown.length) {
+    parts.push({
+      key: 'needs',
+      node: (
+        <>
+          <span className="vt-tone-warn">needs you: {join(needsShown.map((need) => {
+            const source = sources.get(need.id)
+            return (
+              <span key={need.id}>
+                {source?.abs
+                  ? <button type="button" className="vt-btn vt-rm-textlink" title={need.title} onClick={() => onOpenEvidence(source.line ? { path: source.abs!, line: source.line } : { path: source.abs! })}>{need.id}</button>
+                  : <span title={need.title}>{need.id}</span>}
+                {' '}(blocks {join(need.blocks.map(rungLink))})
+              </span>
+            )
+          }))}</span>
+          {summary.needs.length > SHOWN.needs ? <span className="vt-faint"> +{summary.needs.length - SHOWN.needs}</span> : null}
+        </>
+      ),
+    })
+  }
   return (
     <div className="vt-rm-calm" data-testid="vt-roadmap-calm">
       {/* The sentence's words are calmSentence's, so the tested string and the rendered one cannot drift apart. */}
       <p className="vt-rm-answer" data-testid="vt-roadmap-answer" data-sentence={calmSentence(summary)}>
-        <span className="vt-num">{summary.proven} of {summary.total} proven</span>
-        <span className="vt-faint"> · </span>
-        <span className="vt-num" title="the loop says green; its evidence does not prove it">{summary.claimed} claimed</span>
-        {summary.stale ? <><span className="vt-faint"> · </span><span className="vt-num vt-tone-stale">{summary.stale} stale</span></> : null}
-        {nextShown.length ? <><span className="vt-faint"> · </span>next: {join(nextShown.map(rungLink))}{more(summary.next.length - SHOWN.next)}</> : null}
-        {needsShown.length ? (
-          <>
-            <span className="vt-faint"> · </span>
-            <span className="vt-tone-warn">needs you: {join(needsShown.map((need) => {
-              const source = sources.get(need.id)
-              return (
-                <span key={need.id}>
-                  {source?.abs
-                    ? <button type="button" className="vt-btn vt-rm-textlink" title={need.title} onClick={() => onOpenEvidence(source.line ? { path: source.abs!, line: source.line } : { path: source.abs! })}>{need.id}</button>
-                    : <span title={need.title}>{need.id}</span>}
-                  {' '}(blocks {join(need.blocks.map(rungLink))})
-                </span>
-              )
-            }))}</span>
-            {more(summary.needs.length - SHOWN.needs)}
-          </>
-        ) : null}
+        {parts.map((part, i) => <span key={part.key}>{i ? <span className="vt-faint"> · </span> : null}{part.node}</span>)}
       </p>
       <div className="vt-rm-strip" role="img" aria-label={summary.lanes.map((lane) => `${lane.title}: ${lane.proven} of ${lane.total} proven, ${lane.claimed} claimed`).join('; ')} data-testid="vt-roadmap-strip">
         {summary.lanes.map((lane) => (

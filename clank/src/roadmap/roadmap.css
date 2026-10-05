@@ -103,6 +103,10 @@
     font-size: 14px;
     color: var(--vt-fg);
   }
+  /* The lead clause (wave, climbing ...): the one weight in the sentence, so the eye lands on the current rung first. */
+  .vt-dash .vt-rm-lead {
+    font-weight: 500;
+  }
   .vt-dash .vt-rm-strip {
     display: flex;
     gap: 3px;
