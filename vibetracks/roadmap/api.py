@@ -30,6 +30,8 @@ from urllib.parse import unquote
 from ..sources import load_sources
 from .files import RoadmapForbidden, RoadmapNotFound, art_entries, read_art, read_evidence
 from .projector import gitinfo, project_kinsim, project_rig
+from .projector.detection import project_detection
+from .projector.grasping import project_grasping
 from .projector.validate import validate_document
 
 SCHEMA = "bam-roadmap/1"
@@ -95,7 +97,48 @@ RIG = LiveProjector(
     inputs=_rig_inputs, checkout=lambda sources: Path(sources["rig_loop_dir"]),
     project=lambda sources, now: project_rig(Path(sources["rig_loop_dir"]), now=now),
 )
-PROJECTORS: dict[str, LiveProjector] = {"kinsim": KINSIM, "rig": RIG}
+def _grasping_inputs(sources: Mapping[str, str]) -> list[Path]:
+    package = Path(sources["grasp_bench_dir"]) / "src" / "grasp_bench"
+    return [package / "curriculum.py", package / "contracts.py", package / "runner.py",
+            Path(sources["grasp_bench_dir"]) / "out" / "ledger" / "runs.jsonl"]
+
+
+GRASPING = LiveProjector(
+    name="grasping", title="Grasp bench",
+    present=lambda sources: (Path(sources["grasp_bench_dir"]) / "src" / "grasp_bench" / "curriculum.py").is_file(),
+    inputs=_grasping_inputs, checkout=lambda sources: Path(sources["grasp_bench_dir"]),
+    project=lambda sources, now: project_grasping(Path(sources["grasp_bench_dir"]), now=now),
+)
+DETECTION = LiveProjector(
+    name="detection", title="Hyperspectral ladder (planned)",
+    present=lambda sources: (Path(sources["detection_dir"]) / "ladder_data.py").is_file(),
+    inputs=lambda sources: [Path(sources["detection_dir"]) / "ladder_data.py"],
+    checkout=lambda sources: Path(sources["detection_dir"]),
+    project=lambda sources, now: project_detection(Path(sources["detection_dir"]), now=now),
+)
+PROJECTORS: dict[str, LiveProjector] = {"kinsim": KINSIM, "rig": RIG, "grasping": GRASPING, "detection": DETECTION}
+
+
+def _registry_roadmap(track: str) -> tuple[bool, dict | None]:
+    """(registered, roadmap) for ``track`` from the Dashboard lane's work-track registry.
+
+    ``registered`` is False when no registry is reachable (no workspace, or the dashboard package absent), so the
+    caller falls back to the built-in table. The workspace is ``$VIBETRACKS_WORKSPACE`` or the backend's working
+    directory, which Clank sets to the workspace (clank/package.json, ``"cwd": "{workspace}"``); the mount contract
+    does not pass it.
+    """
+
+    try:
+        from vibetracks.dashboard.registry import find_registry, load_registry
+    except ImportError:
+        return False, None
+    workspace = os.environ.get("VIBETRACKS_WORKSPACE") or os.getcwd()
+    if find_registry(workspace) is None:
+        return False, None
+    for entry in load_registry(workspace):
+        if entry.id == track:
+            return True, entry.roadmap
+    return True, None
 
 
 def projector_for(track: str) -> tuple[LiveProjector, Mapping[str, str]] | None:
@@ -106,8 +149,22 @@ def projector_for(track: str) -> tuple[LiveProjector, Mapping[str, str]] | None:
     every route asks here, so nothing else changes when it does.
     """
 
-    projector = PROJECTORS.get(track)
-    return None if projector is None else (projector, load_sources())
+    registered, roadmap = _registry_roadmap(track)
+    if not registered:
+        projector = PROJECTORS.get(track)
+        return None if projector is None else (projector, load_sources())
+    # WHY the registry decides once it exists: a track's note says which projector answers it (or null: "No roadmap
+    # reported yet"), so Zach's registry, not this table, is where a track gains or loses a roadmap.
+    if not roadmap or not roadmap.get("projector"):
+        return None
+    projector = PROJECTORS.get(str(roadmap["projector"]))
+    if projector is None:
+        return None
+    sources = dict(load_sources())
+    named = roadmap.get("sources")
+    if isinstance(named, Mapping):  # {projector input: sources.py key}: read each input from the named key
+        sources.update({input_key: sources[source_key] for input_key, source_key in named.items() if source_key in sources})
+    return projector, sources
 
 
 @dataclass

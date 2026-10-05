@@ -58,7 +58,7 @@ class RoadmapApiTestCase(unittest.TestCase):
         sources = self.tmp / "sources.json"
         # the live loops point nowhere, so these cases pin the stored-document fallback (tests/test_roadmap_live.py: live)
         sources.write_text(json.dumps({"roadmap_docs_dir": str(self.docs), "roadmap_art_dir": str(self.art),
-                                       "kinsim_curriculum_dir": str(self.tmp / "no-kinsim"), "rig_loop_dir": str(self.tmp / "no-rig")}),
+                                       "kinsim_curriculum_dir": str(self.tmp / "no-kinsim"), "rig_loop_dir": str(self.tmp / "no-rig"), "grasp_bench_dir": str(self.tmp / "no-grasping"), "detection_dir": str(self.tmp / "no-detection")}),
                            encoding="utf-8")
         patcher = mock.patch.dict(os.environ, {"VIBETRACKS_SOURCES": str(sources)})
         patcher.start()
@@ -88,7 +88,7 @@ class TracksTest(RoadmapApiTestCase):
 
     def test_missing_docs_dir_is_an_empty_list(self) -> None:
         sources = self.tmp / "other.json"
-        sources.write_text(json.dumps({"roadmap_docs_dir": str(self.tmp / "nope"), "kinsim_curriculum_dir": str(self.tmp / "no-kinsim"), "rig_loop_dir": str(self.tmp / "no-rig")}), encoding="utf-8")
+        sources.write_text(json.dumps({"roadmap_docs_dir": str(self.tmp / "nope"), "kinsim_curriculum_dir": str(self.tmp / "no-kinsim"), "rig_loop_dir": str(self.tmp / "no-rig"), "grasp_bench_dir": str(self.tmp / "no-grasping"), "detection_dir": str(self.tmp / "no-detection")}), encoding="utf-8")
         with mock.patch.dict(os.environ, {"VIBETRACKS_SOURCES": str(sources)}):
             self.assertEqual(self.get_json("/tracks"), (200, {"tracks": []}))
 
@@ -97,7 +97,7 @@ class TracksTest(RoadmapApiTestCase):
         other.mkdir()
         (other / "rig.json").write_text(json.dumps({"schema": SCHEMA, "title": "Rig", "generated_at": "t"}), encoding="utf-8")
         sources = self.tmp / "other.json"
-        sources.write_text(json.dumps({"roadmap_docs_dir": str(other), "kinsim_curriculum_dir": str(self.tmp / "no-kinsim"), "rig_loop_dir": str(self.tmp / "no-rig")}), encoding="utf-8")
+        sources.write_text(json.dumps({"roadmap_docs_dir": str(other), "kinsim_curriculum_dir": str(self.tmp / "no-kinsim"), "rig_loop_dir": str(self.tmp / "no-rig"), "grasp_bench_dir": str(self.tmp / "no-grasping"), "detection_dir": str(self.tmp / "no-detection")}), encoding="utf-8")
         with mock.patch.dict(os.environ, {"VIBETRACKS_SOURCES": str(sources)}):
             _, body = self.get_json("/tracks")
         self.assertEqual([entry["track"] for entry in body["tracks"]], ["rig"])

@@ -76,6 +76,7 @@ class LiveDocTestCase(unittest.TestCase):
         sources.write_text(json.dumps({
             "kinsim_curriculum_dir": str(self.loop.curriculum_dir), "kinsim_home": str(self.loop.data_home),
             "rig_loop_dir": str(self.tmp / "no-rig-loop"), "roadmap_docs_dir": str(self.docs),
+            "grasp_bench_dir": str(self.tmp / "no-grasping"), "detection_dir": str(self.tmp / "no-detection"),
             "roadmap_art_dir": str(self.docs / "art")}), encoding="utf-8")
         patcher = mock.patch.dict(os.environ, {"VIBETRACKS_SOURCES": str(sources)})
         patcher.start()
