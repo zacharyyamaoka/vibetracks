@@ -5,14 +5,20 @@
 // takes its place.
 // WHY the chooser is in the app and remembered: Zach's prototype-switch rule (a drop-down bottom-right, live,
 // remembers the choice), the same as the A · B · C switcher.
+// WHY the chooser docks in the review bar: Dashboard.tsx renders `#vt-review-bar` as a sibling BELOW the scroll area,
+// so a pill there can never cover content (a floating pill covered the right end of "Something else (write it)" at
+// rest in N1 rig, N2 kinsim and N2 rig). The pill is portalled into that bar, left of A · B · C; only when the bar is
+// absent (an older Dashboard.tsx) does it float in the corner as before.
 
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type RefObject } from 'react'
+import { createPortal } from 'react-dom'
 import type { PluginBackend } from '@clank/api'
 import type { Projection } from '../shared/model'
 import { parseRoute, type Route } from '../shared/route'
 import { trackById } from '../shared/model'
 import { isUnknownTrackError, unreportedDoc, useNeeds, type NeedsState } from './api'
 import { useAnswerStore } from './answers'
+import { reviewBarFor } from './kit'
 import type { NeedsProposalDefinition } from './proposal'
 import N1, { NAME as NAME_1 } from './n1'
 import N2, { NAME as NAME_2 } from './n2'
@@ -142,6 +148,25 @@ function useKnownNeeds(needs: NeedsState, track: string | null, projection: Proj
   return docs ? { ...needs, docs, doc: docs[0], error: null } : needs
 }
 
+/** This dashboard's review bar while it is mounted, else null. Re-checked after every render and whenever the
+ * dashboard's children change, so a bar that mounts after the shell (same commit, HMR) is picked up at once.
+ * Scoped to the shell's own `.vt-dash` (reviewBarFor): a second mounted viewer has a bar with the same id. */
+function useReviewBar(anchor: RefObject<HTMLElement | null>): HTMLElement | null {
+  const [bar, setBar] = useState<HTMLElement | null>(null)
+  const look = useCallback(() => {
+    const found = reviewBarFor(anchor.current)
+    setBar((previous) => (previous === found ? previous : found))
+  }, [anchor])
+  useLayoutEffect(() => look())
+  useEffect(() => {
+    const host = anchor.current?.closest('.vt-dash') ?? document.body
+    const observer = new MutationObserver(look)
+    observer.observe(host, { childList: true, subtree: true })
+    return () => observer.disconnect()
+  }, [anchor, look])
+  return bar
+}
+
 export interface NeedsShellProps {
   backend: PluginBackend
   route: Route
@@ -152,7 +177,8 @@ export interface NeedsShellProps {
 export function NeedsShell({ backend, route, navigate, projection }: NeedsShellProps) {
   const track = route.track ?? null
   const needs = useKnownNeeds(useNeeds(backend, track), track, projection)
-  const answers = useAnswerStore()
+  // WHY the docs go into the store: it answers only with choices the shown items offer (answers.ts offeredDraft).
+  const answers = useAnswerStore(needs.docs)
   const [key, setKey] = useState(readStored)
   const choose = useCallback((next: string) => {
     setKey(next)
@@ -174,8 +200,11 @@ export function NeedsShell({ backend, route, navigate, projection }: NeedsShellP
   )
   const proposal = NEEDS_PROPOSALS.find((candidate) => candidate.key === key) ?? NEEDS_PROPOSALS[0]
   const Proposal = proposal.component
+  const shell = useRef<HTMLDivElement>(null)
+  const bar = useReviewBar(shell)
+  const chooser = <ProposalChooser current={proposal} onChoose={choose} docked={Boolean(bar)} />
   return (
-    <div className="vt-needs" data-testid="vt-needs" data-proposal={proposal.key}>
+    <div ref={shell} className="vt-needs" data-testid="vt-needs" data-proposal={proposal.key} data-chooser={bar ? 'docked' : 'floating'}>
       <div className="vt-needs-back-row">
         <button type="button" className="vt-btn vt-muted vt-small" onClick={onBack} data-testid="vt-needs-back">
           ← Back
@@ -195,16 +224,16 @@ export function NeedsShell({ backend, route, navigate, projection }: NeedsShellP
         navigate={proposalNavigate}
         onBack={onBack}
       />
-      <ProposalChooser current={proposal} onChoose={choose} />
+      {bar ? createPortal(chooser, bar) : chooser}
     </div>
   )
 }
 
 /** One compact pill ("N6 · Lane + context ▾") that opens the list of proposals upward.
  * WHY collapsed: the full row of six named buttons sat over the bottom-right of every needs page and covered answer
- * controls (N3's rig T2 recommendation hit-tested to the chooser). One pill is ~200-260px wide; the page's bottom
- * padding (needs.css) clears it at max scroll. */
-function ProposalChooser({ current, onChoose }: { current: NeedsProposalDefinition; onChoose: (key: string) => void }) {
+ * controls (N3's rig T2 recommendation hit-tested to the chooser). Docked in the review bar it sits below the content;
+ * floating (no bar), the page's bottom padding (needs.css) clears it at max scroll. */
+function ProposalChooser({ current, onChoose, docked }: { current: NeedsProposalDefinition; onChoose: (key: string) => void; docked: boolean }) {
   const [open, setOpen] = useState(false)
   const box = useRef<HTMLDivElement>(null)
   useEffect(() => {
@@ -226,7 +255,7 @@ function ProposalChooser({ current, onChoose }: { current: NeedsProposalDefiniti
   }, [open])
   const label = useMemo(() => labelOf(current), [current])
   return (
-    <div ref={box} className="vt-switcher vt-needs-switcher" role="group" aria-label="Needs-you proposal" data-testid="vt-needs-switcher" data-open={open}>
+    <div ref={box} className="vt-switcher vt-needs-switcher" role="group" aria-label="Needs-you proposal" data-testid="vt-needs-switcher" data-open={open} data-docked={docked}>
       {open ? (
         <div className="vt-needs-switch-menu" role="menu" aria-label="Needs-you proposals">
           {NEEDS_PROPOSALS.map((item) => (

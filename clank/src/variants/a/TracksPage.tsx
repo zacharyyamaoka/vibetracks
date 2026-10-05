@@ -24,7 +24,7 @@ import {
 import { useLayoutEffect, useRef } from 'react'
 import { RoadmapWidget, type RoadmapDocState } from '../../roadmap'
 import { trendDomain } from './columns'
-import { isReporting, lastMoved, needsCount, registryOf, rungOf } from './live'
+import { blockingWords, isReporting, lastMoved, needsCount, registryOf, rungOf } from './live'
 import { openRung, type Nav } from './nav'
 import { TrackMenu, TrackName, type Renamer } from './rename'
 import { useRegisteredRoadmap } from './roadmapReload'
@@ -48,11 +48,21 @@ export function TracksPage({ projection, title, nav, showDeltas, reload, backend
   const counts = tracks.map(needsCount)
   const blocking = counts.reduce((sum, count) => sum + (count.blocking ?? 0), 0)
   const unknownNeeds = counts.filter((count) => count.blocking === null).length
+  // WHY "nothing reported blocks a rung" plus a count of the silent tracks when only some report: a sum that skips the
+  // unknown tracks is not a "0" for them, so the sentence must not claim the whole board is unblocked.
+  const blockingSentence = blocking
+    ? `${blocking} ${blocking === 1 ? 'question blocks' : 'questions block'} a rung`
+    : unknownNeeds === tracks.length
+      ? 'questions not reported yet'
+      : unknownNeeds
+        ? 'nothing reported blocks a rung'
+        : 'nothing blocks a rung'
   const summary = [
     `${tracks.length} work ${tracks.length === 1 ? 'track' : 'tracks'}`,
     `${reporting} reporting`,
     ...(quiet ? [`${quiet} quiet past ${quiet === 1 ? 'its' : 'their'} stall rule`] : []),
-    blocking ? `${blocking} ${blocking === 1 ? 'question blocks' : 'questions block'} a rung` : unknownNeeds === tracks.length ? 'questions not reported yet' : 'nothing blocks a rung',
+    blockingSentence,
+    ...(unknownNeeds && unknownNeeds < tracks.length ? [`questions not reported on ${unknownNeeds} ${unknownNeeds === 1 ? 'track' : 'tracks'}`] : []),
   ]
   return (
     <div className="vt-page vt-a-page" data-testid="vt-a-l1">
@@ -66,13 +76,15 @@ export function TracksPage({ projection, title, nav, showDeltas, reload, backend
       ) : (
         <table className="vt-table vt-a-tracks" aria-label="Work tracks">
           <colgroup>
-            <col style={{ width: '20%' }} />
+            <col style={{ width: '18%' }} />
             <col style={{ width: '17%' }} />
             <col style={{ width: '19%' }} />
-            <col style={{ width: '19%' }} />
+            <col style={{ width: '18%' }} />
             <col style={{ width: '11%' }} />
-            <col style={{ width: '10%' }} />
-            <col style={{ width: '4%' }} />
+            <col style={{ width: '12%' }} />
+            {/* WHY a fixed 52px and not 4%: the row end holds the rename menu and the chevron (~40px of fixed-size
+                controls); at 1280 a 4% column was 36px and the chevron printed past the table's right edge. */}
+            <col style={{ width: 52 }} />
           </colgroup>
           <thead>
             <tr>
@@ -94,7 +106,7 @@ export function TracksPage({ projection, title, nav, showDeltas, reload, backend
       )}
 
       <p className="vt-a-foot vt-small vt-faint">
-        {projection.source.live ? 'Live' : 'Snapshot'} · read <span title={projection.generated_at}>{formatLocal(projection.generated_at)}</span>
+        {projection.source.live ? 'Live' : 'Snapshot'} · read <span title={formatLocal(projection.generated_at, { year: true })}>{formatLocal(projection.generated_at)}</span>
         {projection.source.live ? '' : ` · snapshot of ${formatDay(projection.as_of)}`} ·{' '}
         <button type="button" className="vt-btn vt-a-link" onClick={reload} data-testid="vt-a-reload">
           Reload
@@ -275,14 +287,25 @@ function RungCell({ track, nav, roadmap }: { track: Track; nav: Nav; roadmap: Ro
   )
 }
 
+// WHY one line with an explicit ellipsis for the detail (its source label, "grasping_ledger"): the glance row must
+// stay one or two lines tall, and a wrapped source label made the grasping row three lines at 1440; the whole label
+// stays one hover away in the line's own title (truthful rendering: cut visibly, never silently).
 function MovedCell({ projection, track }: { projection: Projection; track: Track }) {
   const moved = lastMoved(projection, track)
   return (
-    <span className="vt-a-two" title={moved.detail ?? undefined}>
-      <span className={moved.stale ? 'vt-tone-stale' : moved.unknown ? 'vt-faint' : undefined} data-testid="vt-a-moved">
+    <span className="vt-a-two vt-a-movedcell" title={moved.detail ?? undefined}>
+      <span className={`vt-a-oneline${moved.stale ? ' vt-tone-stale' : moved.unknown ? ' vt-faint' : ''}`} data-testid="vt-a-moved" title={moved.text}>
         {moved.text}
       </span>
-      {moved.stale ? <small className="vt-tone-stale">stale</small> : moved.detail ? <small>{moved.detail}</small> : null}
+      {moved.stale ? (
+        <small className="vt-tone-stale vt-a-oneline" title={moved.detail ?? 'stale'}>
+          stale
+        </small>
+      ) : moved.detail ? (
+        <small className="vt-a-oneline" data-testid="vt-a-moved-source" title={moved.detail}>
+          {moved.detail}
+        </small>
+      ) : null}
     </span>
   )
 }
@@ -302,8 +325,14 @@ export function NeedsCell({ track, nav }: { track: Track; nav: Nav }) {
   else {
     body = (
       <span className="vt-a-two vt-num">
-        {count.blocking ? <b className="vt-tone-warn">{count.blocking} blocking</b> : <span className="vt-muted">none blocking</span>}
-        <small>{count.open} open</small>
+        {count.blocking ? (
+          <b className="vt-tone-warn">{blockingWords(count.blocking)}</b>
+        ) : (
+          <span className={count.blocking === null ? 'vt-faint' : 'vt-muted'} title={count.blocking === null ? 'the blocking count was not reported' : undefined}>
+            {blockingWords(count.blocking)}
+          </span>
+        )}
+        <small>{`${count.open}\u00a0open`}</small>
       </span>
     )
   }

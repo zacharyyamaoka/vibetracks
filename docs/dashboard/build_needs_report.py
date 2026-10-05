@@ -329,6 +329,8 @@ def still(rel: str, label: str, cap: str) -> str:
 
 
 W2 = ["N6", "N1", "N2"]
+# Round 2 N6 stills that show a fault round 3 fixed (their round-3 replacements are in D.N6_R3_STILLS).
+R2_SUPERSEDED = {"r2-rig-01-landing.png", "r2-grasping-01-enter.png", "r2-detection-01-enter.png", "r2-kinsim-04-end-copied.png"}
 assert set(D.JUDGE_N6) == set(W2) == set(D.JUDGE_R2)
 # Round 1 (the first N6 judge) and round 2 (today's re-judge), both recomputed from the raw per-criterion scores.
 MEAN_R1 = {n: weighted(D.JUDGE_N6[n]) for n in W2}
@@ -359,10 +361,14 @@ def n6_html() -> str:
         f'poster="{data_uri(MEDIA / h["poster"], "image/webp")}">'
         f'<source src="{data_uri(MEDIA / h["hero"], "video/mp4")}" type="video/mp4"></video>'
         f'<img id="hero6-gif" class="hidden" alt="N6 hero as a GIF" src="{data_uri(MEDIA / h["hero_gif"], "image/gif")}">'
-        f'<figcaption><b><span class="ltr">N6</span> {esc(h["hero_label"])}</b>'
-        f'<span class="cap">{esc(h["hero_caption"])}</span></figcaption></figure>'
+        f'<figcaption><b><span class="ltr">N6</span> {esc(D.N6_R3_HERO_LABEL)}</b>'
+        f'<span class="cap">{esc(D.N6_R3_HERO_CAPTION)}</span></figcaption></figure>'
     )
-    stills = '<div class="stills">' + "".join(still(*x) for x in h["stills"]) + "</div>"
+    # WHY round 2's stills are filtered: four of them show faults round 3 fixed (rig's update first, grasping's thin
+    # lead, detection's '+1 more', '8 more are open'). Keeping them as current would mislead, and the page has a 9 MB cap.
+    r2_kept = [x for x in h["stills"] if Path(x[0]).name not in R2_SUPERSEDED]
+    stills = ('<div class="stills">' + "".join(still(*x) for x in D.N6_R3_STILLS) + "</div>"
+              + '<h4>Round 2 stills that still hold</h4><div class="stills">' + "".join(still(*x) for x in r2_kept) + "</div>")
     crit_head = "".join(f'<th class="num">{esc(nm)}<small>{w}</small></th>' for _k, nm, w in D.CRITERIA)
     ncols = 4 + len(D.CRITERIA)
     rows = []
@@ -407,7 +413,12 @@ def n6_html() -> str:
         f'<ol class="wrong">{r1_wrong}</ol></details>'
     )
     changed = "".join(f"<li><b>{esc(t)}</b> <span>{inline_md(x)}</span></li>" for t, x in D.N6_R2_CHANGED)
-    wrong = "".join(f"<li><b>{esc(t)}</b> <span>{inline_md(x)}</span></li>" for t, x in D.N6_R2_STILL_WRONG)
+    changed3 = "".join(f"<li><b>{esc(t)}</b> <span>{inline_md(x)}</span></li>" for t, x in D.N6_R3_CHANGED)
+    assert len(D.N6_R3_ITEM_STATUS) == len(D.N6_R2_STILL_WRONG)
+    wrong = "".join(
+        f'<li><b>{esc(t)}</b> <span class="{STATUS_WORD[st][1]}">{STATUS_WORD[st][0]} in round 3</span> '
+        f'<span>{inline_md(x)}</span><span class="r3line">{inline_md(r3)}</span></li>'
+        for (t, x), (st, r3) in zip(D.N6_R2_STILL_WRONG, D.N6_R3_ITEM_STATUS))
     tag = "now the default" if N6_LEADS else "selectable; N1 is the default"
     return f"""
 <article class="prop n6" id="prop-N6">
@@ -417,15 +428,16 @@ def n6_html() -> str:
     <p class="thesis">{inline_md(D.N6['thesis'])}</p>
   </header>
   {hero}
-  <h4>Scores, round 2: N6 vs N1 vs N2</h4>
+  <h4>Scores, round 2: N6 vs N1 vs N2 <small>(no re-judge in round 3, so these are still round 2's)</small></h4>
   <p class="jverdict">{inline_md(D.JUDGE_R2_VERDICT)}</p>
   {table}
-  <h4>What changed since round 1</h4>
-  <ol class="wrong changed">{changed}</ol>
-  <h4>Stills <small>(this round's build, 1440 × 900 unless the label says otherwise)</small></h4>
+  <h4>What changed in round 3</h4>
+  <ol class="wrong changed">{changed3}</ol>
+  <h4>Stills <small>(round 3, 1440 × 900 unless the label says otherwise)</small></h4>
   {stills}
-  <h4>What is still wrong in N6 <small>(the judge's list, plus one from the verifier)</small></h4>
+  <h4>Round 2's list of what was wrong in N6, and what round 3 did <small>(6 of 7 fixed)</small></h4>
   <ol class="wrong">{wrong}</ol>
+  <details class="limits"><summary>What changed in round 2 (since round 1)</summary><ol class="wrong changed">{changed}</ol></details>
   {round1}
   {FB.strip("N6", "N6 · " + D.N6['name'], noun="proposal")}
 </article>"""
@@ -436,17 +448,33 @@ STATUS_WORD = {"fixed": ("fixed", "okt"), "partly": ("partly fixed", "partt"), "
 
 def shared_html() -> str:
     out = []
-    for i, f in enumerate(D.SHARED_R2, 1):
-        word, cls = STATUS_WORD[f["status"]]
-        figs = "".join(still(*x) for x in f["stills"])
+    assert set(D.SHARED_R3) <= {f["key"] for f in D.SHARED_R2}, "a round-3 key matches no shared fix"
+    # WHY round 3 first: the cards it changed are what this round is about; the untouched ones follow in round-2 order.
+    order = sorted(D.SHARED_R2, key=lambda f: f["key"] not in D.SHARED_R3)
+    for i, f in enumerate(order, 1):
+        r3 = D.SHARED_R3.get(f["key"])
+        status = r3[0] if r3 else f["status"]
+        word, cls = STATUS_WORD[status]
+        # A round-2 capture labelled 'Still open' shows a fault round 3 fixed; it is dropped rather than shown as current.
+        r2_stills = [x for x in f["stills"] if not (r3 and r3[0] == "fixed" and x[1].startswith("Still open"))]
+        figs = "".join(still(*x) for x in (r3[2] if r3 else [])) + "".join(
+            still(x[0], ("Round 2 · " + x[1]) if r3 else x[1], x[2]) for x in r2_stills)
         grid = f'<div class="stills two-up">{figs}</div>' if figs else ""
-        still_open = (f'<p class="stillopen"><b>Still open:</b> {inline_md(f["still"])}</p>' if f["still"] else "")
+        if r3:
+            r3_html = f'<p class="r3"><b>Round 3:</b> {inline_md(r3[1])}</p>'
+            was = (f'<p class="was"><b>Round 2 left open:</b> {inline_md(f["still"])}</p>' if f["still"] else "")
+            body = f'{r3_html}<details class="limits"><summary>Round 2 on this seam</summary><p>{inline_md(f["body"])}</p>{was}</details>'
+            tag = ' <span class="rtag">round 3</span>'
+        else:
+            still_open = (f'<p class="stillopen"><b>Still open:</b> {inline_md(f["still"])}</p>' if f["still"] else "")
+            body = f'<p class="lead">{inline_md(f["body"])}</p>{still_open}'
+            tag = ""
         out.append(
-            f'<div class="fix" id="fix-{f["key"]}"><h3>{i} · {esc(f["title"])} <span class="{cls}">{word}</span></h3>'
-            f'<p class="lead">{inline_md(f["body"])}</p>{still_open}{grid}'
+            f'<div class="fix" id="fix-{f["key"]}"><h3>{i} · {esc(f["title"])} <span class="{cls}">{word}</span>{tag}</h3>'
+            f'{body}{grid}'
             f'{FB.strip("S" + str(i), "Shared fix · " + f["title"], noun="section")}</div>'
         )
-    return "".join(out) + f'<p class="small dim">{inline_md(D.SHARED_R2_HOLD)}</p>'
+    return "".join(out) + f'<p class="small dim">{inline_md(D.SHARED_R3_HOLD)} {inline_md(D.SHARED_R2_HOLD)}</p>'
 
 
 # ---- page --------------------------------------------------------------------------------------------------------
@@ -646,6 +674,11 @@ ol.wrong li{margin:0 0 8px} ol.wrong span{color:var(--dim)}
 p.stillopen{font-size:13.5px;max-width:66em;margin:-8px 0 14px;padding-left:12px;border-left:2px solid var(--warn)}
 td.r1{color:var(--dim)} td.r1 small{display:block;font-size:10.5px;color:var(--dim2)}
 ol.changed span{color:var(--dim)}
+p.r3{font-size:14px;max-width:66em;margin:0 0 12px}
+p.was{font-size:13px;color:var(--dim);max-width:66em}
+.rtag{font-size:11px;font-weight:600;color:var(--dim);border:1px solid var(--line2);border-radius:5px;padding:1px 6px;margin-left:6px;vertical-align:.15em}
+ol.wrong .r3line{display:block;color:var(--fg);font-size:13px;margin-top:2px}
+ol.wrong .okt,ol.wrong .opent{margin:0 4px 0 0}
 table.counts{border-collapse:collapse;width:100%;min-width:760px;font-size:13px}
 table.counts th,table.counts td{padding:8px 10px;border-bottom:1px solid var(--line);text-align:left;vertical-align:top}
 table.counts thead th{font-size:11.5px;color:var(--dim);background:var(--panel)}
@@ -761,14 +794,16 @@ def build() -> str:
     )
 
     if N6_LEADS:
+        n_fixed = sum(1 for st, _ in D.N6_R3_ITEM_STATUS if st == "fixed")
         verdict = (
-            f"N6 · {D.N6['name']} now leads and stays the default: the round-2 judge scores it {MEAN2['N6']:.0f}, above "
-            f"N1 at {MEAN2['N1']:.0f} and N2 at {MEAN2['N2']:.0f} (round 1: {MEAN_R1['N6']:.0f}, {MEAN_R1['N1']:.0f}, "
-            f"{MEAN_R1['N2']:.0f}), and the verifier passes it on counts, the fold at 1280 × 800, the no-recommendation "
-            f"gate, export and verbatim text. Three of ten checks still fail, all outside N6: stale recommendation drafts "
-            f"in N2–N5, raw UTC-offset hover times in N1–N4, and the proposal pill over option 3 in N1 and N2."
+            f"Round 3 closes round 2's three failed checks and {n_fixed} of N6's {len(D.N6_R3_ITEM_STATUS)} judge items: "
+            f"a stale recommendation draft never shows or copies in any proposal, every hover time reads local with its "
+            f"zone, and the pills sit in a review bar nothing passes under (64 states, 0 hits). N6 · {D.N6['name']} stays "
+            f"the default on round 2's scores ({MEAN2['N6']:.0f} against N1's {MEAN2['N1']:.0f}; no re-judge this round). "
+            f"Still wrong: the live lane on 4390 serves a stale N5 until Vite restarts, and variant A's home footer and "
+            f"track stateline show raw ISO stamps on hover."
         )
-        h1 = "Vibe Tracks Needs-you: N6 leads, and stays the default"
+        h1 = "Vibe Tracks Needs-you: round 3 closes the failed checks, N6 stays the default"
     else:
         verdict = (
             f"N6 · {D.N6['name']} still scores below N1: {MEAN2['N6']:.0f} against {MEAN2['N1']:.0f} (N2 "
@@ -780,7 +815,7 @@ def build() -> str:
     # N6 leading. If a re-judge flips the order, the brief's rule applies (make N1 the default page, keep N6
     # selectable) and the ask, the recommendation and the numbers in it all need rewriting, not one phrase.
     assert N6_LEADS, "N6 trails N1: rewrite DECISION_R2's first ask to 'make N1 the default page and keep N6 selectable'"
-    decision = D.DECISION_R2
+    decision = D.DECISION_R3
     # grid first, so GRID_USED is known when the details pick their extra stills; the page below places them in order.
     videos = videos_html()
     grid = grid_html()
@@ -798,17 +833,17 @@ def build() -> str:
 <body><div class="wrap">
 
 <header class="top">
-  <div class="date">2026-10-04 · round 2</div>
+  <div class="date">2026-10-04 · round 3</div>
   <h1>{esc(h1)}</h1>
   <p class="verdict">{esc(verdict)}</p>
-  <p class="built">Built on the live lane at 127.0.0.1:4390 against the real /needs data · answers only ever copy out, nothing is sent · branch claude/vibetracks-dashboard, uncommitted · N1–N5 scored by two judges in the first wave; N6 vs N1 vs N2 re-judged on this round's build and re-checked by an independent verifier (7 of 10 checks pass, 236 pytest pass, tsc clean); both are Claude, and no Codex audit is in this report · browser-only (over the desktop preview's size cap).</p>
+  <p class="built">Built on the live lane at 127.0.0.1:4390 against the real /needs data · answers only ever copy out, nothing is sent · branch claude/vibetracks-dashboard, uncommitted · N1–N5 scored by two judges in the first wave; N6 vs N1 vs N2 re-judged in round 2 (not re-judged in round 3); round 3 re-checked by an independent measure-only verifier (verify-4: 7 of 9 checks pass, 243 pytest pass, tsc clean). Every judge and verifier so far is Claude; the Codex audit comes next · browser-only (over the desktop preview's size cap).</p>
   <div class="launch"><pre id="launch-cmd">{esc(LAUNCHER)}</pre><button id="copy-launch" type="button">Copy</button></div>
   <div class="reach">
     <h4>How to reach it</h4>
     <ol>
       <li>Run the launcher above. It starts or reuses this checkout's lane and opens the dashboard.</li>
       <li>Click a <strong>Needs you</strong> cell on home or a track page (one click lands on card 1 of N6), or paste <code>#vt?track=kinsim&amp;needs=1</code> after the dashboard URL (<code>{esc(DASH_URL)}</code>). <code>track=rig</code> gives the six rig asks, and no track gives all nine.</li>
-      <li>N6 opens unless you picked another. The pill at the bottom right ("Needs you N6 · Lane + context ▾") switches between N1 and N6 and remembers the pick.</li>
+      <li>N6 opens unless you picked another. The pill in the review bar at the bottom right ("Needs you N6 · Lane + context ▾") switches between N1 and N6 and remembers the pick.</li>
     </ol>
   </div>
 </header>
@@ -821,20 +856,21 @@ def build() -> str:
 
 <section id="n6">
   <h2>N6 · Lane + context{", the default" if N6_LEADS else ""}</h2>
-  <p class="lead">The splice both first-wave judges named, rebuilt against round 1's list and judged again against N1 and N2 on this round's build.</p>
+  <p class="lead">The splice both first-wave judges named, rebuilt against round 1's list, judged against N1 and N2 in round 2, then fixed against round 2's list in round 3 (no re-judge yet).</p>
   {n6}
 </section>
 
 <section id="shared">
   <h2>Shared fixes</h2>
-  <p class="lead">The seams every proposal shares: the kit, the shell and the backend. Each one says what was fixed, how it was measured, and what is still open. The last two are this round's failed checks.</p>
+  <p class="lead">The seams every proposal shares: the kit, the shell and the backend. The cards round 3 changed come first, each with how verify-4 measured it; round 2's text for that seam folds away under it.</p>
   {shared}
 </section>
 
 <section id="decide">
   <h2>Decision</h2>
-  <p class="lead">For round 2. The first-wave sections for N1–N5 follow it.</p>
+  <p class="lead">For round 3. The first-wave sections for N1–N5 follow it.</p>
   <div class="decide">{decision}</div>
+  <details class="limits"><summary>Round 2's decision packet (superseded)</summary>{D.DECISION_R2}</details>
   <details class="limits"><summary>Round 1's decision packet (superseded)</summary>{D.DECISION_N6}</details>
   <details class="limits"><summary>The first wave's decision packet (superseded)</summary>{DECISION}</details>
   {FB.ui(REPORT_NAME, noun="proposal", total=10)}

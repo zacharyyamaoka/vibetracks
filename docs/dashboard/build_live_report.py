@@ -60,9 +60,37 @@ V3_COUNTS = json.loads((NEEDS_MEDIA / "verify-3" / "v3-counts.json").read_text()
 V3_OVERLAP = json.loads((NEEDS_MEDIA / "verify-3" / "v3-overlap.json").read_text())
 V3_PAGE_RUNS = {r["name"]: r for r in V3_OVERLAP["runs"] if r["name"] == "home" or r["name"].startswith("track-")}
 CHECKS = json.loads((MEDIA / "source-checks.json").read_text())
+# Round 3 (verify-4, measure-only): the frame/review-bar scan, its mutation run, the time scan and the bench oracle.
+V4_DIR = NEEDS_MEDIA / "verify-4"
+V4 = json.loads((V4_DIR / "v4-frame.json").read_text())
+V4_MUT = json.loads((V4_DIR / "v4-mutation.json").read_text())
+V4_STATES = [r[k] for r in V4["frame"] for k in ("rest", "max") if k in r]
+V4_HITS = sum(st["hitCount"] for st in V4_STATES)
+V4_SEAMS = sorted({st["seam"] for st in V4_STATES})
+# The dashboard-formatted hover titles that still carry a raw ISO stamp, from verify-4's scan (variant A only).
+V4_ISO_TITLES = sorted({(h["text"], h["ctx"].split("<")[0]) for t in V4["times"] for h in t["hits"]
+                        if h["where"] == "title" and h["kind"] == "iso" and "vt-a" in h["ctx"]})
+ORACLE_V4 = json.loads((MEDIA / "verify-4" / "bench-oracle.json").read_text())
+ORACLE_NOW = json.loads((MEDIA / "verify-4" / "oracle-at-build.json").read_text())
+OLD_PROJ = json.loads((MEDIA / "projection-2026-10-04T2055.json").read_text())
 PROJ_PATH = sorted(MEDIA.glob("projection-*.json"))[-1]
 PROJ = json.loads(PROJ_PATH.read_text())
 TRACKS = {t["id"]: t for t in PROJ["tracks"]}
+OLD_GRASP = next(t for t in OLD_PROJ["tracks"] if t["id"] == "grasping")
+
+
+def _latest(kpi: dict) -> dict:
+    return kpi["values"][-1]
+
+
+G_STAR = _latest(TRACKS["grasping"]["kpis"][0])
+G_STAR_OLD = _latest(OLD_GRASP["kpis"][0])
+# WHY these asserts: the report's lead is "the dashboard now shows the bench's own verdict". If the projection used
+# here and the bench's own gallery (run at build time, in its own venv) disagree, that lead is false and must not ship.
+assert ORACLE_NOW["projection"] == PROJ_PATH.name, "the build-time oracle was run against a different projection"
+assert G_STAR["value"] == len(ORACLE_NOW["beaten"]), (G_STAR, ORACLE_NOW["beaten"])
+assert G_STAR["note"].startswith("beaten: " + ", ".join(e.split("/")[1] for e in ORACLE_NOW["beaten"])), G_STAR["note"]
+assert TRACKS["grasping"]["source"]["bench_verdict"]["ok"] and not TRACKS["grasping"]["source"].get("problems")
 ORDER = [row["id"] for row in FACTS["home"]["rows"]]
 assert ORDER == ["kinsim", "rig", "grasping", "detection", "pyblocks"], f"home rows changed: {ORDER}"
 assert FACTS["rename"]["restored"]["identical"], "the rename-back did not restore the note byte-for-byte"
@@ -149,9 +177,11 @@ GAPS = {
         "Everything lives on the unmerged worktree rig-loop-work-continue-cb3c52.",
     ],
     "grasping": [
-        "No loop status file: the frontier tier and 'next tier' are derived from the ledger and curriculum.py.",
+        "Beaten / provisional envs, headline runs, frozen and privileged flags, and the frontier tier come from the bench's own "
+        "gallery.py, run in the bench's venv by grasp_bench_bridge.py (round 3). No copy of its rules is left in the adapter.",
         "The ledger lives in the gitignored out/ of agent worktree grasping-agent-roadmap-ab12d8; a sweep turns the row 'not reporting'.",
-        "The frozen protocol and EnvSpec field order are mirrored from the bench (the live smoke test catches drift).",
+        "If the bench cannot answer, the north star and six verdict KPIs are null with the reason, never a guess; seed_rule and "
+        "dirty_share still count raw ledger fields the bench does not judge. The bridge calls the bench's private `gallery._run_privileged`.",
         "The 1 s latency limit comes from Zach's deck, not curriculum.py; sim latency excludes camera capture.",
     ],
     "detection": [
@@ -209,16 +239,32 @@ def track_table() -> str:
             + "".join(rows) + "</tbody></table></div>")
 
 
+def _now(c: dict) -> str:
+    """What the projection used for this report shows now; numbers only, never re-derived from the source here."""
+    kpi = next((k for k in TRACKS[c["track"]]["kpis"] if k["label"] == c["kpi"]), None)
+    now = _latest(kpi)["value"] if kpi else None
+    try:
+        shown = float(c["shown"])
+    except (TypeError, ValueError):
+        shown = None
+    if shown is None or now is None or c["kpi"].endswith("per finished run"):
+        return '<span class="dim">not compared</span>'
+    if abs(shown - float(now)) < 1e-9:
+        return '<span class="dim">same</span>'
+    return f'<b class="warnt">{esc(now)}</b><span class="dim blk">moved: the ledger grew</span>'
+
+
 def checks_table() -> str:
     rows = "".join(
         f'<tr><td>{esc(TRACKS[c["track"]]["title"])}</td><td>{esc(c["kpi"])}</td>'
         f'<td class="num">{esc(c["shown"])}</td><td class="num">{esc(c["recomputed"])}</td>'
         f'<td><code>{esc(c["source"])}</code><span class="dim blk">{esc(c["how"])}</span></td>'
-        f'<td class="{"okt" if c["match"] else "badt"}">{"match" if c["match"] else "MISMATCH"}</td></tr>'
+        f'<td class="{"okt" if c["match"] else "badt"}">{"match" if c["match"] else "MISMATCH"}</td>'
+        f'<td class="num">{_now(c)}</td></tr>'
         for c in CHECKS
     )
-    return ('<div class="tablewrap"><table class="grid"><thead><tr><th>Track</th><th>KPI</th><th>Dashboard shows</th>'
-            '<th>Recomputed from source</th><th>Source file · how</th><th></th></tr></thead><tbody>' + rows
+    return ('<div class="tablewrap"><table class="grid"><thead><tr><th>Track</th><th>KPI</th><th>Dashboard showed (first drive)</th>'
+            '<th>Recomputed from source</th><th>Source file · how</th><th></th><th>Projection now</th></tr></thead><tbody>' + rows
             + "</tbody></table></div>")
 
 
@@ -228,7 +274,7 @@ def home_rows() -> str:
         name, status, progress, rung, moved, needs = row["cells"][:6]
         out.append(f"<tr><th>{esc(name)}</th><td>{esc(status)}</td><td>{esc(progress)}</td><td>{esc(rung)}</td>"
                    f"<td>{esc(moved)}</td><td>{esc(needs)}</td></tr>")
-    return ('<details class="raw"><summary>The home rows as the drive read them (text)</summary><div class="tablewrap">'
+    return ('<details class="raw"><summary>The home rows as the first drive read them (text, 20:55; grasping and the Needs-you counts have changed since)</summary><div class="tablewrap">'
             '<table class="grid small"><thead><tr><th>Name</th><th>Status</th><th>Progress</th><th>Current rung → next</th>'
             '<th>Last moved</th><th>Needs you</th></tr></thead><tbody>' + "".join(out) + "</tbody></table></div></details>")
 
@@ -349,15 +395,43 @@ def _fix_rows() -> list[tuple[str, str, bool, str]]:
          "flight only: the roadmap stub was patched with page.route to return {green 1, done 3}, and all 5 home rows and the kinsim "
          "north-star line read '4 proven' (with a stale warning, '4 proven (not current)'). Unpatched, nothing shows. Needs a re-check "
          "against the real widget once claude/vibetracks-roadmap-r3 lands."),
-        ("m", "Compact switcher: one pill instead of three buttons", "partly",
+        ("m", "Compact switcher: one pill instead of three buttons", True,
          "'Proposal A · Drill-down pages ▾', 210.9 × 30.75 px; it opens upward to 115 px and closes after a pick, on Escape or an outside "
          "click; the pick survives a reload and keys 1/2/3 still switch. The verifier's centre probe: 0 misses on "
-         + ", ".join(sorted(V3_PAGE_RUNS)) + " at rest and max scroll. Still covered: on the grasping and detection track pages "
-         "at rest the pill sits over clickable KPI cells ('87.4 %', '2 / 12') that have no role, so the probe could not see them."),
+         + ", ".join(sorted(V3_PAGE_RUNS)) + " at rest and max scroll. Fix wave 3 left one fault: on the grasping and detection track pages "
+         "at rest the pill sat over clickable KPI cells ('87.4 %', '2 / 12'). Round 3 moved the pill into the review bar (row o): 0 hits."),
         ("n", "Code spans wrap between tokens, not mid-token", True,
          "`.vt-a-code` moved from `word-break: break-all` to `overflow-wrap: break-word` (one class covers purposes, link values "
          "and file paths). At 664-848 px on rig (ladder.json, loop-status.json) and grasping (out/ledger/runs.jsonl), collapsed and "
          "expanded: no mid-token breaks. With break-all forced back on, kinsim breaks 'stat|us.json', so the check can fail."),
+        ("o", "Review bar: the pills sit in a 40 px bar under the scroll area, never over content", V4_HITS == 0 and V4_SEAMS == [0],
+         f"Round 3. Dashboard.tsx is header → `.vt-scroll` → `#vt-review-bar`; the A · B · C pill and the needs page's N pill sit in "
+         f"the bar, and the scroller ends where it starts. verify-4: {len(V4_STATES)} states (home, kinsim / grasping / detection track "
+         f"pages, N1–N6 on kinsim and rig; 1440 × 900 and 1280 × 800; rest and max scroll), seam {V4_SEAMS} px, one pill per page, "
+         f"{V4_HITS} hits against every clickable element and text node. Forcing the pill over content gave "
+         f"{V4_MUT['home:mutated']['hits']} hits on home and {V4_MUT['n6-kinsim:mutated']['hits']} on N6, so the detector can fail."),
+        ("p", "KPI cells reachable by keyboard and named for screen readers", True,
+         "Round 3. Each cell is a button with role=button, tabindex 0 and an aria-label such as 'Rungs green or done · Start: 4 / 62 · "
+         "open evidence'. verify-4: Tab reaches the first cell in 11 presses with a visible focus ring; Enter moves to "
+         "`#vt?track=kinsim&kpi=rungs_green&iteration=start` and its evidence page renders."),
+        ("q", "Home and track Needs-you wording: '0 blocking', and 'not reported' instead of a null shown as 0 or 'none'", True,
+         "Round 3. One `blockingWords()` for both pages. Grasping's home cell reads '0 blocking · 7 open'; a null blocking count "
+         "reads 'not reported'. The home summary says '4 questions block a rung · questions not reported on 1 track' instead "
+         "of skipping the unreported track. verify-4 matched home, track lines, N1–N6 headers and /needs on all 5 tracks."),
+        ("r", "Grasping's north star is the bench's own verdict, not a copy of its rules", True,
+         f"Round 3; see the top section. The projection reads {G_STAR['value']:g} / {G_STAR['of']} ('{G_STAR['note']}'); the bench's "
+         f"own gallery, run at build time in its own venv over {ORACLE_NOW['n_runs']} ledger rows, says {len(ORACLE_NOW['beaten'])} "
+         f"beaten. It read {G_STAR_OLD['value']:g} / {G_STAR_OLD['of']} at the first drive."),
+        ("s", "No raw ISO stamp in any hover title", "partly",
+         "Round 3 replaced eleven raw-ISO titles in N1–N4 with the kit's `hoverTime` ('2026-10-04 22:46 PDT'). verify-4 found "
+         f"{len({c for _, c in V4_ISO_TITLES})} variant-A sites still raw ({len(V4_ISO_TITLES)} stamps across home and the track pages): "
+         "the home footer's 'read …' (`TracksPage.tsx:109`) and the track stateline's 'since …' (`TrackPage.tsx:75`), e.g. "
+         + ", ".join(f"'{t}'" for t, _ in sorted(V4_ISO_TITLES, key=lambda x: "+00:00" not in x[0])[:2]) + ". The visible text beside them is right."),
+        ("t", "Last-moved source label: one line, visible ellipsis, whole text on hover", True,
+         "Round 3, measured by the UI lane (not re-checked by verify-4): 17 px tall everywhere; at 1440 nothing is cut, at 1280 "
+         "'kinsim_eve…' and 'grasping_le…'. The same lane let the status word wrap (grasping's 'Tier 2 · MuJoCo physics' used "
+         "to print over its Progress number at 1280) and fixed the row-end chevron at 52 px; an overflow scan at 1100, 1280 and "
+         "1440 finds nothing past its cell."),
     ]
 
 
@@ -405,12 +479,18 @@ NPARTLY = sum(1 for f in FIXES if f[2] == "partly")
 
 
 ISSUES = [
-    ("The A · B · C pill covers clickable KPI cells (grasping, detection)", "At rest on the grasping and detection track pages the "
-     "collapsed pill sits over scorecard cells ('87.4 %', '2 / 12') that have cursor:pointer but no role or tabindex, so every "
-     "selector-based probe missed them. Reserve bottom space under the pill on the scorecard, and give the cells `role=\"button\"` "
-     "so they are findable. Max scroll clears both."),
-    ("Home cell wording for grasping", "`TracksPage.tsx:305` prints 'none blocking' where the track line and the Needs-you page say "
-     "'0 blocking'; the same ternary would print a null blocking count as 'none'."),
+    ("The live lane on 4390 serves an old N5", "Vite stopped watching `clank/src/needs/n5/index.tsx` at 22:56. The page still "
+     "loads the pre-fix module ('I recommend', rail 'Data.'); disk, tsc and a fresh transform have the new code (re-checked "
+     "23:40). An in-place Vite restart fixes it, e.g. touching `vite.vibetracks.config.mjs`, and reloads the lane for every "
+     "peer. Needed before the Codex audit, or the auditor reads the old N5."),
+    ("Two raw ISO hover titles in variant A", "`TracksPage.tsx:109` (home footer 'read …') and `TrackPage.tsx:75` (track "
+     "stateline 'since …') put the raw stamp in `title`; kinsim and grasping show '+00:00', which is UTC. Switch both to the "
+     "kit's `hoverTime`. Variants B and C were not scanned."),
+    ("Grasping's columns read T0, T1, T2, T3, T5, T1-s1, T1-s2, T4", "Ledger order, as tested, but T4 ('Harder real clutter, "
+     "offline', 3 runs) is the 'latest' column while the frontier rung is Tier 2. Not a truth violation; a reader may find "
+     "it confusing. Flagged for the audit."),
+    ("Duplicate `#vt-review-bar` ids", "Clank's dockview keeps a detached dashboard alive, so two bars with one id can exist. "
+     "NeedsShell now looks the bar up inside its own `.vt-dash`; an instance-unique id would remove the trap."),
     ("Proven subline not yet seen on live data", "Checked only against a patched stub. Re-check once the real widget from "
      "`claude/vibetracks-roadmap-r3` lands; proven.ts already accepts its `{document}` wrapper. With '(not current)' the home "
      "Progress cell runs to 4-5 lines, so rows get taller."),
@@ -419,57 +499,122 @@ ISSUES = [
     ("Scorecard at narrow widths", "At a 900 px viewport the kinsim and rig scorecards showed no iteration columns (KPI | Trend | "
      "Target | Status with a blank band). At 1440 the grasping page appears to cut off the Target/Status text at the right edge "
      "(seen, not measured)."),
-    ("Needs-you page faults (detail in that report)", "Stale recommendation drafts in N2-N5, raw ISO stamps with a UTC offset in "
-     "N1-N4 hover titles, and the N pill over option 3 in N1/N2. N6, the default, passes all three."),
+    ("Needs-you page (detail in that report)", "Round 3 fixed the stale drafts, the N1–N4 hover times and the N pill over "
+     "option 3. Left there: N6's deployment page still says 'loop' twice."),
     ("Roadmap widget is a stub (expected)", "Every Roadmap section says 'Roadmap widget pending (roadmap session)' and "
      "`GET /api/plugins/vibetracks/roadmap/<id>` answers 404 until its branch merges. The home rung cell uses each loop's own "
      "`rung` meanwhile."),
-    ("The fix waves are uncommitted", "Commit 29cbe13 holds fix wave 1; waves 2 and 3 are 29 modified and 3 untracked files in "
-     "/home/bam/vibetracks-dashboard (the verifier matched `git diff --stat` to the lanes' claims exactly). A peer's `git stash -u` "
-     "there would take them."),
+    ("This round is uncommitted", "HEAD is 1515304. Round 3 is 26 modified files plus the untracked "
+     "`grasp_bench_bridge.py` in /home/bam/vibetracks-dashboard (verify-4 matched `git diff --stat` to the lanes' claims). A "
+     "peer's `git stash -u` there would take them."),
+    ("The hero video predates round 3", "It was recorded after fix wave 1: its home rows show grasping at the old 6 / 10 and "
+     "'7 blocking', the pre-one-source Needs-you counts, a zoneless 'read 2026-10-04 20:53' and the switcher as three buttons. "
+     "The round-3 stills are current; re-record it before the audit if the video should be current too."),
     ("Sources in agent worktrees", "Kinsim, rig and grasping still read from agent worktrees a sweep could delete. The row would "
      "then say 'not reporting', truthfully."),
     ("Clank shell errors (not the dashboard)", "The shell's usual .clank/*.json 404s and fs mkdir 409s. No error came from the "
      "dashboard code, and no window error fired."),
+    ("Bridge edits need a backend restart", "The build reloads grasping.py when it changes, but not grasp_bench_bridge.py; a "
+     "change to the bridge's script text still invalidates its cache on its own."),
 ]
 
 
 DECISION = f"""
 <ul>
-  <li><strong>Done and proved:</strong>
+  <li><strong>Done and proved</strong> (verify-4, an independent measure-only pass: 7 of its 9 checks pass; the 2 failures are under Left):
     <ul>
-      <li>{NFIXED} of {len(FIXES)} tracked findings are fixed and measured, {NPARTLY} partly (table above). New in fix wave 3:
-          deployments read 'not reported', code spans no longer break mid-token, the switcher is one pill, and the proven
-          subline exists (proven against a patched stub).</li>
-      <li>Build: 236 pytest pass, tsc 0 errors, proven.test 6/6; the red test and the N2 type error from wave 2 are gone.</li>
-      <li>Needs-you counts have one source: home cell = track line = every proposal's header = /needs (48 of 48 pages);
-          pyblocks, CAN 12 and CAN 16 read 'not reported', never 0. The Needs-you page itself is reported in <code>{esc(NEEDS_REPORT)}</code>.</li>
-      <li>Home still shows exactly the five work tracks: {esc(FACTS['home']['header'])}.</li>
-      <li>{len(CHECKS)} KPI values on five tracks plus CAN 16 recomputed from the loops' own files: all match (first drive).</li>
-      <li>Times: every time the UI formats reads local time with its zone, raw ISO on hover (N1-N4's hover titles excepted; see the Needs-you report).</li>
+      <li><b>Grasping tells the truth:</b> the north star is the bench's own verdict, {G_STAR['value']:g} / {G_STAR['of']}, equal to the bench's
+          gallery run at build time in its own venv over {ORACLE_NOW['n_runs']} ledger rows. It read {G_STAR_OLD['value']:g} / {G_STAR_OLD['of']} from a stale copy of the bench's rules.
+          The bridge took {TRACKS['grasping']['source']['bench_verdict']['seconds']:.2f} s cold; verify-4 measured 0.002 s cached.</li>
+      <li>{NFIXED} of {len(FIXES)} tracked findings are fixed and measured, {NPARTLY} partly (table above). New in round 3: the review bar
+          ({len(V4_STATES)} states, {V4_HITS} hits), KPI cells by keyboard, '0 blocking' / 'not reported' wording, the last-moved label.</li>
+      <li>Build: 243 pytest pass (the grasping live oracle ran, not skipped), tsc 0 errors; <code>git diff --stat</code> equals the lanes' 26 claimed files plus the untracked bridge; nothing under <code>clank/src/roadmap</code>.</li>
+      <li>Needs-you counts: home cell = track line = every proposal's header = /needs on all 5 tracks; pyblocks, CAN 12 and CAN 16 read 'not reported', never 0. The Needs-you page has its own report: <code>{esc(NEEDS_REPORT)}</code>.</li>
+      <li>Home still shows exactly the five work tracks.</li>
     </ul></li>
   <li><strong>Left</strong> (next; only the roadmap merge waits on you):
     <ul>
-      <li>The A · B · C pill over grasping's and detection's KPI cells, and 'none blocking' on grasping's home cell.</li>
-      <li>Re-check the proven subline on the real roadmap widget once it lands; fix <code>scripts/shoot.mjs</code> for the pill.</li>
-      <li>Roadmap widget: merge <code>claude/vibetracks-roadmap</code> (r3), then re-drive the Roadmap section. Blocked on you.</li>
-      <li>A Codex audit of the fix waves (not run; the verifiers and the judge are Claude).</li>
-      <li>The stills in Home, Track pages and Drill-down are from the first drive: their Needs-you numbers are the old ones. Fix wave 3's own stills are in the fix-wave section.</li>
+      <li><b>Restart Vite on the 4390 lane before the Codex audit.</b> It still serves the pre-fix N5 (re-checked 23:40). The restart reloads the lane for every peer, so it is the orchestrator's call.</li>
+      <li>Variant A's two raw ISO hover titles (<code>TracksPage.tsx:109</code>, <code>TrackPage.tsx:75</code>): a two-line fix with the kit's <code>hoverTime</code>.</li>
+      <li>The Codex audit of rounds 1–3 (not run yet; every judge and verifier so far is Claude).</li>
+      <li>Re-check the proven subline on the real roadmap widget once it lands; fix <code>scripts/shoot.mjs</code> for the pill; re-record the hero.</li>
+      <li>The stills in Track pages and Drill-down (except grasping's) are from the first drive; the round-3 stills are in the top two sections.</li>
     </ul></li>
   <li><strong>Needs you</strong> (each has a default that keeps work moving if you say nothing):
     <ol>
       <li><b>Merge the roadmap widget</b> (<code>claude/vibetracks-roadmap-r3</code>) into <code>claude/vibetracks-dashboard</code>?
           Recommendation: yes; it replaces the stub and gives the proven subline real data. Default: nothing is merged; the section keeps saying pending.</li>
-      <li><b>Commit the three fix waves</b> on <code>claude/vibetracks-dashboard</code> so a peer's stash cannot take them?
-          Recommendation: yes, now that the tests and tsc are green. Default: left uncommitted, as this task's rules require.</li>
-      <li><b>Durable homes for loop files</b> now in agent worktrees (rig loop, grasp ledger, kinsim loop dir)?
-          Recommendation: a stable path per loop. Default: unchanged; a sweep would turn a row 'not reporting', honestly.</li>
+      <li><b>Commit rounds 2–3</b> on <code>claude/vibetracks-dashboard</code> so a peer's stash cannot take them (the bridge is an untracked file)?
+          Recommendation: yes, after the Vite restart and the audit. Default: left uncommitted, as this task's rules require.</li>
+      <li><b>Durable homes for loop files</b> now in agent worktrees (rig loop, grasp ledger and bench venv, kinsim loop dir)?
+          Recommendation: a stable path per loop. Default: unchanged; a sweep would turn a row 'not reporting', or grasping's verdict 'unavailable', honestly.</li>
     </ol></li>
-  <li><strong>Deliberately not done:</strong> no commits, no vault edits. The A · B · C pill is not shown on needs pages, where it
+  <li><strong>Deliberately not done:</strong> no commits, no vault edits, no Vite restart (it reloads every peer's lane). The A · B · C pill is hidden on needs pages, where it
       would switch nothing (no fake controls). Loop prose that carries its own clock ('at 14:54 UTC', 'UPDATE 21:30') is shown as
       written, under the truth rule, not converted.</li>
 </ul>
 """
+
+def grasping_html() -> str:
+    t = TRACKS["grasping"]
+    bv = t["source"]["bench_verdict"]
+    rows = [
+        ("First drive (20:55), adapter's own copy of the rules", f"{G_STAR_OLD['value']:g} / {G_STAR_OLD['of']}", esc(G_STAR_OLD.get("note") or ""), esc(OLD_GRASP["summary"])),
+        (f"verify-4 (23:22), bench gallery in its own venv · {ORACLE_V4['n_runs']} rows",
+         f"{len(ORACLE_V4['beaten'])} / {ORACLE_V4['gated']}", "beaten: " + esc(", ".join(ORACLE_V4["beaten"])),
+         "provisional: " + esc(", ".join(ORACLE_V4["provisional"]))),
+        (f"Build time ({fmt_time(PROJ['generated_at'])}), dashboard projection", f"{G_STAR['value']:g} / {G_STAR['of']}", esc(G_STAR["note"]), esc(t["summary"])),
+        (f"Build time, bench gallery in its own venv · {ORACLE_NOW['n_runs']} rows", f"{len(ORACLE_NOW['beaten'])} / {ORACLE_NOW['gated']}",
+         "beaten: " + esc(", ".join(ORACLE_NOW["beaten"])), "provisional: " + esc(", ".join(ORACLE_NOW["provisional"]))),
+    ]
+    table = ('<div class="tablewrap"><table class="grid small"><thead><tr><th>Read by</th><th>Gated envs beaten</th><th>Which</th>'
+             '<th>Context</th></tr></thead><tbody>' + "".join(
+                 f'<tr><th>{esc(a)}</th><td class="num"><b>{esc(b)}</b></td><td>{c}</td><td class="dim">{d}</td></tr>' for a, b, c, d in rows)
+             + "</tbody></table></div>")
+    return (
+        '<div class="g2">'
+        + fig("02-track-grasping.webp", f"Before: {G_STAR_OLD['value']:g} / {G_STAR_OLD['of']} gated envs beaten, MuJoCo 2 / 6",
+              "First drive, 20:55. The adapter judged the ledger with its own copy of the bench's rules. Also stale here: "
+              "'2 of 6 gates cleared', '7 blocking' and 'since 10-05 01:54 UTC'.")
+        + fig(str(MEDIA / "verify-4" / "v4-1440-grasping-rest.png"), "After: 4 / 10, MuJoCo 0 / 6, the bench's own verdict",
+              "verify-4, 23:26. 'North star 4 / 10', '0 of 6 gates beaten', 'Needs you · 0 blocking · 7 open', and the time in PDT. "
+              "The page reads the same KPI fields as before; only who judges them changed.")
+        + "</div>"
+        + "<h3>Why it drifted</h3>"
+        "<p>The grasping adapter judged the bench's ledger with its own copies of the bench's rules: <code>is_frozen</code>, "
+        "<code>is_privileged</code>, <code>clears_gate</code>, <code>headline_runs</code>, <code>env_verdict</code>, the frozen "
+        "protocol table and the eval seed. The bench then tightened what counts as a frozen run (commit <code>da80ffe1</code>). "
+        "The copy did not follow, so the dashboard kept counting runs the bench itself no longer accepts and showed 6 of 10 "
+        "beaten. The copied protocol table had drifted too: it was missing <code>mujoco-cam</code>. Grasping's 'gates cleared' wording was also wrong for an "
+        "env that clears its gate only on a smoke run: it now reads 'gates beaten', with those envs listed as provisional.</p>"
+        "<h3>How the bridge prevents it</h3>"
+        '<ul class="ls">'
+        "<li><b>No copy left to drift.</b> <code>grasp_bench_bridge.py</code> runs the bench's own <code>gallery.py</code> in the "
+        "bench's own Python (<code>.venv/bin/python -I</code>, from the bench folder, with VIRTUAL_ENV and the PYTHON* overrides "
+        "removed, 90 s timeout) and returns its verdict as JSON: beaten and provisional per env, the headline run per cell, frozen, "
+        "privileged and clears-gate per run. A test fails at import if any of the twelve copied names comes back.</li>"
+        "<li><b>It judges exactly the rows the adapter read</b>, by run_id, one cumulative set per phase, so a ledger that grows "
+        "mid-build cannot skew the count. An answer that misses a row is rejected, not half-used.</li>"
+        "<li><b>Wrong code is refused.</b> If the bench imports gallery, ledger, curriculum, runner or contracts, or reads "
+        "attestations.jsonl, from anywhere but the declared paths, the answer is thrown away.</li>"
+        "<li><b>No verdict means no number.</b> If the bench cannot answer (no venv, import error, timeout), the north star is "
+        "null on every iteration with 'bench verdict unavailable: &lt;reason&gt;', six verdict KPIs read 'unconfirmed', the state "
+        "reads 'Bench verdict unavailable' and the reason goes in <code>source.problems</code>. Never a guess.</li>"
+        "<li><b>A test asks the bench directly.</b> The live smoke test runs <code>gallery.env_verdict</code> in the bench's Python, "
+        "written in the test and not through the bridge, and asserts the dashboard's latest value and its 'beaten: …' note equal "
+        "it.</li>"
+        f"<li><b>Cheap.</b> Cached on the mtime and size of the ledger, attestations.jsonl, the five bench files and the bench's "
+        f"Python, plus the request and the bridge script. At build time: {bv['seconds']:.2f} s cold "
+        f"({bv['bench_seconds']:.2f} s of it the bench); verify-4 measured 0.002 s cached.</li>"
+        "</ul>"
+        "<h3>The count follows the ledger, and agrees with the bench every time it was read</h3>"
+        + table
+        + '<p class="small dim">The grasping lane saw 3 beaten while it worked; by verify-4 toy/xy_rz_w was beaten too. Each time the '
+        "dashboard and the bench were read together they agreed. The builder asserts the build-time pair is equal before it "
+        "writes this page. Still to know: the bridge calls the bench's private <code>gallery._run_privileged</code>; if the "
+        "bench renames it, the row reads 'bench verdict unavailable', not a wrong number.</p>"
+    )
+
 
 CSS = r"""
 :root{
@@ -628,25 +773,36 @@ def build() -> str:
   <video controls autoplay muted loop playsinline preload="auto" aria-label="Hero: home, Kinematic Sim, roadmap, back, rig, CAN 16, rename">
     <source src="{data_uri(MEDIA / 'hero-live-tracks.mp4', 'video/mp4')}" type="video/mp4"></video>
   <img id="hero-gif" class="gif hidden" alt="Hero as a GIF" src="{data_uri(MEDIA / 'hero-live-tracks.gif', 'image/gif')}">
-  <figcaption><b>Home → Kinematic Sim → Roadmap → back → Rig → CAN 16 → rename (21 s, 1.25× speed, re-recorded after the fix wave)</b>
+  <figcaption><b>Home → Kinematic Sim → Roadmap → back → Rig → CAN 16 → rename (21 s, 1.25× speed, recorded after fix wave 1)</b>
   <span class="cap">Recorded headless from the running lane at http://127.0.0.1:4390 on live data. The blue dot is the pointer.
-  The rename at the end was reverted through the ⋯ menu right after the recording; the note came back byte-identical.</span></figcaption>
+  The rename at the end was reverted through the ⋯ menu right after the recording; the note came back byte-identical. Out of date
+  since: grasping reads 6 / 10 and '7 blocking', the Needs-you counts predate the one-source fix, and the switcher is three buttons.</span></figcaption>
 </figure>"""
 
+    home_summary = V4["counts"]["homeSummary"].split("\n")[2]
     home = (
         '<div class="g1">'
-        + fig("01-home.webp", "Home: one row per work track",
-              f"{FACTS['home']['header']}. Columns: Status (state word + clamped detail), Progress (north star + sparkline), "
-              "Current rung → next (the loop's own rung from its status file; Pyblocks has none and says 'latest wave … · no roadmap declared'), Last moved (the build's "
-              "heartbeat, 'stale' past the 24 h stall rule), Needs you (blocking · open; 'not reported' when unknown, never 0). "
-              "CAN 12 and CAN 16 are not on this page.")
-        + fig(str(NEEDS_MEDIA / "verify-2" / "home.png"), "Home after fix wave 2",
-              "Needs you now reads the page's own numbers: " + "; ".join(f"{t} '{c}'" for t, c in _home_cells().items())
-              + ". Times carry their zone ('read 10-04 21:20 PDT').")
+        + fig(str(MEDIA / "verify-4" / "v4-1440-home-rest.png"), "Home, round 3 (1440 × 900)",
+              f"'{home_summary}'. Columns: Status (state word + clamped detail), Progress (north star + sparkline), "
+              "Current rung → next (the loop's own rung; Pyblocks has none and says 'latest wave … · no roadmap declared'), Last moved "
+              "(one line, ellipsis when cut, 'stale' past the 24 h stall rule), Needs you ('0 blocking · 7 open' for grasping; "
+              "'not reported' when unknown, never 0). The pill sits in the review bar under the table. CAN 12 and CAN 16 are not on this page.")
+        + "</div>" + '<div class="g2">'
+        + fig(str(MEDIA / "verify-4" / "v4-1280-home-rest.png"), "Home at 1280 × 800",
+              "The last-moved labels cut with a visible '…' ('kinsim_eve…') and carry the whole name on hover; nothing runs out of its cell.")
+        + fig("01-home.webp", "Home at the first drive (20:55), for comparison",
+              "Grasping '6 / 10' and '7 blocking', '11 open' on kinsim and rig, three switcher buttons over the corner.")
         + "</div>" + home_rows()
     )
 
+    gt = TRACKS["grasping"]
+    grasp_page = fig(str(MEDIA / "verify-4" / "v4-1280-grasping-rest.png"), f"{gt['title']} · track page (round 3, 1280 × 800)",
+                     f"State: {gt['state']['word']}. Needs you · {gt['needs_you_count']['blocking']} blocking · "
+                     f"{gt['needs_you_count']['open']} open. North star: {gt['kpis'][0]['label']} = {G_STAR['value']:g} / {G_STAR['of']}, "
+                     f"the bench's own verdict. {len(gt['kpis'])} KPIs × {len(gt['kpis'][0]['values'])} iterations in the projection; "
+                     "the status word wraps inside its column instead of printing over the Progress number.")
     pages = '<div class="g2">' + "".join(
+        grasp_page if tid == "grasping" else
         fig(f"02-track-{tid}.webp", f"{TRACKS[tid]['title']} · track page",
             f"State: {TRACK_PAGE[tid]['state'].splitlines()[0]}. "
             f"{(TRACK_PAGE[tid]['needs'] or '').replace(' →', '')}. "
@@ -753,9 +909,21 @@ def build() -> str:
         fig("r2-ui-rig-purpose-900.png", "Rig purpose at 900 px: code spans whole",
             "`ladder.json` and `loop-status.json` stay in one piece. Also visible, and still open: the scorecard at this width shows "
             "no iteration columns, only KPI | Trend | Target | Status."),
-    ]) + "</div>" + '<div class="g1">' + fig("verify-3/v3-pill-over-cell-grasping.png", "Still open: the pill over grasping's KPI cells",
-            "At rest the collapsed pill sits on the '87.4 %' cell, which is clickable but has no role, so the selector probes missed it. "
-            "Max scroll clears it.") + "</div>"
+    ]) + "</div>" + '<div class="g1">' + fig("verify-3/v3-pill-over-cell-grasping.png", "Fix wave 3's open item: the pill over grasping's KPI cells",
+            "At rest the collapsed pill sat on the '87.4 %' cell. Fixed in round 3 by the review bar (below).") + "</div>"
+    fw += "<h3>Round 3</h3>" + '<div class="g2">' + "".join([
+        fig(str(MEDIA / "verify-4" / "v4-1280-home-maxscroll.png"), "Review bar at 1280 × 800, max scroll",
+            "The scroll area ends where the 40 px bar starts; the pill sits in the bar, right-aligned, on the page's own background. "
+            f"verify-4: {len(V4_STATES)} states, {V4_HITS} hits."),
+        fig(str(MEDIA / "verify-4" / "v4-1440-detection-maxscroll.png"), "Detection at max scroll",
+            "In fix wave 3 the pill covered '2 / 12' here at rest; the scorecard now stops above the bar."),
+        fig("r3-ui-1440-switcher-open.png", "The pill, opened, in the bar",
+            "A · B · C grow upward as a transient menu; the bar stays 40 px, so the scroller does not jump."),
+        fig(str(MEDIA / "verify-4" / "v4-kpi-cell-focused.png"), "Tab reaches a KPI cell",
+            "11 Tabs from the title land on 'Rungs green or done · Start: 4 / 62 · open evidence' with a 2 px focus ring."),
+        fig(str(MEDIA / "verify-4" / "v4-kpi-cell-enter-evidence.png"), "Enter opens its evidence",
+            "`#vt?track=kinsim&kpi=rungs_green&iteration=start`: 'Start … freeze 89ece43f · 4 rungs done at baseline'."),
+    ]) + "</div>"
 
     page = f"""<!doctype html>
 <html lang="en"><head><meta charset="utf-8">
@@ -765,41 +933,43 @@ def build() -> str:
 <body><div class="wrap">
 
 <header class="top">
-  <div class="date">2026-10-04 · integration check, re-verified after fix wave 3</div>
+  <div class="date">2026-10-04 · integration check, round 3, re-verified by verify-4</div>
   <h1>Vibe Tracks: your five work tracks, live</h1>
-  <p class="verdict">{NFIXED} of {len(FIXES)} tracked findings are fixed and measured and {NPARTLY} partly, and the build is green: deployments
-  now read 'not reported', code spans wrap between tokens, and every Needs-you count matches the page it opens. Partly: the proven
-  subline is proven only against a patched roadmap stub, and the new one-pill switcher still covers clickable KPI cells on the grasping
-  and detection pages. The roadmap widget is still a stub until its branch merges.</p>
-  <p class="built">Restarted the vibetracks backend and drove the running lane headless at {esc(gen)}.
-  {sum(c["match"] for c in CHECKS)} of {len(CHECKS)} KPI values matched when recomputed from the loops' own files. The rename
-  round trip left the note byte-identical. Re-checked after fix wave 3 by an independent verifier (no product edits): 236 tests pass,
-  tsc has 0 errors, proven.test 6/6, and <code>git diff --stat</code> equals the lanes' claimed files. Nothing committed. This page is over the desktop preview's size cap, so open it in the browser. The Needs-you page has its
-  own report: <code>{esc(NEEDS_REPORT)}</code>.</p>
+  <p class="verdict">Grasping's north star now reads {G_STAR['value']:g} / {G_STAR['of']}, the bench's own verdict: it read {G_STAR_OLD['value']:g} / {G_STAR_OLD['of']} from a stale copy of the
+  bench's rules, and a bridge now asks the bench itself, so the copy cannot drift again. {NFIXED} of {len(FIXES)} tracked findings are fixed
+  and measured, {NPARTLY} partly; round 3 added a review bar no pill can cover, KPI cells by keyboard and '0 blocking' / 'not reported'
+  wording. Still wrong: two variant-A hover titles show raw ISO stamps, and the 4390 lane serves a stale N5 until Vite restarts.</p>
+  <p class="built">Built against the projection the backend served at {esc(gen)}, with the bench's own gallery run at the same minute in its
+  own venv ({ORACLE_NOW['n_runs']} ledger rows, {len(ORACLE_NOW['beaten'])} beaten: they agree). verify-4, an independent measure-only pass, then re-checked
+  round 3: 7 of 9 checks pass, 243 tests pass, tsc has 0 errors, and <code>git diff --stat</code> equals the lanes' claimed files.
+  {sum(c["match"] for c in CHECKS)} of {len(CHECKS)} KPI values matched their loops' own files at the first drive (the grasping ones have moved
+  since, as its ledger grew). Nothing committed. This page is over the desktop preview's size cap, so open it in the browser. The
+  Needs-you page has its own report: <code>{esc(NEEDS_REPORT)}</code>.</p>
   <div class="launch"><pre id="launch-cmd">{esc(LAUNCHER)}</pre><button id="copy-launch" type="button">Copy</button></div>
 </header>
 
 <nav class="toc" aria-label="Sections">
-  <a href="#watch">Watch</a><a href="#fixwave">Fix waves</a><a href="#home">Home</a><a href="#pages">Track pages</a><a href="#drill">Drill-down</a>
+  <a href="#grasping">Grasping fix</a><a href="#watch">Watch</a><a href="#fixwave">Fix waves</a><a href="#home">Home</a><a href="#pages">Track pages</a><a href="#drill">Drill-down</a>
   <a href="#tracks">Per track</a><a href="#checks">Numbers checked</a><a href="#rename">Rename</a><a href="#live">Live vs stale</a>
   <a href="#issues">Issues</a><a href="#decide">Decide</a>
 </nav>
 
-{section("watch", "Watch first", "One recorded walk through the real app: pick a track, read its KPIs, open the roadmap section, go back, open the rig and CAN 16, rename a track.", hero, 1)}
-{section("fixwave", "What changed in the fix waves", "Each finding, re-measured independently after the lanes reported done (a-i in fix wave 1, b and j in fix wave 2, k-n in fix wave 3). The verifiers did not write the fixes.", fw, 2)}
-{section("home", "Home: the work tracks", "One calm row per top-level track, in registry priority order. It adapts to however many track notes exist, so a sixth track is one new note.", home, 3)}
-{section("pages", "Each track page", "Title (renamable) → one state line → Needs you → purpose → Key KPIs → Roadmap. The rig adds its deployments under the roadmap. These captures are from the first drive; their Needs-you numbers predate the one-source fix.", pages, 4)}
-{section("drill", "Drilling in: KPIs, roadmap, needs, evidence", "Kinsim end to end, then the rig's deployments.", drill, 5)}
-{section("tracks", "Per track: sources, freshness, KPIs, roadmap, gaps", f"Read from the projection the backend served at {esc(gen)} (<code>{esc(PROJ_PATH.name)}</code>). File times are local, with their zone.", track_table(), 6)}
-{section("checks", "Numbers checked against the source files", "Each value recomputed by a separate script (<code>crosscheck.py</code> in the media folder) straight from the loop's own files, not from the adapter, then compared with what the dashboard served.", checks_table(), 7)}
-{section("rename", "Renaming a track", "", rename, 8)}
-{section("live", "What is live, what is stale, and why", "", live_status(), 9)}
-{section("issues", "Issues still open", "The verifiers changed no product code; these are for their owners. Fixed issues moved to the fix-wave table above.", '<ol class="issues">' + ''.join(f'<li><b>{inline_md(t)}</b>{inline_md(d)}</li>' for t, d in ISSUES) + '</ol>', 10)}
+{section("grasping", "Grasping's north star is now the bench's own verdict", "The headline correction this round: the number was wrong, not just styled wrong.", grasping_html(), 1)}
+{section("watch", "Watch first", "One recorded walk through the real app: pick a track, read its KPIs, open the roadmap section, go back, open the rig and CAN 16, rename a track. Recorded after fix wave 1, before round 3: its grasping row still reads the old 6 / 10.", hero, 2)}
+{section("fixwave", "What changed in the fix waves", "Each finding, re-measured independently after the lanes reported done (a-i in fix wave 1, b and j in fix wave 2, k-n in fix wave 3, o-t in round 3). The verifiers did not write the fixes.", fw, 3)}
+{section("home", "Home: the work tracks", "One calm row per top-level track, in registry priority order. It adapts to however many track notes exist, so a sixth track is one new note.", home, 4)}
+{section("pages", "Each track page", "Title (renamable) → one state line → Needs you → purpose → Key KPIs → Roadmap. The rig adds its deployments under the roadmap. Grasping's capture is round 3's; the others are from the first drive, and their Needs-you numbers predate the one-source fix.", pages, 5)}
+{section("drill", "Drilling in: KPIs, roadmap, needs, evidence", "Kinsim end to end, then the rig's deployments.", drill, 6)}
+{section("tracks", "Per track: sources, freshness, KPIs, roadmap, gaps", f"Read from the projection the backend served at {esc(gen)} (<code>{esc(PROJ_PATH.name)}</code>). File times are local, with their zone.", track_table(), 7)}
+{section("checks", "Numbers checked against the source files", "Each value recomputed by a separate script (<code>crosscheck.py</code> in the media folder) straight from the loop's own files, not from the adapter, then compared with what the dashboard served at the first drive. 'Projection now' is what the projection used for this page shows; it is not re-derived from source. Grasping's north star is checked against the bench itself in the top section.", checks_table(), 8)}
+{section("rename", "Renaming a track", "", rename, 9)}
+{section("live", "What is live, what is stale, and why", "", live_status(), 10)}
+{section("issues", "Issues still open", "The verifiers changed no product code; these are for their owners. Fixed issues moved to the fix-wave table above.", '<ol class="issues">' + ''.join(f'<li><b>{inline_md(t)}</b>{inline_md(d)}</li>' for t, d in ISSUES) + '</ol>', 11)}
 
 <section id="decide">
   <h2>Decision surface</h2>
   <div class="decide">{DECISION}</div>
-  {FB.ui(REPORT_NAME, noun="section", total=10)}
+  {FB.ui(REPORT_NAME, noun="section", total=11)}
 </section>
 
 <footer class="end">Generated by docs/dashboard/build_live_report.py from the drive's JSON in {esc(MEDIA)}.</footer>

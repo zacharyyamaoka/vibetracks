@@ -6,7 +6,7 @@
 // WHY "(not current)" on a "stale…" warning: the backend served its last good projection after a failed refresh; the
 // number is real but old, so it is shown and marked, never passed off as now.
 // WHY nothing at all when a count is missing: a missing count is not 0 proven (truth rule); the line stays as it was.
-// Pure and dependency-free so `node --experimental-strip-types proven.test.mjs` can check it without a bundler.
+// Pure and dependency-free so `node --experimental-strip-types --test proven.check.mjs` can check it without a bundler.
 
 const isObject = (value: unknown): value is Record<string, unknown> => Boolean(value) && typeof value === 'object' && !Array.isArray(value)
 const count = (value: unknown): number | null => (typeof value === 'number' && Number.isInteger(value) && value >= 0 ? value : null)

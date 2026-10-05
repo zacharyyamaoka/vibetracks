@@ -9,12 +9,11 @@
   .dark .vt-dash .vt-a {
     --vt-a-wash: rgba(82, 156, 202, 0.08);
   }
-  /* WHY 120px of bottom room: the temporary Proposal switcher floats over the bottom-right corner of the dashboard
-     (14px inset, ~31px tall). The last row and the footer must be able to scroll fully clear of it (measured, not
-     guessed: the last row's rect does not meet the switcher's at max scroll). Remove with the switcher. */
+  /* WHY only 48px of bottom room: the review pills live in the frame's review bar under the scroller
+     (Dashboard.tsx), so nothing floats over the page's end any more; this is breathing room, not clearance. */
   .vt-dash .vt-a .vt-a-page {
     max-width: 1240px;
-    padding-bottom: 120px;
+    padding-bottom: 48px;
   }
   .vt-dash .vt-a .vt-a-link {
     color: var(--vt-grey);
@@ -62,6 +61,20 @@
   .vt-dash .vt-a .vt-a-two small {
     font-size: 12.5px;
     color: var(--vt-faint);
+  }
+  /* One line with Chrome's own "…" (every user carries the whole text in a title). The column flex box is capped at
+     its cell so the ellipsis has a width to cut at. */
+  .vt-dash .vt-a .vt-a-movedcell {
+    display: flex;
+    max-width: 100%;
+    min-width: 0;
+  }
+  .vt-dash .vt-a .vt-a-oneline {
+    display: block;
+    max-width: 100%;
+    overflow: hidden;
+    white-space: nowrap;
+    text-overflow: ellipsis;
   }
   /* Left-aligned clamps: Chrome draws the "…" itself (it cannot for right-aligned text; see clamp.tsx). Every user of
      these classes also carries the whole string in a title or a "more" toggle. */
@@ -559,6 +572,16 @@
   .vt-dash .vt-a .vt-a-menu-item:hover,
   .vt-dash .vt-a .vt-a-menu-item:focus-visible {
     background: var(--vt-hover);
+  }
+  /* WHY the status word may wrap inside its cell: `.vt-status` is nowrap everywhere else, and at 1280 the grasping
+     row's "Tier 2 · MuJoCo physics" ran out of its 17% column and printed over the Progress number ("physi6 / 10").
+     Wrapping keeps every character and stays inside the cell. */
+  .vt-dash .vt-a .vt-a-statuscell .vt-status-stack {
+    max-width: 100%;
+    min-width: 0;
+  }
+  .vt-dash .vt-a .vt-a-statuscell .vt-status {
+    white-space: normal;
   }
   .vt-dash .vt-a .vt-a-statuscell .vt-status-stack small {
     text-align: left;

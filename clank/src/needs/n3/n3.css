@@ -222,6 +222,13 @@
     font-weight: 600;
     font-size: 14.5px;
   }
+  /* The whole ask in the head (the title was only its bold lead): the lead keeps its bold, the rest is plain text. */
+  .vt-dash .vt-needs-n3 .vt-n3-card-title.is-ask {
+    font-weight: 400;
+  }
+  .vt-dash .vt-needs-n3 .vt-n3-card-title.is-ask strong {
+    font-weight: 600;
+  }
   .vt-dash .vt-needs-n3 .vt-n3-card-state {
     flex: 0 0 auto;
     font-size: 12.5px;

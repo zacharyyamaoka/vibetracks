@@ -12,7 +12,7 @@
 // WHY nothing is "sent": the backend is read-only and the loops read answers from their own channels, so a reply is a
 // local draft until Copy answers; the panel says so instead of pretending to deliver (no fake controls).
 
-import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode, type RefObject } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode, type RefObject } from 'react'
 import {
   CopyOut,
   EvidenceLink,
@@ -32,6 +32,8 @@ import {
   type NeedsGroup,
   type NeedsItem,
   type NeedsProposalProps,
+  useFitToScroller,
+  questionText,
 } from '../kit'
 import { formatLocal } from '../../shared/time'
 import './n5.css'
@@ -123,7 +125,6 @@ export default function NeedsN5(props: NeedsProposalProps) {
   const { docs, loading, error, answers, route, navigate, track, reload } = props
   const rootRef = useRef<HTMLDivElement>(null)
   const composerRef = useRef<HTMLTextAreaElement>(null)
-  const [height, setHeight] = useState<number | null>(null)
   const [skipped, setSkipped] = useState<Set<string>>(readSkipped)
   const [showClosed, setShowClosed] = useState<Record<string, boolean>>({})
 
@@ -210,21 +211,10 @@ export default function NeedsN5(props: NeedsProposalProps) {
 
   // Fit the three columns to the dashboard's scroll area so the rail, the thread and the outbox scroll on their own
   // and the composer stays pinned at the bottom of the thread, as in any chat client.
-  useLayoutEffect(() => {
-    const root = rootRef.current
-    const scroller = root?.closest('.vt-scroll') as HTMLElement | null
-    if (!root || !scroller) return
-    const measure = () => {
-      const offset = root.getBoundingClientRect().top - scroller.getBoundingClientRect().top + scroller.scrollTop
-      // WHY minus 96: the N-chooser and the A · B · C switcher float over the bottom-right ~90px; the composer and
-      // Copy answers must never sit under them.
-      setHeight(Math.max(420, scroller.clientHeight - offset - 96))
-    }
-    measure()
-    const observer = new ResizeObserver(measure)
-    observer.observe(scroller)
-    return () => observer.disconnect()
-  }, [])
+  // WHY a 96px reserve: while the needs pill floats (no review bar) it and the A · B · C switcher sit over the
+  // bottom-right ~90px, and the composer and Copy answers must never be under them; docked in the review bar, the
+  // kit keeps only a calm end margin.
+  const height = useFitToScroller(rootRef, 96, 420)
 
   // Keys: J/K next/previous thread (Gmail, Superhuman), A = go with the recommendation, D = let the default apply,
   // R = reply in your own words, S = skip. WHY letters and not 1/2/3: the dashboard owns 1/2/3 for the A · B · C switch.
@@ -273,7 +263,7 @@ export default function NeedsN5(props: NeedsProposalProps) {
   const stillNeed = threads.filter((t) => ASKING.includes(t.item.group) && !replied(t)).length
 
   return (
-    <div className="vt-needs-n5" ref={rootRef} tabIndex={-1} style={{ height: height ?? undefined }} data-testid="vt-needs-n5">
+    <div className="vt-needs-n5 vt-needs-framed" ref={rootRef} tabIndex={-1} style={{ height: height ?? undefined }} data-testid="vt-needs-n5">
       <aside className="n5-rail" aria-label="Threads" data-testid="n5-rail">
         <div className="n5-rail-head">
           <h1 className="vt-h3">Needs you</h1>
@@ -367,14 +357,14 @@ function RailRow({ doc, item, current, draft, skipped, onSelect }: { doc: NeedsD
       className={`vt-btn n5-rail-row${current ? ' is-current' : ''}${done ? ' is-replied' : ''}`}
       aria-current={current ? 'true' : undefined}
       onClick={onSelect}
-      title={`${item.local_id} · ${item.title}`}
+      title={`${item.local_id} · ${questionText(item)}`}
       data-testid="n5-thread"
       data-item={item.id}
       data-track={doc.track}
     >
       <span className={`n5-dot n5-dot-${tone}`} aria-hidden />
       <span className="n5-rail-id">{item.local_id}</span>
-      <span className="n5-rail-text">{item.title}</span>
+      <span className="n5-rail-text">{questionText(item)}</span>
       {done ? <span className="n5-rail-state">replied</span> : skipped ? <span className="n5-rail-state">skipped</span> : null}
     </button>
   )
@@ -497,8 +487,14 @@ function ThreadView(props: ThreadProps) {
           ) : null}
 
           <div className="n5-rec" data-testid="n5-rec">
-            <p className="n5-key">I recommend</p>
-            <p className="n5-pre"><Inline text={item.recommendation_md || 'No recommendation recorded.'} /></p>
+            {/* WHY "Recommended" and not "I recommend": the dashboard is not the loop, and a first-person label next to
+                "No recommendation recorded" read as the loop speaking when it had said nothing. */}
+            <p className="n5-key">Recommended</p>
+            {item.recommendation_md ? (
+              <p className="n5-pre"><Inline text={item.recommendation_md} /></p>
+            ) : (
+              <p className="n5-pre vt-faint">No recommendation recorded</p>
+            )}
           </div>
 
           <div className="n5-default" data-testid="n5-default">
@@ -700,7 +696,7 @@ function Outbox({ docs, answers, skipped, repliedCount, stillNeed, onSelect }: N
             <ul className="n5-out-lines">
               {lines.map(({ item, draft }) => (
                 <li key={item.id}>
-                  <button type="button" className="vt-btn n5-out-line" onClick={() => onSelect(item.id)} title={`${item.local_id} · ${item.title}`}>
+                  <button type="button" className="vt-btn n5-out-line" onClick={() => onSelect(item.id)} title={`${item.local_id} · ${questionText(item)}`}>
                     <span className="n5-rail-id">{item.local_id}</span>
                     <span>
                       {draftSummary(item, draft)}
@@ -712,7 +708,7 @@ function Outbox({ docs, answers, skipped, repliedCount, stillNeed, onSelect }: N
               ))}
               {skips.map((item) => (
                 <li key={item.id}>
-                  <button type="button" className="vt-btn n5-out-line is-skipped" onClick={() => onSelect(item.id)} title={`${item.local_id} · ${item.title}`}>
+                  <button type="button" className="vt-btn n5-out-line is-skipped" onClick={() => onSelect(item.id)} title={`${item.local_id} · ${questionText(item)}`}>
                     <span className="n5-rail-id">{item.local_id}</span>
                     <span className="vt-faint">skipped, not included</span>
                   </button>

@@ -12,9 +12,14 @@ The rung (``track.rung``) is the frontier tier, the lowest tier whose wave-1 cel
 protocol or whose gates are not all beaten, never the tier of the newest run: the loop measures ahead (tier 5 cells
 ran while tier 2's gates were still open), so "latest" and "current" are different rungs here.
 
-Derivations mirror the bench's own gallery.py (``headline_runs``, ``is_frozen_protocol``, ``clears_gate``,
-``env_verdict``) so the dashboard and the bench's gallery agree on which envs are beaten; the live smoke test in
-tests/test_dashboard_adapter_grasping.py checks that against the bench's own code when its venv is on the machine.
+Verdicts are the bench's own: which run heads each cell, which runs are on the frozen protocol, which are
+privileged, which envs are beaten or provisional. grasp_bench_bridge.py runs ``grasp_bench.gallery`` in the bench's
+venv over exactly the ledger rows this adapter read, and caches the answer. WHY no copy of those rules here: the copy
+this module used to carry drifted the night the bench tightened "frozen" (provenance_gap, attestations.jsonl) and read
+6 of 10 gated envs beaten against the gallery's 2. When the bench cannot answer, the verdict KPIs are null with the
+reason ("bench verdict unavailable: ..."), never a guess. The bridge's inputs (``grasping_bench_python``,
+``grasping_attestations``, the bench's ``gallery.py`` / ``ledger.py`` / ``runner.py`` / ``contracts.py`` and the
+``grasping_verdict_cache`` folder) are declared sources too, so the build reruns this adapter when any of them changes.
 
 Iteration: a **tier phase**, the rows of one curriculum tier under one training seed, in the order the ledger first saw
 them (T0, T1, T2, then "T1 · seed 1" when the 3-seed runs land). Each KPI value is the cumulative ledger state once
@@ -32,28 +37,20 @@ import types
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any
+from typing import Any, Callable
 
+from vibetracks.benches import grasp_bench_bridge
 from .base import local_time, not_reporting, rung, skeleton
 
-#: Every sources.py key this adapter opens, and what it is to the loop (base.py READ_ROLES).
-READS = {"grasping_ledger": "heartbeat", "grasping_curriculum": "heartbeat", "grasping_out_dir": "evidence"}
+#: Every sources.py key this adapter opens, and what it is to the loop (base.py READ_ROLES). The bench's code, venv and
+#: attestations are ``input``: a changed gallery.py changes the verdict but does not mean the loop measured anything.
+READS = {"grasping_ledger": "heartbeat", "grasping_curriculum": "heartbeat", "grasping_out_dir": "evidence",
+         "grasping_attestations": "input", "grasping_gallery_py": "input", "grasping_ledger_py": "input",
+         "grasping_runner_py": "input", "grasping_contracts_py": "input", "grasping_bench_python": "input",
+         "grasping_verdict_cache": "input"}
+UNAVAILABLE = "bench verdict unavailable"
+UNCONFIRMED = f"unconfirmed: {UNAVAILABLE}"
 
-# --------------------------------------------------------------------------------------------------------------------
-# Mirrors of the bench's frozen protocol (grasp_bench/runner.py DEFAULT_PROTOCOLS, contracts.EvalProtocol.seed).
-# WHY mirrored and not read: runner.py and contracts.py are not declared sources (only the ledger and curriculum.py
-# are), and contracts.py imports numpy, which the dashboard backend does not need. If the bench changes its frozen
-# protocol, the live smoke test (which runs the bench's own gallery.env_verdict) goes red.
-# --------------------------------------------------------------------------------------------------------------------
-FROZEN_EVAL_SEED = 20261004
-DEFAULT_PROTOCOLS: dict[str, tuple[str, int]] = {
-    "bandit": ("eval-2000", 2000),
-    "toy": ("eval-2000", 2000),
-    "mujoco": ("eval-200", 200),
-    "graspnet1b": ("ts30x8-staggered", 240),
-    "gc6d": ("gc6d-30x4", 120),
-}
-FALLBACK_PROTOCOL = ("eval-200", 200)
 #: WHY 1 s: Zach's deck, "All algorithms should run in real-time (<1s)", and BAM KPIs' 1 s computation time
 #: (quoted in the loop's docs/grasping/build_proposal.py). curriculum.py carries no latency budget of its own.
 LATENCY_LIMIT_MS = 1000.0
@@ -193,55 +190,9 @@ def _family(env_id: str) -> str:
     return env_id.split("/", 1)[0]
 
 
-def frozen_protocol(env_id: str) -> tuple[str, int]:
-    return DEFAULT_PROTOCOLS.get(_family(env_id), FALLBACK_PROTOCOL)
-
-
-def is_frozen(run: Run, cur: Curriculum) -> bool:
-    """gallery.is_frozen_protocol: default name/seed/episodes, test split, no options, every episode scored, default k."""
-
-    spec = cur.envs.get(run.env)
-    if spec is None:
-        return False
-    name, episodes = frozen_protocol(run.env)
-    frozen_k = max(getattr(spec, "request_k", 1), getattr(spec, "min_grasps", 1), 1)
-    protocol = run.protocol
-    return (protocol.get("name") == name and protocol.get("seed") == FROZEN_EVAL_SEED
-            and protocol.get("episodes") == episodes and protocol.get("split") == "test"
-            and not protocol.get("options") and not run.get("env_options") and run.get("n") == episodes
-            and protocol.get("k") == frozen_k)
-
-
-def is_privileged(run: Run, cur: Curriculum) -> bool:
-    """gallery._privileged: by the run's recorded input, or by the model's curriculum family."""
-
-    if (run.get("model_info") or {}).get("input") == "privileged":
-        return True
-    spec = cur.models.get(run.model)
-    return spec is not None and spec.family == "privileged"
-
-
 def model_family(run: Run, cur: Curriculum) -> str | None:
     spec = cur.models.get(run.model)
     return spec.family if spec is not None else None
-
-
-def clears_gate(run: Run, cur: Curriculum) -> bool:
-    gate = cur.gates.get(run.env)
-    ci_lo = run.get("ci_lo")
-    return (gate is not None and run.get("metric") == "top1_success" and isinstance(ci_lo, (int, float))
-            and ci_lo >= gate and not is_privileged(run, cur))
-
-
-def headline_runs(runs: list[Run], cur: Curriculum) -> dict[str, Run]:
-    """gallery.headline_runs: per cell, a frozen run first, then the largest n, then the latest start, then the last written."""
-
-    best: dict[str, tuple[tuple, Run]] = {}
-    for run in runs:
-        key = (is_frozen(run, cur), run.get("n") or 0, run.started_at, run.index)
-        if run.cell_id not in best or key > best[run.cell_id][0]:
-            best[run.cell_id] = (key, run)
-    return {cell_id: pair[1] for cell_id, pair in best.items()}
 
 
 def _value(run: Run) -> float | None:
@@ -249,18 +200,65 @@ def _value(run: Run) -> float | None:
     return float(value) if isinstance(value, (int, float)) else None
 
 
-def env_verdict(env_id: str, heads: dict[str, Run], cur: Curriculum) -> tuple[bool, Run | None]:
-    """gallery.env_verdict: (beaten, best non-privileged headline). The oracle never beats an env."""
+# --------------------------------------------------------------------------------------------------------------------
+# The bench's own verdict (grasp_bench_bridge), looked up by this adapter's runs
+# --------------------------------------------------------------------------------------------------------------------
 
-    candidates = [run for run in heads.values()
-                  if run.env == env_id and _value(run) is not None and not is_privileged(run, cur)]
-    if not candidates:
-        return False, None
-    best = max(candidates, key=lambda run: (_value(run), run.get("ci_lo") if run.get("ci_lo") is not None else -1))
-    winners = [run for run in candidates if clears_gate(run, cur) and is_frozen(run, cur)]
-    if winners:
-        return True, max(winners, key=lambda run: run.get("ci_lo"))
-    return False, best
+
+class Verdict:
+    """What ``grasp_bench.gallery`` said about each run and each snapshot; this adapter never decides it itself."""
+
+    def __init__(self, doc: dict[str, Any], runs: list[Run]) -> None:
+        self.doc = doc
+        self.by_id = {run.run_id: run for run in runs}
+        self._runs: dict[str, dict[str, Any]] = doc.get("runs") or {}
+
+    @classmethod
+    def problem(cls, doc: dict[str, Any], runs: list[Run], subsets: dict[str, list[str]], cur: Curriculum) -> str | None:
+        """Why ``doc`` cannot be used as the verdict over ``runs`` (None when it can)."""
+
+        unjudged = [run.run_id for run in runs if run.run_id not in (doc.get("runs") or {})]
+        if unjudged:
+            return f"the bench did not judge {len(unjudged)} ledger rows the dashboard read (first {unjudged[0]})"
+        for snapshot_id in subsets:
+            data = (doc.get("snapshots") or {}).get(snapshot_id)
+            if not isinstance(data, dict):
+                return f"the bench returned no snapshot {snapshot_id}"
+            if data.get("missing"):
+                return f"the bench's ledger lacks {len(data['missing'])} rows of {snapshot_id} (first {data['missing'][0]})"
+        if sorted(doc.get("gated") or []) != sorted(cur.gates):
+            return "the bench's curriculum.GATES differ from the curriculum.py the dashboard read"
+        return None
+
+    def judged(self, run: Run) -> dict[str, Any]:
+        return self._runs.get(run.run_id) or {}
+
+    def frozen(self, run: Run) -> bool:
+        return self.judged(run).get("frozen") is True
+
+    def privileged(self, run: Run) -> bool:
+        return self.judged(run).get("privileged") is True
+
+    def clears_gate(self, run: Run) -> bool:
+        return self.judged(run).get("clears_gate") is True
+
+    def gap(self, run: Run) -> str:
+        """The bench's provenance_gap: why the row cannot vouch for an unchanged env and model ("" when it can)."""
+        return str(self.judged(run).get("provenance_gap") or "")
+
+    def _run(self, brief: Any) -> Run | None:
+        return self.by_id.get(brief.get("run_id")) if isinstance(brief, dict) else None
+
+    def heads(self, snapshot_id: str) -> dict[str, Run]:
+        data = self.doc["snapshots"][snapshot_id]
+        heads = {cell_id: self._run(brief) for cell_id, brief in (data.get("heads") or {}).items()}
+        return {cell_id: run for cell_id, run in heads.items() if run is not None}
+
+    def envs(self, snapshot_id: str) -> dict[str, tuple[bool, bool, Run | None]]:
+        """env id -> (beaten, provisional, best run) for every gated env, as gallery.env_verdict/env_provisional said."""
+        data = self.doc["snapshots"][snapshot_id]
+        return {env_id: (entry.get("beaten") is True, entry.get("provisional") is True, self._run(entry.get("best_run")))
+                for env_id, entry in (data.get("envs") or {}).items()}
 
 
 # --------------------------------------------------------------------------------------------------------------------
@@ -319,9 +317,10 @@ class Phase:
 
 def _phase_key(run: Run) -> tuple[int, int | None]:
     seed = run.train_seed
-    # WHY the frozen eval seed reads as "base": the first training pass uses the bench's default seed (20261004); only
-    # the extra 3-seed-rule passes (seeds 1, 2) are a separate phase.
-    return run.tier, (None if seed in (None, FROZEN_EVAL_SEED) else seed)
+    # WHY "base" is a training seed equal to the run's own eval seed: the runner defaults the training seed to the
+    # protocol seed (runner.py, budget.setdefault("seed", protocol.seed)), so that is the first pass; only the extra
+    # 3-seed-rule passes (seeds 1, 2) are a separate phase. Read from the row, not a copied constant.
+    return run.tier, (None if seed is None or seed == run.protocol.get("seed") else seed)
 
 
 def phases(runs: list[Run], cur: Curriculum) -> list[Phase]:
@@ -348,31 +347,42 @@ def phases(runs: list[Run], cur: Curriculum) -> list[Phase]:
 
 @dataclass
 class Snapshot:
+    """The ledger up to one phase, with the bench's verdict over it (``judged`` False: the bench could not answer)."""
+
     runs: list[Run]
+    judged: bool
     heads: dict[str, Run]
     beaten: list[str]
+    provisional: list[str]
+    best: dict[str, Run | None]              # gated env -> gallery.env_verdict's best non-privileged headline
     gated_measured: list[str]
     wave1_frozen: set[str]
     wave1_any: set[str]
 
 
-def snapshot(runs: list[Run], cur: Curriculum) -> Snapshot:
-    heads = headline_runs(runs, cur)
-    beaten, measured = [], []
-    for env_id in cur.gates:
-        won, best = env_verdict(env_id, heads, cur)
-        if best is not None:
-            measured.append(env_id)
-        if won:
-            beaten.append(env_id)
+def snapshot(snapshot_id: str | None, runs: list[Run], cur: Curriculum, verdict: Verdict | None) -> Snapshot:
+    """``runs`` under the bench's own verdict for ``snapshot_id``; without a verdict, only what needs no judgement."""
+
     wave1_ids = {cell.id for cell in cur.wave1()}
-    frozen = {run.cell_id for run in runs if run.cell_id in wave1_ids and is_frozen(run, cur)}
     anyp = {run.cell_id for run in runs if run.cell_id in wave1_ids}
-    return Snapshot(runs=runs, heads=heads, beaten=beaten, gated_measured=measured, wave1_frozen=frozen, wave1_any=anyp)
+    if verdict is None or snapshot_id is None:
+        return Snapshot(runs=runs, judged=False, heads={}, beaten=[], provisional=[], best={}, gated_measured=[],
+                        wave1_frozen=set(), wave1_any=anyp)
+    envs = verdict.envs(snapshot_id)
+    beaten = [env_id for env_id in cur.gates if envs.get(env_id, (False, False, None))[0]]
+    provisional = [env_id for env_id in cur.gates if envs.get(env_id, (False, False, None))[1]]
+    best = {env_id: envs.get(env_id, (False, False, None))[2] for env_id in cur.gates}
+    measured = [env_id for env_id in cur.gates if best[env_id] is not None]
+    frozen = {run.cell_id for run in runs if run.cell_id in wave1_ids and verdict.frozen(run)}
+    return Snapshot(runs=runs, judged=True, heads=verdict.heads(snapshot_id), beaten=beaten, provisional=provisional,
+                    best=best, gated_measured=measured, wave1_frozen=frozen, wave1_any=anyp)
 
 
 def frontier_tier(snap: Snapshot, cur: Curriculum) -> int | None:
-    """The lowest tier whose wave-1 cells are not all measured on the frozen protocol or whose gates are not all beaten."""
+    """The lowest tier whose wave-1 cells are not all measured on the frozen protocol or whose gates are not all beaten.
+
+    Only meaningful on a judged snapshot: both halves of the rule are the bench's verdict.
+    """
 
     tiers = sorted({cur.envs[cell.env].tier for cell in cur.wave1() if cell.env in cur.envs})
     for tier in tiers:
@@ -456,14 +466,14 @@ def dataset_env(cur: Curriculum) -> str | None:
     return None
 
 
-def _best(heads: dict[str, Run], cur: Curriculum, env_id: str, families: tuple[str, ...]) -> Run | None:
+def _best(heads: dict[str, Run], verdict: Verdict, cur: Curriculum, env_id: str, families: tuple[str, ...]) -> Run | None:
     pool = [run for run in heads.values() if run.env == env_id and _value(run) is not None
-            and not is_privileged(run, cur) and model_family(run, cur) in families]
+            and not verdict.privileged(run) and model_family(run, cur) in families]
     return max(pool, key=lambda run: (_value(run), run.get("ci_lo") or -1)) if pool else None
 
 
-def _oracle(heads: dict[str, Run], cur: Curriculum, env_id: str) -> Run | None:
-    pool = [run for run in heads.values() if run.env == env_id and _value(run) is not None and is_privileged(run, cur)]
+def _oracle(heads: dict[str, Run], verdict: Verdict, env_id: str) -> Run | None:
+    pool = [run for run in heads.values() if run.env == env_id and _value(run) is not None and verdict.privileged(run)]
     return max(pool, key=lambda run: _value(run)) if pool else None
 
 
@@ -502,7 +512,30 @@ def _prov(ledger: str, derived: str, *, curriculum: str | None = None, pointer: 
     return {"snapshot": None, "pointer": pointer, "source": source, "derived": derived}
 
 
-def build_track(work_track: Any, sources: dict[str, str]) -> dict[str, Any]:
+def bench_paths(sources: dict[str, str]) -> grasp_bench_bridge.BenchPaths:
+    """The bridge's inputs, from the declared sources only (an undeclared key is None and the bridge says so)."""
+
+    return grasp_bench_bridge.BenchPaths(
+        python=sources.get("grasping_bench_python"), ledger=sources.get("grasping_ledger"),
+        attestations=sources.get("grasping_attestations"), gallery_py=sources.get("grasping_gallery_py"),
+        ledger_py=sources.get("grasping_ledger_py"), curriculum_py=sources.get("grasping_curriculum"),
+        runner_py=sources.get("grasping_runner_py"), contracts_py=sources.get("grasping_contracts_py"),
+        cache_dir=sources.get("grasping_verdict_cache"))
+
+
+Bridge = Callable[[grasp_bench_bridge.BenchPaths, dict[str, list[str]]], grasp_bench_bridge.BridgeResult]
+
+
+def _unconfirmed(phase_id: str, evidence: list[str]) -> dict[str, Any]:
+    return _point(phase_id, None, note=UNCONFIRMED, evidence=evidence)
+
+
+UNCONFIRMED_STATUS = {"word": UNCONFIRMED, "tone": "muted"}
+
+
+def build_track(work_track: Any, sources: dict[str, str], *, bridge: Bridge | None = None) -> dict[str, Any]:
+    """The Grasping track. ``bridge`` is grasp_bench_bridge.bench_verdict; tests pass a fake (no bench venv needed)."""
+
     ledger_path = sources.get("grasping_ledger")
     curriculum_path = sources.get("grasping_curriculum")
     if not ledger_path or not curriculum_path:
@@ -528,25 +561,46 @@ def build_track(work_track: Any, sources: dict[str, str]) -> dict[str, Any]:
     hardest = hardest_gated_env(cur)
     data_env = dataset_env(cur)
 
+    # ---- the bench's own verdict over each cumulative phase (grasp_bench_bridge)
+    cumulative_runs: list[list[Run]] = []
+    cumulative: list[Run] = []
+    for phase in all_phases:
+        cumulative = sorted(cumulative + phase.runs, key=lambda run: run.index)
+        cumulative_runs.append(cumulative)
+    subsets = {phase.id: [run.run_id for run in held] for phase, held in zip(all_phases, cumulative_runs)}
+    verdict: Verdict | None = None
+    unavailable: str | None = None
+    bridge_info: dict[str, Any] | None = None
+    if runs:
+        result = (bridge or grasp_bench_bridge.bench_verdict)(bench_paths(sources), subsets)
+        bridge_info = result.info()
+        if result.ok:
+            unavailable = Verdict.problem(result.doc, runs, subsets, cur)
+            verdict = None if unavailable else Verdict(result.doc, runs)
+        else:
+            unavailable = result.reason or "no reason given"
+        if unavailable:
+            bridge_info.update(ok=False, reason=unavailable)
+    unavailable_note = f"{UNAVAILABLE}: {unavailable}" if unavailable else None
+
     # ---- iterations + cumulative snapshots
     iterations: list[dict[str, Any]] = []
     snaps: list[Snapshot] = []
-    cumulative: list[Run] = []
-    for phase in all_phases:
-        before = snaps[-1] if snaps else snapshot([], cur)
-        cumulative = cumulative + phase.runs
-        snap = snapshot(sorted(cumulative, key=lambda run: run.index), cur)
+    for phase, held in zip(all_phases, cumulative_runs):
+        before = snaps[-1] if snaps else snapshot(None, [], cur, None)
+        snap = snapshot(phase.id, held, cur, verdict)
         snaps.append(snap)
-        new_cells = len(snap.wave1_frozen - before.wave1_frozen)
-        gained = [env_id for env_id in snap.beaten if env_id not in before.beaten]
-        lost = [env_id for env_id in before.beaten if env_id not in snap.beaten]
-        parts = [f"{len(phase.runs)} runs", f"+{new_cells} wave-1 cells"]
-        if gained:
-            parts.append("beaten: " + _join([_short_env(env_id) for env_id in gained]))
-        elif any(env_id in cur.gates for env_id in {run.env for run in phase.runs}):
-            parts.append("no gate newly cleared")
-        if lost:
-            parts.append("no longer clears: " + _join([_short_env(env_id) for env_id in lost]))
+        parts = [f"{len(phase.runs)} runs"]
+        if snap.judged:
+            gained = [env_id for env_id in snap.beaten if env_id not in before.beaten]
+            lost = [env_id for env_id in before.beaten if env_id not in snap.beaten]
+            parts.append(f"+{len(snap.wave1_frozen - before.wave1_frozen)} wave-1 cells")
+            if gained:
+                parts.append("beaten: " + _join([_short_env(env_id) for env_id in gained]))
+            elif any(env_id in cur.gates for env_id in {run.env for run in phase.runs}):
+                parts.append("no gate newly cleared")
+            if lost:
+                parts.append("no longer clears: " + _join([_short_env(env_id) for env_id in lost]))
         first = min((run.started_at for run in phase.runs if run.started_at), default=None)
         moment = _parse_time(first)
         iterations.append({
@@ -555,7 +609,8 @@ def build_track(work_track: Any, sources: dict[str, str]) -> dict[str, Any]:
             "marker": " · ".join(parts),
             "provenance": _prov(ledger_path, f"ledger rows with tier {phase.tier}"
                                 + (f" and train_summary.seed {phase.seed}" if phase.seed is not None else "")
-                                + "; marker compares the cumulative ledger before and after this phase"),
+                                + "; marker compares the bench's verdict over the cumulative ledger before and after "
+                                  "this phase"),
         })
     track["iterations"] = iterations
 
@@ -568,16 +623,19 @@ def build_track(work_track: Any, sources: dict[str, str]) -> dict[str, Any]:
         items = []
         for run in phase.runs:
             gate = cur.gates.get(run.env)
-            privileged = is_privileged(run, cur)
-            frozen = is_frozen(run, cur)
-            if gate is None:
-                status = "privileged" if privileged else "measured"
-            elif privileged:
-                status = "privileged (cannot beat an env)"
-            elif clears_gate(run, cur):
-                status = "pass" if frozen else "provisional"
+            if verdict is None:
+                privileged = frozen = None
+                status = UNAVAILABLE if gate is not None else "measured"
             else:
-                status = "below gate"
+                privileged, frozen = verdict.privileged(run), verdict.frozen(run)
+                if gate is None:
+                    status = "privileged" if privileged else "measured"
+                elif privileged:
+                    status = "privileged (cannot beat an env)"
+                elif verdict.clears_gate(run):
+                    status = "pass" if frozen else "provisional"
+                else:
+                    status = "below gate"
             metrics: dict[str, Any] = {}
             if run.get("metric") == "top1_success":
                 metrics["top-1 (%)"] = _pct(_value(run))
@@ -594,11 +652,14 @@ def build_track(work_track: Any, sources: dict[str, str]) -> dict[str, Any]:
             metrics["frozen protocol"] = frozen
             metrics["git dirty"] = run.get("git_dirty")
             episodes = (run.get("artifacts") or {}).get("episodes")
+            gap = verdict.gap(run) if verdict is not None else ""
             notes = [text for text in (
                 run.get("notes") or None,
-                f"protocol {run.protocol.get('name')} seed {run.protocol.get('seed')}" if not frozen else None,
+                (f"not frozen: protocol {run.protocol.get('name')} seed {run.protocol.get('seed')}"
+                 + (f" · {gap}" if gap else "")) if frozen is False else None,
                 f"train seed {run.train_seed}" if run.train_seed is not None else None,
                 "checkpoint trained elsewhere" if (run.get("train_summary") or {}).get("trained_here") is False else None,
+                unavailable_note if verdict is None and gate is not None else None,
             ) if text]
             items.append({
                 "id": run.run_id, "iteration": phase.id, "kind": "run", "title": run.cell_id,
@@ -661,27 +722,42 @@ def build_track(work_track: Any, sources: dict[str, str]) -> dict[str, Any]:
         wanted = set(by_kpi[kpi_id])
         return [run.run_id for run in phase.runs if run.run_id in wanted]
 
+    def verdict_status(values: list[dict[str, Any]], **kwargs: Any) -> dict[str, str]:
+        return _delta_status(values, labels, **kwargs) if verdict is not None else dict(UNCONFIRMED_STATUS)
+
+    bridge_prov = ("grasp_bench.gallery run in the bench's own venv over these ledger rows (grasp_bench_bridge)"
+                   if verdict is not None else f"{UNAVAILABLE}: {unavailable}" if unavailable else "no ledger rows")
     kpis: list[dict[str, Any]] = []
 
-    # S1 · envs beaten
+    # S1 · envs beaten: the bench's own count, never recomputed here
     values = []
     for phase, snap in zip(all_phases, snaps):
+        if not snap.judged:
+            values.append(_point(phase.id, None, of=gated_total, note=unavailable_note, evidence=ev("envs_beaten", phase)))
+            continue
         note = ("beaten: " + _join([_short_env(e) for e in snap.beaten], 10)) if snap.beaten else "none beaten yet"
+        if snap.provisional:
+            note += " · provisional: " + _join([_short_env(e) for e in snap.provisional], 10)
         values.append(_point(phase.id, float(len(snap.beaten)), of=gated_total, note=note, evidence=ev("envs_beaten", phase)))
     kpis.append({
         "id": "envs_beaten", "label": "Gated envs beaten", "slot": "S1", "unit": "envs", "direction": "higher",
         "target": {"value": gated_total, "kind": "scope", "label": f"of {gated_total} gated envs"},
-        "baseline": None, "values": values, "status": _delta_status(values, labels),
-        "note": ("Beaten = a non-privileged headline run on the frozen eval protocol whose Wilson 95% lower bound is at or "
-                 "above the env's gate (curriculum.GATES); the oracle cannot beat an env. Same rule as the bench's gallery."),
+        "baseline": None, "values": values,
+        "status": _delta_status(values, labels) if verdict is not None else {"word": UNAVAILABLE, "tone": "warn"},
+        "note": ("The bench's own verdict (grasp_bench.gallery.env_verdict): beaten = a non-privileged headline run on "
+                 "the frozen eval protocol, with provenance that can vouch for itself, whose Wilson 95% lower bound is at "
+                 "or above the env's gate (curriculum.GATES). Provisional = clears the gate only on a smoke protocol."),
         "aggregate": None,
-        "provenance": _prov(ledger_path, "gallery.env_verdict over headline runs (frozen first, then largest n, then latest)",
+        "provenance": _prov(ledger_path, f"gallery.env_verdict per gated env · {bridge_prov}",
                             curriculum=curriculum_path, pointer="GATES"),
     })
 
     # S2 · MuJoCo stages beaten
     values = []
     for phase, snap in zip(all_phases, snaps):
+        if not snap.judged:
+            values.append(_unconfirmed(phase.id, ev("mujoco_beaten", phase)))
+            continue
         measured = [e for e in mujoco_gated if e in snap.gated_measured]
         beaten = [e for e in mujoco_gated if e in snap.beaten]
         if not measured:
@@ -689,36 +765,39 @@ def build_track(work_track: Any, sources: dict[str, str]) -> dict[str, Any]:
                                  evidence=ev("mujoco_beaten", phase)))
             continue
         below = [e for e in measured if e not in beaten]
-        note = ("below gate: " + _join([_short_env(e) for e in below])) if below else "every measured stage clears its gate"
+        note = ("not beaten: " + _join([_short_env(e) for e in below])) if below else "every measured stage is beaten"
         values.append(_point(phase.id, float(len(beaten)), of=len(mujoco_gated), note=note, evidence=ev("mujoco_beaten", phase)))
     kpis.append({
         "id": "mujoco_beaten", "label": "MuJoCo stages beaten", "slot": "S2", "unit": "stages", "direction": "higher",
         "target": {"value": len(mujoco_gated), "kind": "scope", "label": f"of {len(mujoco_gated)} stages"},
-        "baseline": None, "values": values, "status": _delta_status(values, labels),
+        "baseline": None, "values": values, "status": verdict_status(values),
         "note": "Tier 2, the track's milestone: clear the MuJoCo stages, then the dataset envs.",
         "aggregate": None,
-        "provenance": _prov(ledger_path, "env_verdict per mujoco/* env in GATES", curriculum=curriculum_path, pointer="GATES"),
+        "provenance": _prov(ledger_path, f"gallery.env_verdict per mujoco/* env in GATES · {bridge_prov}",
+                            curriculum=curriculum_path, pointer="GATES"),
     })
 
-    # S2 · hardest gated env: best non-privileged Wilson LB vs its gate
+    # S2 · hardest gated env: the bench's best non-privileged headline, its Wilson LB vs the gate
     hardest_gate = cur.gates.get(hardest) if hardest else None
     values = []
-    hardest_seed_note = None
     for phase, snap in zip(all_phases, snaps):
-        _, best = env_verdict(hardest, snap.heads, cur) if hardest else (False, None)
+        if not snap.judged:
+            values.append(_unconfirmed(phase.id, ev("hardest_lb", phase)))
+            continue
+        best = snap.best.get(hardest) if hardest else None
         if best is None or best.get("ci_lo") is None:
             values.append(_point(phase.id, None, note=f"{hardest} not in the ledger yet", evidence=ev("hardest_lb", phase)))
             continue
         trained_elsewhere = (best.get("train_summary") or {}).get("trained_here") is False
-        hardest_seed_note = ("one checkpoint, trained elsewhere (bam_grasp July); not a seed spread" if trained_elsewhere
-                             else None)
+        seed_note = "one checkpoint, trained elsewhere (bam_grasp July); not a seed spread" if trained_elsewhere else None
         values.append(_point(
             phase.id, _pct(best.get("ci_lo")), n=best.get("n"),
             note=(f"{best.model}: {_pct(_value(best))}% [{_pct(best.get('ci_lo'))}, {_pct(best.get('ci_hi'))}] on "
-                  f"{best.protocol.get('name')}" + (f" · {hardest_seed_note}" if hardest_seed_note else "")),
+                  f"{best.protocol.get('name')}" + ("" if verdict.frozen(best) else " (not the frozen protocol)")
+                  + (f" · {seed_note}" if seed_note else "")),
             evidence=ev("hardest_lb", phase)))
-    status = _delta_status(values, labels, unit=" pts", digits=1)
-    if values and values[-1]["measured"] and hardest_gate is not None:
+    status = verdict_status(values, unit=" pts", digits=1)
+    if verdict is not None and values and values[-1]["measured"] and hardest_gate is not None:
         gap = values[-1]["value"] - hardest_gate * 100
         status = {"word": (f"clears gate by {gap:.1f} pts" if gap >= 0 else f"{-gap:.1f} pts below gate"),
                   "tone": "ok" if gap >= 0 else "muted"}
@@ -728,21 +807,26 @@ def build_track(work_track: Any, sources: dict[str, str]) -> dict[str, Any]:
         "target": ({"gate": round(hardest_gate * 100, 2), "value": round(hardest_gate * 100, 2), "kind": "gate",
                     "label": f"gate LB ≥ {hardest_gate * 100:.0f} %"} if hardest_gate is not None else None),
         "baseline": None, "values": values, "status": status,
-        "note": "The best non-privileged model's Wilson 95% lower bound on the last gated env in curriculum order.",
+        "note": "The Wilson 95% lower bound of the bench's best non-privileged headline run on the last gated env in "
+                "curriculum order.",
         "aggregate": None,
-        "provenance": _prov(ledger_path, f"env_verdict({hardest}) best run's ci_lo × 100", curriculum=curriculum_path),
+        "provenance": _prov(ledger_path, f"gallery.env_verdict({hardest}) best run's ci_lo × 100 · {bridge_prov}",
+                            curriculum=curriculum_path),
     })
 
-    # S2 · margin of the best learned model over the best floor on the hardest env
+    # S2 · margin of the best learned model over the best floor on the hardest env (over the bench's headline runs)
     values = []
     for phase, snap in zip(all_phases, snaps):
-        learned = _best(snap.heads, cur, hardest, LEARNED_FAMILIES) if hardest else None
-        floor = _best(snap.heads, cur, hardest, FLOOR_FAMILIES) if hardest else None
+        if not snap.judged:
+            values.append(_unconfirmed(phase.id, ev("hardest_margin", phase)))
+            continue
+        learned = _best(snap.heads, verdict, cur, hardest, LEARNED_FAMILIES) if hardest else None
+        floor = _best(snap.heads, verdict, cur, hardest, FLOOR_FAMILIES) if hardest else None
         if learned is None or floor is None:
             missing = "a learned run" if learned is None else "a floor run"
             values.append(_point(phase.id, None, note=f"{hardest}: no {missing} yet", evidence=ev("hardest_margin", phase)))
             continue
-        oracle = _oracle(snap.heads, cur, hardest)
+        oracle = _oracle(snap.heads, verdict, hardest)
         note = (f"{learned.model} {_pct(_value(learned))}% − {floor.model} {_pct(_value(floor))}%"
                 + (f" · oracle {oracle.model} {_pct(_value(oracle))}%" if oracle else " · no oracle run yet")
                 + " · difference of headline rates (the bench's paired test is stats.paired_proportion_diff)")
@@ -752,10 +836,12 @@ def build_track(work_track: Any, sources: dict[str, str]) -> dict[str, Any]:
         "id": "hardest_margin", "label": f"Learned over best floor · {_short_env(hardest) if hardest else '?'}",
         "slot": "S2", "unit": "pts", "direction": "higher",
         "target": {"value": 0, "kind": "reference", "label": "above 0 = beats uniform, masked and hill"},
-        "baseline": None, "values": values, "status": _delta_status(values, labels, unit=" pts", digits=1),
-        "note": "Best learned model's top-1 minus the best of the floors (uniform, masked random, hill) on the same env and protocol.",
+        "baseline": None, "values": values, "status": verdict_status(values, unit=" pts", digits=1),
+        "note": "Best learned model's top-1 minus the best of the floors (uniform, masked random, hill) on the same env, "
+                "over the bench's headline runs.",
         "aggregate": None,
-        "provenance": _prov(ledger_path, "max learned value − max floor/heuristic value, headline runs", curriculum=curriculum_path),
+        "provenance": _prov(ledger_path, f"max learned value − max floor/heuristic value over gallery.headline_runs · "
+                            f"{bridge_prov}", curriculum=curriculum_path),
     })
 
     # S2 · dataset AP (first dataset env), beside oracle and published
@@ -763,7 +849,10 @@ def build_track(work_track: Any, sources: dict[str, str]) -> dict[str, Any]:
     best_published = max(published.items(), key=lambda item: item[1]) if published else None
     values = []
     for phase, snap in zip(all_phases, snaps):
-        pool = [run for run in snap.heads.values() if run.env == data_env and not is_privileged(run, cur)
+        if not snap.judged:
+            values.append(_unconfirmed(phase.id, ev("dataset_ap", phase)))
+            continue
+        pool = [run for run in snap.heads.values() if run.env == data_env and not verdict.privileged(run)
                 and (run.get("ap") is not None or _value(run) is not None)]
         if not pool:
             values.append(_point(phase.id, None, note=f"no {data_env} row in runs.jsonl yet (smoke numbers outside the ledger are not used)",
@@ -771,7 +860,7 @@ def build_track(work_track: Any, sources: dict[str, str]) -> dict[str, Any]:
             continue
         best = max(pool, key=lambda run: run.get("ap") if run.get("ap") is not None else _value(run))
         ap = best.get("ap") if best.get("ap") is not None else _value(best)
-        oracle = _oracle(snap.heads, cur, data_env)
+        oracle = _oracle(snap.heads, verdict, data_env)
         ci = (f" [{best.get('ap_ci_lo'):.3f}, {best.get('ap_ci_hi'):.3f}]"
               if isinstance(best.get("ap_ci_lo"), (int, float)) and isinstance(best.get("ap_ci_hi"), (int, float)) else "")
         note = f"{best.model} AP {ap:.3f}{ci} on {best.protocol.get('name')} (AP on the 0-100 scale)" + (
@@ -782,17 +871,21 @@ def build_track(work_track: Any, sources: dict[str, str]) -> dict[str, Any]:
         "direction": "higher",
         "target": ({"value": best_published[1], "kind": "reference",
                     "label": f"published best {best_published[0]} {best_published[1]}"} if best_published else None),
-        "baseline": None, "values": values, "status": _delta_status(values, labels, digits=1),
+        "baseline": None, "values": values, "status": verdict_status(values, digits=1),
         "note": "Dataset envs are ungated: progress is AP above the previous best, beside the oracle and the published rows "
                 "(curriculum.PUBLISHED_AP).",
         "aggregate": None,
-        "provenance": _prov(ledger_path, "max non-privileged headline ap", curriculum=curriculum_path, pointer="PUBLISHED_AP"),
+        "provenance": _prov(ledger_path, f"max non-privileged headline ap · {bridge_prov}", curriculum=curriculum_path,
+                            pointer="PUBLISHED_AP"),
     })
 
     # S3 · latency guardrail: slowest non-privileged p95
     values = []
     for phase, snap in zip(all_phases, snaps):
-        pool = [run for run in snap.heads.values() if not is_privileged(run, cur)
+        if not snap.judged:
+            values.append(_unconfirmed(phase.id, ev("latency_p95", phase)))
+            continue
+        pool = [run for run in snap.heads.values() if not verdict.privileged(run)
                 and isinstance(run.get("latency_ms_p95"), (int, float))]
         if not pool:
             values.append(_point(phase.id, None, note="no latency recorded yet", evidence=ev("latency_p95", phase)))
@@ -802,8 +895,8 @@ def build_track(work_track: Any, sources: dict[str, str]) -> dict[str, Any]:
         note = f"slowest: {slowest.cell_id}" + (f" · over 1 s: {_join(over)}" if over else "")
         values.append(_point(phase.id, round(slowest.get("latency_ms_p95"), 1), n=slowest.get("n"), note=note,
                              evidence=ev("latency_p95", phase)))
-    status = _delta_status(values, labels, unit=" ms")
-    if values and values[-1]["measured"]:
+    status = verdict_status(values, unit=" ms")
+    if verdict is not None and values and values[-1]["measured"]:
         last = values[-1]["value"]
         status = ({"word": f"over 1 s · {last:.0f} ms", "tone": "warn"} if last > LATENCY_LIMIT_MS
                   else {"word": f"within 1 s · {last:.0f} ms", "tone": "ok"})
@@ -814,26 +907,31 @@ def build_track(work_track: Any, sources: dict[str, str]) -> dict[str, Any]:
         "baseline": None, "values": values, "status": status,
         "note": "Per-prediction latency as the runner measured it, in sim; the real camera capture time is not included.",
         "aggregate": None,
-        "provenance": _prov(ledger_path, "max latency_ms_p95 over non-privileged headline runs"),
+        "provenance": _prov(ledger_path, f"max latency_ms_p95 over non-privileged headline runs · {bridge_prov}"),
     })
 
-    # S4 · wave-1 cells measured on the frozen protocol
+    # S4 · wave-1 cells measured on the frozen protocol (frozen = the bench's is_frozen_protocol)
     values = []
     for phase, snap in zip(all_phases, snaps):
+        if not snap.judged:
+            values.append(_unconfirmed(phase.id, ev("wave1_cells", phase)))
+            continue
         extra = len(snap.wave1_any) - len(snap.wave1_frozen)
         note = f"{extra} more measured only off the frozen protocol" if extra else None
         values.append(_point(phase.id, float(len(snap.wave1_frozen)), of=wave1_total, note=note, evidence=ev("wave1_cells", phase)))
     kpis.append({
         "id": "wave1_cells", "label": "Wave-1 cells measured", "slot": "S4", "unit": "cells", "direction": "higher",
         "target": {"value": wave1_total, "kind": "scope", "label": f"of {wave1_total} wave-1 cells"},
-        "baseline": None, "values": values, "status": _delta_status(values, labels),
-        "note": "A cell counts once it has a run on its env's frozen eval protocol (curriculum.cells('wave1')).",
+        "baseline": None, "values": values, "status": verdict_status(values),
+        "note": "A cell counts once it has a run the bench calls frozen (gallery.is_frozen_protocol) "
+                "(curriculum.cells('wave1')).",
         "aggregate": None,
-        "provenance": _prov(ledger_path, "distinct wave-1 cell_ids with a frozen-protocol run", curriculum=curriculum_path,
-                            pointer="CELLS"),
+        "provenance": _prov(ledger_path, f"distinct wave-1 cell_ids with a frozen-protocol run · {bridge_prov}",
+                            curriculum=curriculum_path, pointer="CELLS"),
     })
 
-    # S5 · 3-seed rule on cells trained here
+    # S5 · 3-seed rule on cells trained here. WHY still measured without the bench's verdict: it counts
+    # train_summary.seed per cell, a raw ledger field the gallery does not judge.
     values = []
     for phase, snap in zip(all_phases, snaps):
         seeds: dict[str, set[int]] = {}
@@ -859,7 +957,7 @@ def build_track(work_track: Any, sources: dict[str, str]) -> dict[str, Any]:
         "provenance": _prov(ledger_path, "distinct train_summary.seed per wave-1 cell"),
     })
 
-    # S5 · evidence trust: share of rows from a dirty tree
+    # S5 · evidence trust: share of rows from a dirty tree (a raw ledger field; no verdict involved)
     values = []
     for phase, snap in zip(all_phases, snaps):
         total = len(snap.runs)
@@ -890,14 +988,23 @@ def build_track(work_track: Any, sources: dict[str, str]) -> dict[str, Any]:
     track["needs_you"] = needs
 
     # ---- state + summary
-    latest = snaps[-1] if snaps else snapshot([], cur)
-    tier = frontier_tier(latest, cur)
+    latest = snaps[-1] if snaps else snapshot(None, [], cur, None)
+    tier = frontier_tier(latest, cur) if latest.judged else None
     last_run = max(runs, key=lambda run: run.started_at) if runs else None
     toy_gated = [e for e in cur.gates if _family(e) == "toy"]
+    tail = [f"last run started {_local(last_run.started_at)}" if last_run else "", f"ledger written {_local(ledger_mtime)}",
+            f"{bad_lines} unreadable ledger lines skipped" if bad_lines else ""]
     if not runs:
         track["state"] = {"word": "No runs yet", "tone": "muted", "detail": f"runs.jsonl is empty · written {_local(ledger_mtime)}",
                           "since": None}
         track["summary"] = f"no ledger rows yet · {wave1_total} wave-1 cells planned"
+    elif verdict is None:
+        # WHY no frontier and no counts: both are the bench's verdict, and a guess would read as the bench's word.
+        track["state"] = {"word": "Bench verdict unavailable", "tone": "warn",
+                          "detail": " · ".join(bit for bit in [unavailable or "", f"{len(runs)} ledger rows"] + tail if bit),
+                          "since": None}
+        track["summary"] = (f"{UNAVAILABLE}: {unavailable} · {len(runs)} ledger rows · {wave1_total} wave-1 cells planned"
+                            + (f" · {len(needs)} download approvals open" if needs else ""))
     else:
         if tier is None:
             word, detail_bits = "Wave 1 complete", ["every wave-1 cell measured and every gate beaten"]
@@ -910,7 +1017,7 @@ def build_track(work_track: Any, sources: dict[str, str]) -> dict[str, Any]:
             detail_bits = [f"{done_cells} of {len(tier_cells)} tier-{tier} cells measured"]
             if tier_envs:
                 below = [e for e in tier_envs if e not in latest.beaten]
-                detail_bits.append(f"{len(tier_envs) - len(below)} of {len(tier_envs)} gates cleared"
+                detail_bits.append(f"{len(tier_envs) - len(below)} of {len(tier_envs)} gates beaten"
                                    + (f" (open: {_join([_short_env(e) for e in below])})" if below else ""))
             next_tier = next((t for t in sorted({cur.envs[c.env].tier for c in cur.wave1()}) if t > tier), None)
             if next_tier is not None:
@@ -919,11 +1026,8 @@ def build_track(work_track: Any, sources: dict[str, str]) -> dict[str, Any]:
                 detail_bits.append(f"next tier {next_tier} {cur.tier_name(next_tier)}: {next_done} of {len(next_cells)} cells")
             tier_runs = [run.started_at for run in runs if run.tier == tier and run.started_at]
             since = min(tier_runs) if tier_runs else None
-        detail_bits.append(f"last run started {_local(last_run.started_at)}" if last_run else "")
-        detail_bits.append(f"ledger written {_local(ledger_mtime)}")
-        if bad_lines:
-            detail_bits.append(f"{bad_lines} unreadable ledger lines skipped")
-        track["state"] = {"word": word, "tone": "ok", "detail": " · ".join(bit for bit in detail_bits if bit), "since": since}
+        track["state"] = {"word": word, "tone": "ok", "detail": " · ".join(bit for bit in detail_bits + tail if bit),
+                          "since": since}
         mujoco_beaten = [e for e in mujoco_gated if e in latest.beaten]
         toy_beaten = [e for e in toy_gated if e in latest.beaten]
         summary = (f"{len(latest.beaten)} of {gated_total} gated envs beaten (toy {len(toy_beaten)}/{len(toy_gated)}, "
@@ -935,7 +1039,7 @@ def build_track(work_track: Any, sources: dict[str, str]) -> dict[str, Any]:
             summary += f" · {len(needs)} download approvals open"
         track["summary"] = summary
     track["iteration"] = {"unit": "wave", "label": all_phases[-1].label if all_phases else "none reported"}
-    track["rung"] = _rung(cur, tier, runs)
+    track["rung"] = _rung(cur, tier, runs) if verdict is not None else None
 
     # ---- links + provenance
     bench_dir = curriculum_file.parent.parent.parent
@@ -953,10 +1057,15 @@ def build_track(work_track: Any, sources: dict[str, str]) -> dict[str, Any]:
             "metrics": {why: len(cells) for why, cells in other_needs.items()}, "status": "blocked", "media": [],
             "links": [], "note": " · ".join(f"{why}: {_join(cells, 4)}" for why, cells in other_needs.items()),
         })
+    # WHY source.problems (the rig adapter's field; the build merges an adapter's source block): a missing verdict is
+    # a problem with the track's inputs, and the page's source panel is where an input problem is read.
+    track["source"] = {"problems": [p for p in (unavailable_note,
+                                                f"{bad_lines} unreadable ledger lines skipped" if bad_lines else None) if p],
+                       "bench_verdict": bridge_info}
     track["provenance"] = {
         "snapshot": None, "pointer": None, "source": ledger_path,
         "derived": (f"{len(runs)} ledger rows (written {ledger_mtime}) grouped into tier phases; curriculum.py "
-                    f"(written {curriculum_mtime}) for tiers, wave-1 cells, gates and published AP; verdicts mirror "
-                    "grasp_bench/gallery.py"),
+                    f"(written {curriculum_mtime}) for tiers, wave-1 cells, gates and published AP; verdicts: "
+                    f"{bridge_prov}"),
     }
     return track

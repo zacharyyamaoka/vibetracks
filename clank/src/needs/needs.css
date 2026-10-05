@@ -1,8 +1,9 @@
 /* The "Needs you" kit's own few rules, rooted in .vt-dash .vt-needs, in @layer base (clank-workbench CLAUDE.md §1.5).
    Proposals root their CSS in .vt-dash .vt-needs-n<k> inside their own folder. */
 @layer base {
-  /* WHY the chooser takes the A · B · C switcher's corner: Dashboard.tsx hides A · B · C on the needs page (it has no
-     effect there). It is one pill that opens its list upward, so the corner it covers stays small. */
+  /* The chooser is one pill that opens its list upward. Docked (below), it sits in the review bar; floating (no bar),
+     it takes the A · B · C switcher's corner, which Dashboard.tsx leaves empty on the needs page (A · B · C has no
+     effect there), so the corner it covers stays small. */
   .vt-dash .vt-switcher.vt-needs-switcher {
     bottom: 14px;
     flex-direction: column;
@@ -30,15 +31,22 @@
     margin-left: 6px;
     color: var(--vt-faint);
   }
-  /* WHY 80px of bottom padding on the whole needs page: the needs pill floats over the bottom-right corner (bottom
-     14px, ~31px tall, so its top edge is ~45px up). At max scroll the last answer control must sit above it, never
-     under it (measured with elementFromPoint, every proposal × kinsim and rig). */
+  /* Docked in Dashboard.tsx's review bar (#vt-review-bar), the bar's own rules in calm.css place the pill: static,
+     left of A · B · C, hairline only, its list growing upward out of the fixed-height bar. Nothing here overrides
+     them, so the two pills read as one kind of control. */
+  /* WHY 80px of bottom padding, only while the pill floats (no review bar): it then sits over the bottom-right corner
+     (bottom 14px, ~31px tall, so its top edge is ~45px up). At max scroll the last answer control must sit above it,
+     never under it (measured with elementFromPoint, every proposal × kinsim and rig). Docked, nothing covers the page
+     and a normal end margin is enough. */
   .vt-dash .vt-needs {
+    padding-bottom: 32px;
+  }
+  .vt-dash .vt-needs[data-chooser='floating'] {
     padding-bottom: 80px;
   }
   /* A framed proposal (useFitToScroller in kit.ts) already ends CHOOSER_RESERVE above the frame's bottom and scrolls
      inside itself; the shell's own clearance would make the dashboard scroll too and clip the Back row. */
-  .vt-dash .vt-needs:has(> .vt-needs-framed) {
+  .vt-dash .vt-needs[data-chooser]:has(> .vt-needs-framed) {
     padding-bottom: 0;
   }
   .vt-dash .vt-needs-back-row {

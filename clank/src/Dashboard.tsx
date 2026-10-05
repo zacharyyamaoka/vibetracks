@@ -1,5 +1,11 @@
 // The .vtdash viewer: loads the projection once, then hands it to the chosen variant. A quiet switcher in the
-// bottom-right corner picks the variant (A · B · C); keys 1/2/3 do the same while the dashboard has focus. A gear at
+// review bar under the content picks the variant (A · B · C); keys 1/2/3 do the same while the dashboard has focus.
+// Frame (frozen contract, 2026-10-04): a flex column of [slim header][the scrolling content][#vt-review-bar]. The bar
+// is a sibling OUTSIDE the scroller, so a pill in it can never cover content; NeedsShell portals its N pill into the
+// same element, left of A · B · C.
+// WHY a bar and not a pill floating over the corner: the floating pill covered the last row, answer controls and the
+// roadmap focus card, and every page had to guess a bottom padding to clear it (120px here, 80px on needs, a 56px
+// reserve in the needs kit). A bar takes its height out of the scroller instead, so nothing has to guess. A gear at
 // the right end of the slim header opens the settings page (route key `settings=1`, so Back closes it); its values
 // reach every variant as VariantProps.settings.
 // WHY a switcher inside the app and not a URL flag: Zach's rule "prototype switch in app: a temporary drop-down in
@@ -190,21 +196,28 @@ export function Dashboard({ session, panel, backend }: ViewerProps & { backend: 
         ) : null}
         {error && !settingsOpen ? <BackendProblem error={error} backend={backend} onRetry={() => reload()} /> : null}
       </div>
-      {/* WHY no A · B · C switcher on the needs page: it picks the dashboard layout, which the needs page does not use
-          (every variant renders the same NeedsShell), so there it is a control with no effect sitting over answer
-          controls; the needs page has its own one-pill chooser in this corner instead, so the two never overlap. */}
-      {route.needs === '1' && !settingsOpen ? null : <ProposalSwitcher current={variant} onChoose={choose} />}
+      {/* The review bar: always rendered (empty on a needs page until NeedsShell portals its pill in), at a fixed
+          height, so the scroller's height never jumps when a pill arrives or leaves. */}
+      <div id={REVIEW_BAR_ID} className="vt-review-bar" data-testid="vt-review-bar">
+        {/* WHY no A · B · C switcher on the needs page: it picks the dashboard layout, which the needs page does not
+            use (every variant renders the same NeedsShell), so there it is a control with no effect; the needs page
+            portals its own one-pill chooser into this bar instead. */}
+        {route.needs === '1' && !settingsOpen ? null : <ProposalSwitcher current={variant} onChoose={choose} />}
+      </div>
     </div>
   )
 }
 
+/** The review bar's element id; NeedsShell portals its pill into `document.getElementById(REVIEW_BAR_ID)`. */
+const REVIEW_BAR_ID = 'vt-review-bar'
+
 type VariantDefinition = (typeof VARIANTS)[number]
 
-/** One compact pill ("A · Drill-down pages ▾") that opens the three proposals upward and closes after a pick.
- * WHY collapsed: the full "Proposal A · B · C" row sat over the bottom of tall side panels (the roadmap focus card's
- * last lines hid under it); one pill keeps the corner small while staying in-app, bottom-right, live and remembered
- * (Zach's prototype-switch rule). Keys 1/2/3 still switch without opening it. Same shape as the needs page's chooser
- * (needs/NeedsShell.tsx), so the corner reads as one kind of control on every page. */
+/** One compact pill ("A · Drill-down pages ▾") in the review bar that opens the three proposals upward and closes
+ * after a pick. WHY collapsed: one pill keeps the bar short and calm while staying in-app, bottom-right, live and
+ * remembered (Zach's prototype-switch rule). Keys 1/2/3 still switch without opening it. Same shape as the needs
+ * page's chooser (needs/NeedsShell.tsx), so the bar reads as one kind of control on every page. The open list grows
+ * upward out of the fixed-height bar (calm.css) as a transient menu; it never resizes the scroller. */
 function ProposalSwitcher({ current, onChoose }: { current: VariantDefinition; onChoose: (key: string) => void }) {
   const [open, setOpen] = useState(false)
   const box = useRef<HTMLDivElement>(null)
@@ -233,17 +246,15 @@ function ProposalSwitcher({ current, onChoose }: { current: VariantDefinition; o
       aria-label="Proposal"
       data-testid="vt-switcher"
       data-open={open}
-      style={open ? { flexDirection: 'column', alignItems: 'stretch' } : undefined}
     >
       {open ? (
-        <div role="menu" aria-label="Proposals" style={{ display: 'flex', flexDirection: 'column', gap: 2, paddingBottom: 3, borderBottom: '1px solid var(--vt-line)' }}>
+        <div role="menu" aria-label="Proposals">
           {VARIANTS.map((item, index) => (
             <button
               key={item.key}
               type="button"
               role="menuitemradio"
               className="vt-btn"
-              style={{ textAlign: 'left' }}
               aria-checked={item.key === current.key}
               aria-pressed={item.key === current.key}
               data-testid={`vt-switch-${item.key}`}

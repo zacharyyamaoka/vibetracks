@@ -65,6 +65,16 @@ WORKTRACK_SOURCES: dict[str, str] = {
     "detection_queue_script": "{detection_repo}/run_repro_queue.sh",
     "detection_plan_note": "/home/bam/zach_brain/Projects/BAM Robotics/Notes/Hyperspectral — KPIs and Curriculum Roadmap (2026-10-04).md",
     "detection_reports_dir": "/home/bam/bam_ws/reports",
+    # Appended 2026-10-04 (grasping verdict bridge): the grasping adapter no longer copies the bench's gallery rules;
+    # it runs the bench's own gallery.py in the bench's own venv (benches/grasp_bench_bridge.py). Every file that
+    # verdict depends on is a key, so a change to any of them reruns the adapter; the cache folder lives in the data home.
+    "grasping_bench_python": "{grasping_bench_dir}/.venv/bin/python",
+    "grasping_attestations": "{grasping_bench_dir}/out/ledger/attestations.jsonl",
+    "grasping_gallery_py": "{grasping_bench_dir}/src/grasp_bench/gallery.py",
+    "grasping_ledger_py": "{grasping_bench_dir}/src/grasp_bench/ledger.py",
+    "grasping_runner_py": "{grasping_bench_dir}/src/grasp_bench/runner.py",
+    "grasping_contracts_py": "{grasping_bench_dir}/src/grasp_bench/contracts.py",
+    "grasping_verdict_cache": "{dashboard_data_home}/grasping-bench-verdict",
 }
 _REFERENCE = re.compile(r"^\{(?P<key>[a-z0-9_]+)\}")
 

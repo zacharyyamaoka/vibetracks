@@ -32,6 +32,8 @@ import {
   type NeedsItem,
   type NeedsOption,
   type NeedsProposalProps,
+  hoverTime,
+  questionText,
 } from '../kit'
 import { Md } from './md'
 import { formatLocal } from '../../shared/time'
@@ -330,7 +332,7 @@ function Stack({
         type="button"
         className={`vt-btn n4-pill n4-pill-${state}${entry.item.blocking_now ? ' n4-pill-blocking' : ''}`}
         aria-current={entry.key === currentKey ? 'step' : undefined}
-        title={`${entry.item.local_id} · ${entry.item.title} (${state === 'open' ? GROUP_LABEL[entry.item.group].toLowerCase() : state})`}
+        title={`${entry.item.local_id} · ${questionText(entry.item)} (${state === 'open' ? GROUP_LABEL[entry.item.group].toLowerCase() : state})`}
         onClick={() => onPick(entry.key)}
         data-testid="n4-pill"
         data-state={state}
@@ -667,8 +669,8 @@ function Card({
             </>
           ) : null}
           <p className="vt-small vt-faint n4-provenance">
-            <span title={item.created.ts ?? undefined}>{openedAt || opened ? `Opened ${[openedAt, opened].filter(Boolean).join(', ')}` : 'Opening time not recorded'}</span>
-            {item.updated.ts && item.updated.ts !== item.created.ts ? <span title={item.updated.ts}>{` · updated ${formatTs(item.updated.ts)}`}</span> : ''}
+            <span title={hoverTime(item.created.ts)}>{openedAt || opened ? `Opened ${[openedAt, opened].filter(Boolean).join(', ')}` : 'Opening time not recorded'}</span>
+            {item.updated.ts && item.updated.ts !== item.created.ts ? <span title={hoverTime(item.updated.ts)}>{` · updated ${formatTs(item.updated.ts)}`}</span> : ''}
             {` · loop status "${item.raw_status}" · ${item.kind}`}
             {` · answers go by ${doc.answer_channel.kind.replace('_', ' ')}${doc.answer_channel.target ? ` to ${doc.answer_channel.target}` : ''}`}
           </p>
@@ -838,7 +840,7 @@ function Decided({ decided }: { decided: { doc: NeedsDoc; item: NeedsItem }[] })
       <ul className="vt-small">
         {decided.map(({ doc, item }) => (
           <li key={item.id}>
-            <span className="vt-num vt-strong">{item.local_id}</span> {item.title}{' '}
+            <span className="vt-num vt-strong">{item.local_id}</span> {questionText(item)}{' '}
             <span className="vt-faint">
               · {GROUP_LABEL[item.group].toLowerCase()}
               {item.answer?.note ? ` · "${item.answer.note}"${item.answer.quoted ? '' : ' (integrator paraphrase)'}` : item.answer?.choice ? ` · ${choiceLabel(item, item.answer.choice)}` : ''}

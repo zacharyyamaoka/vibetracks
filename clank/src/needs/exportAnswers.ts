@@ -6,30 +6,27 @@
 //
 //   ## T47 · Should this robot be expected to pick at 1.0 m/s and above?
 //   - **Answer:** Go with the recommendation (accept_recommendation)
+//     > Keep the motor settings (your brief) and redefine BT4's gate as …   (the loop's recommendation, verbatim)
 //   - **Note:** Keep the motor limits; also log the skip reason per object.
 //
 //   ```jsonl
 //   {"ts":"2026-10-04T19:20:11-07:00","triage_id":"T47","choice":"accept_recommendation","note":"…"}
 //   ```
 //
-// A track without machine rows (rig's chat paste, detection's note paste, ...) also gets the chosen option's own
-// words, quoted under the answer line:
-//
-//   ## T2 · Approve the W1 bench run?
-//   - **Answer:** Go with the recommendation (accept_recommendation)
-//     > Run W1 on the bench at 37 V with the soft stops …   (the loop's recommendation, verbatim, every line)
-//
-// WHY: the label alone ("Go with the recommendation") does not say WHAT was approved, and a chat-paste integrator has
-// nothing else to read; the recommendation it refers to may have been rewritten by an UPDATE since. Rows for
-// bam-triage-answer/1 stay exactly {ts, triage_id, choice, note}: that loop resolves the choice against its own file.
-// When the loop recorded no words for the option, the quote says so instead of staying silent.
+// Every answer quotes the chosen option's own words under its answer line, on every channel (kinsim's jsonl rows,
+// rig's chat paste, detection's note paste, ...).
+// WHY every channel: the label alone ("Go with the recommendation") does not say WHAT was approved; a chat-paste
+// integrator has nothing else to read, and Zach reading a kinsim block back had only the option key; the
+// recommendation it refers to may also have been rewritten by an UPDATE since. The quote is markdown only: rows for
+// bam-triage-answer/1 stay exactly {ts, triage_id, choice, note}, because that loop resolves the choice against its
+// own file. When the loop recorded no words for the option, the quote says so instead of staying silent.
 //
 // WHY every heading carries local_id AND the full title: the integrator must never have to ask which item an answer
 // is for (the pyblocks precedent). WHY the jsonl fence only for bam-triage-answer/1 tracks: those rows are appended
 // verbatim to triage_answers.jsonl and must validate (exactly {ts, triage_id, choice, note}); a chat-paste loop
 // (rig) quotes the markdown instead. Unanswered items are omitted, never exported as blanks.
 
-import { effectiveChoice, isComplete, type AnswerDraft } from './answers'
+import { effectiveChoice, isComplete, offeredDraft, type AnswerDraft } from './answers'
 import type { Choice, NeedsDoc, NeedsItem } from './types'
 
 export const ANSWER_ROW_SCHEMA = 'bam-triage-answer/1'
@@ -99,7 +96,8 @@ export function exportTrack(doc: NeedsDoc, draftOf: DraftLookup, now: Date = new
   const ts = isoWithOffset(now)
   const rowsCarryChoice = doc.answer_channel.row_schema === ANSWER_ROW_SCHEMA
   for (const item of doc.items) {
-    const draft = draftOf(doc.track, item.local_id)
+    // The store already drops a choice the item does not offer; checked again here because any lookup may be passed.
+    const draft = offeredDraft(draftOf(doc.track, item.local_id), new Set(item.options.map((option) => option.key)))
     const choice = effectiveChoice(draft)
     if (!draft || !choice) continue
     if (!isComplete(draft)) {
@@ -108,7 +106,7 @@ export function exportTrack(doc: NeedsDoc, draftOf: DraftLookup, now: Date = new
     }
     const note = draft.note.trim()
     const lines = [`## ${item.local_id} · ${item.title}`, `- **Answer:** ${choiceLabel(item, choice)} (${choice})`]
-    if (!rowsCarryChoice) lines.push(...optionQuoteLines(item, choice))
+    lines.push(...optionQuoteLines(item, choice))
     if (note) lines.push(`- **Note:** ${note.replace(/\n+/g, ' ')}`)
     sections.push(lines.join('\n'))
     exported.push(item.id)

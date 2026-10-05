@@ -272,7 +272,7 @@ function ItemDetail({ track, item, iterationId, mediaUrl, onKpi }: { track: Trac
       <p className="vt-b-itemmeta">
         <span>{item.kind}</span>
         {item.status ? <StatusWord word={item.status} tone={evidenceStatusTone(item.status)} bare /> : null}
-        {item.when ? <span className="vt-num" title={item.when}>{formatLocal(item.when)}</span> : null}
+        {item.when ? <span className="vt-num" title={formatLocal(item.when, { year: true })}>{formatLocal(item.when)}</span> : null}
       </p>
       {videos.length ? (
         <div className={`vt-b-videos${videos.length > 1 ? ' is-pair' : ''}`}>

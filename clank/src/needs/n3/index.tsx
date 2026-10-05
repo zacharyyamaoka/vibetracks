@@ -30,6 +30,10 @@ import {
   type NeedsItem,
   type NeedsOption,
   type NeedsProposalProps,
+  hoverTime,
+  questionText,
+  questionMd,
+  askExtendsTitle,
 } from '../kit'
 import { Inline, Md } from './md'
 import { formatLocal } from '../../shared/time'
@@ -435,7 +439,7 @@ function TrackBody({ doc, asks, defaulting, ...ctx }: CardContext & { doc: Needs
           <ul className="vt-n3-recorded">
             {recorded.map((item) => (
               <li key={item.id}>
-                <span className="vt-faint vt-num">{item.local_id}</span> <Inline text={item.title} />
+                <span className="vt-faint vt-num">{item.local_id}</span> <Inline text={questionMd(item)} />
                 <span className="vt-small vt-muted">
                   {' · '}
                   {item.answer?.choice ? choiceLabel(item, item.answer.choice) : 'answered'}
@@ -456,10 +460,10 @@ function TocRow({ entry, draft, skipped, current, onGo }: { entry: Entry; draft:
   const complete = isComplete(draft)
   const state = complete ? 'answered' : skipped ? 'skipped' : entry.item.blocking_now ? 'blocking' : 'open'
   return (
-    <button type="button" className={`vt-btn vt-n3-toc-row ${current ? 'is-current' : ''}`} data-state={state} onClick={() => onGo(entry.item.id)} title={entry.item.title}>
+    <button type="button" className={`vt-btn vt-n3-toc-row ${current ? 'is-current' : ''}`} data-state={state} onClick={() => onGo(entry.item.id)} title={questionText(entry.item)}>
       <span className="vt-n3-glyph" aria-label={state}>{complete ? '●' : skipped ? '–' : '○'}</span>
       <span className="vt-n3-toc-id vt-num">{entry.item.local_id}</span>
-      <span className="vt-n3-toc-text">{entry.item.title.replace(/`/g, '')}</span>
+      <span className="vt-n3-toc-text">{questionText(entry.item).replace(/`/g, '')}</span>
     </button>
   )
 }
@@ -500,8 +504,10 @@ function Card({ entry, ...ctx }: CardContext & { entry: Entry }) {
       <header className="vt-n3-card-head" onClick={toggle} role="button" tabIndex={0} aria-expanded={open} onKeyDown={(event) => (event.key === 'Enter' || event.key === ' ') && (event.preventDefault(), toggle())}>
         <span className="vt-n3-chevron" aria-hidden="true">{open ? '▾' : '▸'}</span>
         <span className="vt-n3-card-id vt-num">{item.local_id}</span>
-        <span className="vt-n3-card-title">
-          <Inline text={item.title} />
+        {/* WHY the ask when the title is only its bold lead (detection "Data."): the head is all a folded card shows,
+            and "Data." alone is not a question. The loop's own bold lead stays bold; the rest reads as text. */}
+        <span className={`vt-n3-card-title${askExtendsTitle(item) ? ' is-ask' : ''}`}>
+          <Inline text={questionMd(item)} />
         </span>
         <span className="vt-n3-card-state">
           {complete ? (
@@ -524,9 +530,9 @@ function Card({ entry, ...ctx }: CardContext & { entry: Entry }) {
             ) : (
               <span>Holds no rung</span>
             )}
-            <span title={item.created.ts ?? undefined}>{opened(doc, item)}</span>
+            <span title={hoverTime(item.created.ts)}>{opened(doc, item)}</span>
             {item.updated.ts ? (
-              <span title={item.updated.ts}>
+              <span title={hoverTime(item.updated.ts)}>
                 updated {day(item.updated.ts)}
                 {item.updated.note ? (
                   <>
@@ -612,7 +618,7 @@ function Card({ entry, ...ctx }: CardContext & { entry: Entry }) {
             />
             <div className="vt-n3-card-foot vt-small">
               {complete ? (
-                <span className="vt-muted" title={draft?.updated}>In your pending review · draft saved {clock(draft?.updated)}</span>
+                <span className="vt-muted" title={hoverTime(draft?.updated)}>In your pending review · draft saved {clock(draft?.updated)}</span>
               ) : choice === 'other' ? (
                 <span className="vt-tone-warn">“Something else” needs a note before it can be copied</span>
               ) : skipped ? (

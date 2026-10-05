@@ -78,7 +78,7 @@ export function ItemPage({ projection, track, item, title, nav, mediaUrl }: {
           </>
         ) : null}
         {/* WHY the raw stamp as a title: the line shows local time to the minute; the stored value (seconds, source zone) stays one hover away. */}
-        {item.when ? <span title={item.when}>{` · ${formatLocal(item.when)}`}</span> : ''}
+        {item.when ? <span title={formatLocal(item.when, { year: true })}>{` · ${formatLocal(item.when)}`}</span> : ''}
         {iteration ? ` · ${iteration.label}` : ''}
       </p>
 

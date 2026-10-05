@@ -7,7 +7,7 @@ A proposal owns **only its own folder**: `clank/src/needs/n1/` … `n5/`. Do not
 ## Run it
 
 - **Lane (already running, Vite HMR):** `http://127.0.0.1:4390/?vtdash=Agent%20work.vtdash#vt?track=kinsim&needs=1`. Also `track=rig`, and no `track` for every track (`#vt?needs=1`).
-- **The chooser:** bottom-right, `Needs you · N1 … N5`, stacked above the A · B · C switcher. It is remembered (`localStorage['vibetracks.dashboard.needsProposal']`). The needs page renders the same whichever of A · B · C is chosen.
+- **The chooser:** one pill, `Needs you · N6 · Lane + context ▾`, that opens the list of N1 … N6 upward. It is remembered (`localStorage['vibetracks.dashboard.needsProposal']`). The needs page renders the same whichever of A · B · C is chosen. **Where it sits (the review-bar contract):** `Dashboard.tsx` renders `<div id="vt-review-bar" class="vt-review-bar">` as a sibling *below* the scroll area, and the shell portals the pill into it (`createPortal`), left of the A · B · C pill (`order: -1`); the shell's root then carries `data-chooser="docked"`. In the bar the pill covers nothing, by construction. Only when the bar is absent does the pill float in the bottom-right corner (`data-chooser="floating"`), and then the page keeps its 80 px bottom clearance and `useFitToScroller` its full reserve.
 - **The data:** `curl -s 'http://127.0.0.1:4390/api/plugins/vibetracks/needs?track=kinsim' | python3 -m json.tool`, or `cd ~/vibetracks-dashboard && python3 -m vibetracks.dashboard.needs kinsim`.
 - **Typecheck:** `/home/bam/clank-workbench/node_modules/.bin/tsc -p /home/bam/vibetracks-dashboard/clank`.
 - **Backend tests:** `cd ~/vibetracks-dashboard && python3 -m unittest tests/test_dashboard_needs.py`.
@@ -82,14 +82,16 @@ Helpers: `openAsks(doc)` (blocking + no default + pending), `itemsInGroup(doc, g
 | part | use |
 |---|---|
 | `useNeeds(backend, track)` | `{docs, doc, loading, error, reload}`. The shell already calls it and passes the result; call it yourself only for another track |
-| `useAnswerStore()` / `props.answers` | `get(track, localId)` → `{choice, note, updated}` or null; `set(track, localId, {choice?, note?})` merges and saves; `clear(track, localId?)`. One `localStorage` entry per track + item (`vibetracks.needs.answer:<track>:<id>`), every access try/catch wrapped |
+| `useAnswerStore(docs)` / `props.answers` | `get(track, localId)` → `{choice, note, updated}` or null; `set(track, localId, {choice?, note?})` merges and saves; `clear(track, localId?)`. One `localStorage` entry per track + item (`vibetracks.needs.answer:<track>:<id>`), every access try/catch wrapped. **A choice the item does not offer never comes out of `get()` and is never recorded by `set()`** (`offeredDraft`): a stale `accept_recommendation` on a grasping or detection item (neither records a recommendation) reads as unanswered, or as "something else" when a note is left. The stored entry is not rewritten until that item is next edited. `exportTrack` applies the same rule to whatever lookup it is given |
 | `effectiveChoice(draft)`, `isComplete(draft)` | a click wins; a **note alone** answers as `other`; `other` needs a non-blank note. A thumbs-up maps to `accept_recommendation`, "let it default" to `use_default` |
 | `<CopyOut docs answers label? />` | the one copy action. It builds the export, tries the clipboard, and **always** ends with the text in a pre-selected textarea (the clipboard is often refused on Clank origins). It disables itself when nothing is answered, and names items left out |
 | `exportAnswers(docs, answers.get)`, `exportTrack(doc, …)` | the export text, if you need it without the button |
 | `<EvidenceLink backend doc item index projection? />` | one evidence entry: opens through the projection's media route when the path is a known media file, else through `/needs/evidence` (which serves only paths the backend itself extracted from that item); a directory or unservable file is shown as its path with a copy button, never as a dead link |
 | `evidenceHref(...)`, `evidenceUrl(...)` | the href alone |
 | `headerCounts(doc)`, `headerSummary(docs)`, `notReportedText(doc)` | the header's two numbers and their disjoint parts, from needs.py; `null` / `notReported` for a track that reports none (see the counts contract above) |
-| `useFitToScroller(rootRef, reserve?)` | fits your page to the rest of `.vt-scroll` (less `CHOOSER_RESERVE`, 56 px, for the N-chooser) so your panes scroll inside it. Give the root the class `vt-needs-framed` too; the shell then drops its own bottom padding. Use it for any bar that must stay in view (see CSS) |
+| `useFitToScroller(rootRef, reserve?, min?)` | fits your page to the rest of `.vt-scroll` so your panes scroll inside it, less `reserve` (default `CHOOSER_RESERVE`, 56 px) while the pill floats, and only `DOCKED_RESERVE` (12 px) once it is docked in the review bar. Give the root the class `vt-needs-framed` too; the shell then drops its own bottom padding. N2, N3, N4 and N5 use it. Use it for any bar that must stay in view (see CSS) |
+| `hoverTime(iso)` | a stamp for a `title` attribute: `formatLocal(iso, {year: true})` ("2026-10-03 21:25 PDT"), or undefined. Never put a raw ISO stamp in a title or in text |
+| `questionText(item)`, `questionMd(item)`, `askExtendsTitle(item)` | the question for a row (plain text) or a heading (markdown): the whole ask when the title is only its bold lead (detection: title `Data.`, ask `**Data.** The Seagate … run udisksctl …`), else the title. Rows clamp it with a visible ellipsis and carry it whole in the hover title |
 | `<PlaceholderList {...props} label />` | the placeholder every folder starts with. Delete it from your folder once your page renders |
 
 **The export format** (what Copy answers produces; one block per track, unanswered items omitted). For a track whose loop reads rows (`row_schema` `bam-triage-answer/1`: kinsim):
@@ -100,6 +102,7 @@ Helpers: `openAsks(doc)` (blocking + no default + pending), `itemsInGroup(doc, g
 
 ## T47 · Should this robot be expected to pick at 1.0 m/s and above?
 - **Answer:** Go with the recommendation (accept_recommendation)
+  > Keep the motor settings (your brief) and redefine BT4's gate as 'every object scored, 0 exceptions, every skip logged'; …
 - **Note:** Keep the motor limits; also log the skip reason per object.
 
 ```jsonl
@@ -109,7 +112,7 @@ Helpers: `openAsks(doc)` (blocking + no default + pending), `itemsInGroup(doc, g
 
 The `jsonl` fence appears only when the track's `answer_channel.row_schema` is `bam-triage-answer/1` (kinsim). Those rows are exactly `{ts, triage_id, choice, note}`, so the integrator can append them verbatim to `triage_answers.jsonl`; the loop resolves the choice against its own file. Every heading carries `local_id` and the full title, so the integrator never has to ask which item.
 
-Every other track (rig's `chat_paste`, detection's `note_paste`, …) gets no fence, and **the chosen option's own words are quoted under the answer line**, every line of the loop's text, because the label alone ("Go with the recommendation") does not say what was approved and a chat-paste integrator has nothing else to read:
+Every other track (rig's `chat_paste`, detection's `note_paste`, …) gets no fence. **Every track, kinsim included, quotes the chosen option's own words under the answer line**, every line of the loop's text, because the label alone ("Go with the recommendation") does not say what was approved, a chat-paste integrator has nothing else to read, and the recommendation may have been rewritten by an UPDATE since. The quote is markdown only; the jsonl rows are unchanged:
 
 ````markdown
 ## T2 · Flash diff on controller 192551cb (plan D2)
@@ -122,7 +125,7 @@ Every other track (rig's `chat_paste`, detection's `note_paste`, …) gets no fe
 
 ## CSS
 
-Use `calm.css` (`vt-page`, `vt-h1`…, `vt-muted`, `vt-faint`, `vt-small`, `vt-chip-btn`, the `--vt-*` tokens; see `VARIANT-KIT.md`). Root your own rules in `.vt-dash .vt-needs-n<k>` inside `@layer base`, in a CSS file in your folder. The page sits inside `.vt-scroll`; the chooser and the A · B · C switcher cover the bottom-right ~90 px, so leave bottom padding.
+Use `calm.css` (`vt-page`, `vt-h1`…, `vt-muted`, `vt-faint`, `vt-small`, `vt-chip-btn`, the `--vt-*` tokens; see `VARIANT-KIT.md`). Root your own rules in `.vt-dash .vt-needs-n<k>` inside `@layer base`, in a CSS file in your folder. The page sits inside `.vt-scroll`. The pills live in the review bar below it and cover nothing; if the bar is absent the N pill floats over the bottom-right ~90 px, so a page that is not framed keeps bottom padding under `.vt-needs[data-chooser='floating']` (the shell's 80 px does this for you).
 
 **No `position: sticky` bar over scrolling content.** A sticky bar covers whatever scrolls under it: measured with `elementFromPoint` at 1440x900, N3's review bar sat over kinsim T54's card head and N4's stack over option 1 at max scroll. A bar that must stay in view goes above a pane that scrolls on its own: frame the page with `useFitToScroller` (N3, N4 do; N2 and N5 fit themselves the same way).
 

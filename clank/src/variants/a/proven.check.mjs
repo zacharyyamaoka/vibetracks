@@ -1,4 +1,4 @@
-// Run: node --experimental-strip-types --test /home/bam/vibetracks-dashboard/clank/src/variants/a/proven.test.mjs
+// Named .check.mjs, not .test.mjs, so a whole-tree vitest run does not pick up this node:test file. Run: node --experimental-strip-types --test /home/bam/vibetracks-dashboard/clank/src/variants/a/proven.check.mjs
 // WHY .mjs: tsc's program (tsconfig "include": ["src"], allowJs false) skips it, so it needs no @types/node, and Node
 // strips the types of the .ts it imports.
 import assert from 'node:assert/strict'

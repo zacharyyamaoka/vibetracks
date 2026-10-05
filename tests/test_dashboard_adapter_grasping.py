@@ -2,9 +2,12 @@
 
     cd ~/vibetracks-dashboard && python3 -m unittest tests/test_dashboard_adapter_grasping.py
 
-The fixture numbers are chosen so each rule has a case: a frozen run that clears its gate (beaten), a smoke run that
-clears it (provisional, not beaten), an oracle that clears it (cannot beat an env), a floor below gate, a second
-training seed (its own phase), and a "needs" cell that asks for a download approval.
+The adapter no longer decides any verdict: grasp_bench_bridge runs the bench's own gallery.py. So the fixture tests
+hand it a FAKE bridge (no bench venv needed) whose verdict table is written out by hand below, one row per rule: a
+frozen run that clears its gate (beaten), a smoke run that clears it (provisional, not beaten), an oracle that clears
+it (cannot beat an env), a floor below gate, a second training seed (its own phase), and a "needs" cell that asks for a
+download approval. The fake also asserts the adapter asks for exactly the cumulative phase subsets. The live test
+checks the real bridge's answer against the bench's gallery run independently.
 """
 
 from __future__ import annotations
@@ -16,9 +19,13 @@ import tempfile
 import unittest
 from pathlib import Path
 
+from vibetracks.dashboard import registry
+from vibetracks.benches import grasp_bench_bridge
 from vibetracks.dashboard.adapters import base, grasping
 from vibetracks.dashboard.registry import WorkTrack
 from vibetracks.sources import load_sources
+
+REPO = Path(__file__).resolve().parents[1]
 
 CURRICULUM = '''"""Fixture curriculum, same shape as grasp_bench/src/grasp_bench/curriculum.py."""
 from __future__ import annotations
@@ -70,10 +77,14 @@ PUBLISHED_AP = {"graspnet1b/seen/realsense": {"RGB Matters (paper)": 27.98, "RNG
 '''
 
 
+#: The fixture's frozen protocols (test data only; the adapter has no copy of the bench's table any more).
+FROZEN = {"toy": ("eval-2000", 2000), "mujoco": ("eval-200", 200)}
+
+
 def row(model: str, env: str, tier: int, value: float, ci_lo: float, *, started: str, protocol: str | None = None,
         episodes: int | None = None, seed: int | None = None, dirty: bool = False, p95: float = 5.0,
         input_: str = "rgb") -> dict:
-    name, default_n = grasping.frozen_protocol(env)
+    name, default_n = FROZEN[env.split("/", 1)[0]]
     episodes = default_n if episodes is None else episodes
     train = {"seed": seed} if seed is not None else {}
     return {
@@ -103,6 +114,63 @@ ROWS = [
 ]
 
 
+def _rid(index: int) -> str:
+    return ROWS[index]["run_id"]
+
+
+#: The bench's verdict over ROWS, written out by hand (what gallery.py says under its rules): per run
+#: (frozen, privileged, clears_gate, provenance_gap). Row 5 is the 20-episode smoke: it clears the gate, unfrozen.
+JUDGED = {0: (True, False, True, ""), 1: (True, True, False, ""), 2: (True, False, False, ""),
+          3: (True, False, True, ""), 4: (True, False, False, ""), 5: (False, False, True, ""),
+          6: (True, True, False, ""), 7: (True, False, False, ""), 8: (True, False, True, "")}
+#: Per phase: the head run of each cell, and per gated env (beaten, provisional, best non-privileged headline).
+PHASES = {
+    "T1": {"rows": [0, 1, 2], "heads": [0, 1, 2],
+           "envs": {"toy/x": (True, False, 0), "mujoco/stage0": (False, False, None), "mujoco/stage1": (False, False, None)}},
+    "T2": {"rows": list(range(8)), "heads": list(range(8)),
+           "envs": {"toy/x": (True, False, 0), "mujoco/stage0": (True, False, 3), "mujoco/stage1": (False, True, 5)}},
+    "T1-s1": {"rows": list(range(9)), "heads": [8, 1, 2, 3, 4, 5, 6, 7],
+              "envs": {"toy/x": (True, False, 8), "mujoco/stage0": (True, False, 3), "mujoco/stage1": (False, True, 5)}},
+}
+
+
+def _brief(index: int | None) -> dict | None:
+    if index is None:
+        return None
+    r = ROWS[index]
+    return {"run_id": r["run_id"], "cell_id": r["cell_id"], "model": r["model"], "env": r["env"], "value": r["value"],
+            "ci_lo": r["ci_lo"], "n": r["n"], "started_at": r["started_at"], "frozen": JUDGED[index][0],
+            "privileged": JUDGED[index][1]}
+
+
+def fixture_doc() -> dict:
+    return {
+        "schema": grasp_bench_bridge.SCHEMA, "modules": {}, "attestations_path": "", "ledger_rows": len(ROWS),
+        "duplicate_run_ids": [], "gated": ["toy/x", "mujoco/stage0", "mujoco/stage1"],
+        "runs": {_rid(i): {"frozen": f, "privileged": p, "clears_gate": c, "provenance_gap": g, "schema_version": 2}
+                 for i, (f, p, c, g) in JUDGED.items()},
+        "snapshots": {pid: {"heads": {ROWS[i]["cell_id"]: _brief(i) for i in spec["heads"]}, "missing": [],
+                            "envs": {env: {"beaten": b, "provisional": pv, "best_run": _brief(best)}
+                                     for env, (b, pv, best) in spec["envs"].items()}}
+                      for pid, spec in PHASES.items()},
+    }
+
+
+class FakeBridge:
+    """Stands in for grasp_bench_bridge.bench_verdict: a canned verdict, or a canned reason it is unavailable."""
+
+    def __init__(self, test: unittest.TestCase, reason: str | None = None) -> None:
+        self.test, self.reason, self.calls = test, reason, []
+
+    def __call__(self, paths: grasp_bench_bridge.BenchPaths, subsets: dict) -> grasp_bench_bridge.BridgeResult:
+        self.calls.append(subsets)
+        if self.reason is not None:
+            return grasp_bench_bridge.BridgeResult(None, self.reason, seconds=0.0)
+        # The adapter must ask the bench about exactly the cumulative rows of each phase.
+        self.test.assertEqual(subsets, {pid: [_rid(i) for i in spec["rows"]] for pid, spec in PHASES.items()})
+        return grasp_bench_bridge.BridgeResult(fixture_doc(), seconds=0.0, run_seconds=0.0)
+
+
 def work_track() -> WorkTrack:
     return WorkTrack(id="grasping", title="Grasping", status="running", priority=3, owner=None, adapter="grasping",
                      sources=["grasping_ledger", "grasping_curriculum"], roadmap=None, children=[],
@@ -126,8 +194,9 @@ class FixtureTest(unittest.TestCase):
     def tearDown(self) -> None:
         self.tmp.cleanup()
 
-    def build(self) -> dict:
-        track = grasping.build_track(work_track(), self.sources)
+    def build(self, bridge: FakeBridge | None = None) -> dict:
+        self.bridge = bridge or FakeBridge(self)
+        track = grasping.build_track(work_track(), self.sources, bridge=self.bridge)
         self.assertEqual(base.problems(track), [])
         return track
 
@@ -147,10 +216,13 @@ class FixtureTest(unittest.TestCase):
         self.assertEqual(track["iteration"]["unit"], "wave")
         self.assertEqual(track["iteration"]["label"], "T1 · seed 1")
 
-    def test_beaten_follows_the_gallery_rule(self) -> None:
+    def test_beaten_is_the_bench_verdict(self) -> None:
         track = self.build()
         # toy/x by the learner; stage0 on the frozen protocol. stage1: the smoke is provisional and the oracle cannot beat.
         self.assertEqual(self.series(track, "envs_beaten"), [1.0, 2.0, 2.0])
+        self.assertEqual(self.kpi(track, "envs_beaten")["values"][1]["note"], "beaten: x, stage0 · provisional: stage1")
+        self.assertTrue(track["source"]["bench_verdict"]["ok"])
+        self.assertEqual(track["source"]["problems"], ["1 unreadable ledger lines skipped"])
         self.assertEqual(self.kpi(track, "envs_beaten")["values"][0]["of"], 3)
         self.assertEqual(self.kpi(track, "envs_beaten")["target"]["kind"], "scope")
         self.assertEqual(track["north_star"], "envs_beaten")
@@ -209,7 +281,7 @@ class FixtureTest(unittest.TestCase):
     def test_state_summary_and_needs(self) -> None:
         track = self.build()
         self.assertEqual(track["state"]["word"], "Tier 2 · MuJoCo physics")
-        self.assertIn("1 of 2 gates cleared (open: stage1)", track["state"]["detail"])
+        self.assertIn("1 of 2 gates beaten (open: stage1)", track["state"]["detail"])
         self.assertIn("1 unreadable ledger lines skipped", track["state"]["detail"])
         self.assertEqual(track["state"]["since"], "2026-10-05T02:00:00+00:00")
         self.assertTrue(track["summary"].startswith("2 of 3 gated envs beaten (toy 1/1, MuJoCo 1/2)"))
@@ -247,7 +319,7 @@ class FixtureTest(unittest.TestCase):
 
     def test_missing_ledger_is_not_reporting(self) -> None:
         self.ledger.unlink()
-        track = grasping.build_track(work_track(), self.sources)
+        track = grasping.build_track(work_track(), self.sources, bridge=FakeBridge(self))
         self.assertEqual(track["state"]["word"], base.NOT_REPORTING)
         self.assertIn("ledger missing", track["summary"])
         self.assertEqual(track["needs_you_count"], {"open": None, "blocking": None})
@@ -257,47 +329,189 @@ class FixtureTest(unittest.TestCase):
         track = self.build()
         self.assertEqual(track["iterations"], [])
         self.assertEqual(track["state"]["word"], "No runs yet")
+        self.assertEqual(self.bridge.calls, [])   # nothing to judge, so the bench is not asked
 
     def test_changed_contract_fails_loudly(self) -> None:
         self.curriculum.write_text(CURRICULUM.replace('"jaw"),', '"jaw", colour="red"),', 1), encoding="utf-8")
         with self.assertRaises(TypeError):
-            grasping.build_track(work_track(), self.sources)
+            grasping.build_track(work_track(), self.sources, bridge=FakeBridge(self))
+
+    # ---- no bench verdict: never a replica, always the reason
+
+    def test_unavailable_verdict_is_null_with_the_reason_never_a_guess(self) -> None:
+        reason = "bench venv missing: /nowhere/.venv/bin/python"
+        track = self.build(FakeBridge(self, reason))
+        north = self.kpi(track, track["north_star"])
+        self.assertEqual(track["north_star"], "envs_beaten")
+        for point in north["values"]:
+            self.assertIsNone(point["value"])
+            self.assertFalse(point["measured"])
+            self.assertEqual(point["note"], f"bench verdict unavailable: {reason}")
+        self.assertEqual(north["status"], {"word": "bench verdict unavailable", "tone": "warn"})
+        self.assertIn(f"bench verdict unavailable: {reason}", track["source"]["problems"])
+        self.assertFalse(track["source"]["bench_verdict"]["ok"])
+        for kpi_id in ("mujoco_beaten", "hardest_lb", "hardest_margin", "dataset_ap", "latency_p95", "wave1_cells"):
+            kpi = self.kpi(track, kpi_id)
+            self.assertEqual([p["note"] for p in kpi["values"]], ["unconfirmed: bench verdict unavailable"] * 3, kpi_id)
+            self.assertTrue(all(p["value"] is None for p in kpi["values"]), kpi_id)
+            self.assertEqual(kpi["status"]["word"], "unconfirmed: bench verdict unavailable", kpi_id)
+        # raw ledger counts need no verdict and stay measured
+        self.assertEqual(self.series(track, "dirty_share"), [0.0, 37.5, 33.3])
+        self.assertEqual(self.series(track, "seed_rule"), [0.0, 0.0, 0.0])
+        # no frontier without the verdict: the state says why, the rung is unknown, nothing claims "beaten"
+        self.assertEqual(track["state"]["word"], "Bench verdict unavailable")
+        self.assertIn(reason, track["state"]["detail"])
+        self.assertIsNone(track["rung"])
+        self.assertNotIn("beaten", track["summary"].replace("verdict", ""))
+        self.assertTrue(track["summary"].startswith(f"bench verdict unavailable: {reason}"))
+        statuses = {item["status"] for items in track["evidence"]["by_iteration"].values() for item in items
+                    if item["kind"] == "run"}
+        self.assertNotIn("pass", statuses)
+        self.assertNotIn("provisional", statuses)
+
+    def test_the_real_bridge_without_a_venv_says_so(self) -> None:
+        sources = dict(self.sources, grasping_bench_python=str(self.out / "no-venv" / "python"),
+                       grasping_attestations=str(self.ledger.parent / "attestations.jsonl"),
+                       grasping_gallery_py=str(self.curriculum), grasping_ledger_py=str(self.curriculum),
+                       grasping_runner_py=str(self.curriculum), grasping_contracts_py=str(self.curriculum),
+                       grasping_verdict_cache=str(self.out / "cache"))
+        track = grasping.build_track(work_track(), sources)   # the real bench_verdict, no fake
+        self.assertEqual(base.problems(track), [])
+        self.assertEqual(self.kpi(track, "envs_beaten")["values"][-1]["note"],
+                         f"bench verdict unavailable: bench venv missing: {self.out / 'no-venv' / 'python'}")
+        undeclared = grasping.build_track(work_track(), self.sources)
+        self.assertIn("vibe-sources lacks", self.kpi(undeclared, "envs_beaten")["values"][-1]["note"])
+
+    def test_a_verdict_that_misses_rows_is_not_used(self) -> None:
+        class Partial(FakeBridge):
+            def __call__(self, paths, subsets):
+                result = super().__call__(paths, subsets)
+                del result.doc["runs"][_rid(8)]
+                return result
+        track = self.build(Partial(self))
+        self.assertIsNone(self.kpi(track, "envs_beaten")["values"][-1]["value"])
+        self.assertIn("the bench did not judge 1 ledger rows", track["source"]["problems"][0])
+
+
+class BridgeTest(unittest.TestCase):
+    """grasp_bench_bridge's own seams, with a stand-in interpreter that prints a canned document."""
+
+    def setUp(self) -> None:
+        self.tmp = tempfile.TemporaryDirectory()
+        root = Path(self.tmp.name)
+        src = root / "bench" / "src" / "grasp_bench"
+        src.mkdir(parents=True)
+        self.files = {}
+        for name in ("gallery", "ledger", "curriculum", "runner", "contracts"):
+            self.files[name] = src / f"{name}.py"
+            self.files[name].write_text("# stand-in\n", encoding="utf-8")
+        (root / "bench" / "out" / "ledger").mkdir(parents=True)
+        self.ledger = root / "bench" / "out" / "ledger" / "runs.jsonl"
+        self.ledger.write_text(json.dumps(ROWS[0]) + "\n", encoding="utf-8")
+        self.calls = root / "calls.log"
+        doc = {"schema": grasp_bench_bridge.SCHEMA,
+               "modules": {name: str(path) for name, path in self.files.items()},
+               "attestations_path": str(self.ledger.parent / "attestations.jsonl"), "runs": {}, "snapshots": {}}
+        python = root / "bench" / ".venv" / "bin" / "python"
+        python.parent.mkdir(parents=True)
+        # WHY a shell script: the bridge's contract is "run this interpreter, read the last stdout line"; a stand-in
+        # proves caching and checks without the bench's real venv. It logs each call so the cache can be counted.
+        python.write_text("#!/bin/sh\ncat >/dev/null\necho call >> " + str(self.calls) + "\necho 'noise'\necho '"
+                          + json.dumps(doc) + "'\n", encoding="utf-8")
+        python.chmod(0o755)
+        self.paths = grasp_bench_bridge.BenchPaths(
+            python=str(python), ledger=str(self.ledger), attestations=str(self.ledger.parent / "attestations.jsonl"),
+            gallery_py=str(self.files["gallery"]), ledger_py=str(self.files["ledger"]),
+            curriculum_py=str(self.files["curriculum"]), runner_py=str(self.files["runner"]),
+            contracts_py=str(self.files["contracts"]), cache_dir=str(root / "cache"))
+
+    def tearDown(self) -> None:
+        self.tmp.cleanup()
+
+    def ran(self) -> int:
+        return len(self.calls.read_text().splitlines()) if self.calls.exists() else 0
+
+    def test_cached_until_an_input_changes(self) -> None:
+        first = grasp_bench_bridge.bench_verdict(self.paths, {"T1": ["a"]})
+        self.assertTrue(first.ok, first.reason)
+        self.assertFalse(first.cached)
+        second = grasp_bench_bridge.bench_verdict(self.paths, {"T1": ["a"]})
+        self.assertTrue(second.cached)
+        self.assertEqual(self.ran(), 1)
+        for changed in (self.ledger, self.files["gallery"], Path(self.paths.attestations)):
+            with open(changed, "a", encoding="utf-8") as handle:
+                handle.write("\n")
+            self.assertFalse(grasp_bench_bridge.bench_verdict(self.paths, {"T1": ["a"]}).cached, changed)
+        self.assertEqual(self.ran(), 4)
+        self.assertFalse(grasp_bench_bridge.bench_verdict(self.paths, {"T1": ["a", "b"]}).cached)  # a new request
+
+    def test_a_bench_importing_other_code_is_refused(self) -> None:
+        other = Path(self.tmp.name) / "elsewhere.py"
+        other.write_text("", encoding="utf-8")
+        paths = grasp_bench_bridge.BenchPaths(**{**self.paths.__dict__, "gallery_py": str(other)})
+        result = grasp_bench_bridge.bench_verdict(paths, {})
+        self.assertFalse(result.ok)
+        self.assertIn("imports gallery.py from", result.reason)
+
+    def test_failures_name_the_reason(self) -> None:
+        python = Path(self.paths.python)
+        python.write_text("#!/bin/sh\necho 'ImportError: no module named grasp_bench' >&2\nexit 1\n", encoding="utf-8")
+        result = grasp_bench_bridge.bench_verdict(self.paths, {})
+        self.assertEqual(result.reason, "the bench's gallery exited 1: ImportError: no module named grasp_bench")
+        python.write_text("#!/bin/sh\nexec sleep 5\n", encoding="utf-8")
+        result = grasp_bench_bridge.bench_verdict(self.paths, {}, timeout=0.5)
+        self.assertFalse(result.ok)
+        self.assertIn("did not answer within", result.reason)
+
+
+class NoReplicaTest(unittest.TestCase):
+    def test_the_gallery_rules_have_no_copy_in_the_dashboard(self) -> None:
+        # WHY import-level: the replica drifted once (6 of 10 beaten vs the gallery's 2); none may come back.
+        for module in (grasping, grasp_bench_bridge):
+            for name in ("is_frozen", "is_frozen_protocol", "is_privileged", "clears_gate", "env_verdict",
+                         "env_provisional", "headline_runs", "provenance_gap", "frozen_protocol", "FROZEN_EVAL_SEED",
+                         "DEFAULT_PROTOCOLS", "FALLBACK_PROTOCOL"):
+                self.assertFalse(hasattr(module, name), f"{module.__name__}.{name} is a copy of the bench's rule")
 
 
 LIVE = load_sources()
-LIVE_LEDGER = Path(LIVE.get("grasping_ledger", "/nonexistent"))
-LIVE_CURRICULUM = Path(LIVE.get("grasping_curriculum", "/nonexistent"))
+LIVE_TRACK = next((t for t in registry.load_registry(REPO / "workspace") if t.id == "grasping"), None)
+LIVE_SOURCES = {key: LIVE[key] for key in (LIVE_TRACK.sources if LIVE_TRACK else []) if key in LIVE}
+LIVE_LEDGER = Path(LIVE_SOURCES.get("grasping_ledger", "/nonexistent"))
+LIVE_PYTHON = Path(LIVE_SOURCES.get("grasping_bench_python", "/nonexistent"))
 
 
-@unittest.skipUnless(LIVE_LEDGER.is_file() and LIVE_CURRICULUM.is_file(), f"grasp bench not on this machine: {LIVE_LEDGER}")
+@unittest.skipUnless(LIVE_LEDGER.is_file() and LIVE_PYTHON.is_file(), f"grasp bench not on this machine: {LIVE_LEDGER}")
 class LiveSmokeTest(unittest.TestCase):
     def test_live_ledger_builds_and_agrees_with_the_bench_gallery(self) -> None:
-        track = grasping.build_track(work_track(), {"grasping_ledger": str(LIVE_LEDGER),
-                                                     "grasping_curriculum": str(LIVE_CURRICULUM)})
+        track = grasping.build_track(LIVE_TRACK, dict(LIVE_SOURCES))
         self.assertEqual(base.problems(track), [])
+        self.assertTrue(track["source"]["bench_verdict"]["ok"], track["source"]["bench_verdict"])
         self.assertTrue(track["iterations"])
         self.assertGreaterEqual(len(track["kpis"]), 4)
-        beaten_series = [v["value"] for v in next(k for k in track["kpis"] if k["id"] == "envs_beaten")["values"]]
-        self.assertTrue(all(v is not None for v in beaten_series))
-        # Independent oracle: the bench's own gallery.env_verdict, run in the bench's own venv.
-        bench = LIVE_CURRICULUM.parent.parent.parent
-        python = bench / ".venv" / "bin" / "python"
-        if not python.is_file():
-            self.skipTest(f"bench venv missing: {python}")
-        script = ("import json\nfrom grasp_bench import gallery, curriculum\nfrom grasp_bench.ledger import Ledger\n"
-                  "heads = gallery.headline_runs(Ledger().load_runs())\n"
-                  "print(json.dumps(sorted(e for e in curriculum.GATES if gallery.env_verdict(e, heads)[0])))\n")
+        beaten_kpi = next(k for k in track["kpis"] if k["id"] == "envs_beaten")
+        self.assertTrue(all(v["value"] is not None for v in beaten_kpi["values"]))
+        # Independent oracle: the bench's own gallery.env_verdict in the bench's own venv, written here and not
+        # through the bridge, over exactly the rows the adapter read (the ledger may have grown since the build).
+        run_ids = [item["id"] for items in track["evidence"]["by_iteration"].values() for item in items
+                   if item["kind"] == "run"]
+        script = ("import json, sys\nfrom grasp_bench import gallery, curriculum\nfrom grasp_bench.ledger import Ledger\n"
+                  "wanted = set(json.load(sys.stdin))\n"
+                  f"runs = [r for r in Ledger({str(LIVE_LEDGER.parent)!r}).load_runs() if r.run_id in wanted]\n"
+                  "heads = gallery.headline_runs(runs)\n"
+                  "print(json.dumps([e for e in curriculum.GATES if gallery.env_verdict(e, heads)[0]]))\n")
         env = {k: v for k, v in os.environ.items() if k != "VIRTUAL_ENV"}
         try:
-            out = subprocess.run([str(python), "-c", script], cwd=bench, capture_output=True, text=True, timeout=120,
-                                 env=env, check=True).stdout
+            out = subprocess.run([str(LIVE_PYTHON), "-c", script], cwd=LIVE_PYTHON.parents[2], input=json.dumps(run_ids),
+                                 capture_output=True, text=True, timeout=120, env=env, check=True).stdout
         except (OSError, subprocess.SubprocessError) as error:
             self.skipTest(f"bench gallery did not run: {error}")
         gallery_beaten = json.loads(out.strip().splitlines()[-1])
-        # Recompute from the same ledger state the oracle just read (the ledger may have grown since the build).
-        cur = grasping.load_curriculum(LIVE_CURRICULUM)
-        runs, _ = grasping.load_ledger(LIVE_LEDGER)
-        self.assertEqual(sorted(grasping.snapshot(runs, cur).beaten), gallery_beaten)
+        last = beaten_kpi["values"][-1]
+        self.assertEqual(last["value"], float(len(gallery_beaten)))
+        names = [env_id.split("/", 1)[1] for env_id in gallery_beaten]
+        expected = ("beaten: " + ", ".join(names)) if names else "none beaten yet"
+        self.assertEqual(last["note"].split(" · ")[0], expected)
 
 
 if __name__ == "__main__":

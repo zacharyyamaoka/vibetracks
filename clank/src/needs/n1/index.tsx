@@ -34,6 +34,9 @@ import {
   type NeedsGroup,
   type NeedsItem,
   type NeedsProposalProps,
+  hoverTime,
+  questionText,
+  questionMd,
 } from '../kit'
 import { formatLocal } from '../../shared/time'
 import './zen.css'
@@ -60,13 +63,21 @@ function buildQueue(docs: NeedsDoc[], includeDefaulting: boolean): Entry[] {
   return entries
 }
 
-/** Inline `code` spans only; every other character is shown as the loop wrote it. */
+/** Inline `code` and `**bold**` spans only; every other character is shown as the loop wrote it. */
 function Verbatim({ text }: { text: string }) {
-  const parts = text.split(/(`[^`\n]+`)/g)
+  // `**bold**` too: detection's asks open with a bold lead ("**Data.** The Seagate ..."), and the raw asterisks read
+  // as noise, not as the loop's emphasis.
+  const parts = text.split(/(`[^`\n]+`|\*\*[^*\n]+\*\*)/g)
   return (
     <>
       {parts.map((part, index) =>
-        part.length > 2 && part.startsWith('`') && part.endsWith('`') ? <code key={index}>{part.slice(1, -1)}</code> : <span key={index}>{part}</span>,
+        part.length > 2 && part.startsWith('`') && part.endsWith('`') ? (
+          <code key={index}>{part.slice(1, -1)}</code>
+        ) : part.length > 4 && part.startsWith('**') && part.endsWith('**') ? (
+          <strong key={index}>{part.slice(2, -2)}</strong>
+        ) : (
+          <span key={index}>{part}</span>
+        ),
       )}
     </>
   )
@@ -408,7 +419,7 @@ function Progress({
               data-state={state}
               data-group={entry.item.group}
               aria-current={!atEnd && position === index ? 'step' : undefined}
-              title={`${entry.item.local_id} · ${entry.item.title} (${state})`}
+              title={`${entry.item.local_id} · ${questionText(entry.item)} (${state})`}
               onClick={() => onJump(position)}
             />
           )
@@ -453,8 +464,8 @@ function Card({
     <article className="zen-card" key={item.id} data-testid="vt-zen-card" data-item={item.id}>
       <p className="vt-label zen-eyebrow">
         <span className="vt-num">{item.local_id}</span> · {doc.track_title}
-        {opened ? <span title={item.created.iteration === null ? item.created.ts ?? undefined : undefined}>{` · ${opened}`}</span> : ''}
-        {updated ? <span title={item.updated.ts ?? undefined}>{` · updated ${updated}`}</span> : ''}
+        {opened ? <span title={item.created.iteration === null ? hoverTime(item.created.ts) : undefined}>{` · ${opened}`}</span> : ''}
+        {updated ? <span title={hoverTime(item.updated.ts)}>{` · updated ${updated}`}</span> : ''}
         {item.asked_by.agent ? ` · asked by ${item.asked_by.agent}` : ''}
       </p>
       <h1 className="zen-question">
@@ -651,7 +662,7 @@ function EndScreen({
                 <span className="vt-faint vt-num zen-summary-id">{entry.item.local_id}</span>
                 <span className="zen-summary-text">
                   <span className="zen-summary-title">
-                    <Verbatim text={entry.item.title} />
+                    <Verbatim text={questionMd(entry.item)} />
                   </span>
                   <span className="vt-small">
                     {complete && choice ? (

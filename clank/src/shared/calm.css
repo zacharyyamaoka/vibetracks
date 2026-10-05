@@ -101,9 +101,20 @@
     text-decoration-color: var(--vt-grey);
   }
 
-  /* The scroll container under the frame, so the switcher can sit fixed in the frame's corner. */
+  /* ---- the frame (frozen contract, Dashboard.tsx): a flex column of [header][.vt-scroll][#vt-review-bar]. The scroller
+     takes whatever height is left, so its bottom edge IS the bar's top edge and nothing scrolls under a pill.
+     WHY flex and not calc(100% - header): the bar's height then never has to be repeated in a second formula. */
+  .vt-dash {
+    display: flex;
+    flex-direction: column;
+  }
+  .vt-dash > .vt-dash-header,
+  .vt-dash > .vt-review-bar {
+    flex: none;
+  }
   .vt-dash .vt-scroll {
-    height: calc(100% - var(--vt-header-h));
+    flex: 1 1 auto;
+    min-height: 0;
     overflow: auto;
   }
 
@@ -484,6 +495,54 @@
   }
 
   /* ---- the temporary variant switcher (bottom-right, Zach's prototype-switch rule) */
+  /* ---- the review bar: a thin row under the content, right-aligned, the page's own background and no band or line
+     (calm). It holds the review pills: N (portalled by NeedsShell) left of A · B · C.
+     WHY a fixed height with the pills aligned to its bottom: an open pill's list grows upward out of the bar as a
+     transient menu (painted over the content while open, like any menu) instead of growing the bar and shrinking the
+     scroller under the reader. */
+  .vt-dash .vt-review-bar {
+    position: relative;
+    z-index: 20;
+    height: var(--vt-review-bar-h);
+    display: flex;
+    flex-direction: row;
+    align-items: flex-end;
+    justify-content: flex-end;
+    gap: 8px;
+    padding: 0 14px 5px;
+    background: var(--vt-bg);
+  }
+  .vt-dash {
+    --vt-review-bar-h: 40px;
+  }
+  /* WHY static and `order`: inside the bar a pill flows (the needs kit's `bottom` offset must not shift it), and the
+     portalled N pill is appended after A · B · C in the DOM but belongs on its left. */
+  .vt-dash .vt-review-bar > .vt-switcher {
+    position: static;
+    flex: none;
+  }
+  /* In the bar a closed pill floats over nothing, so it drops the lift shadow and keeps only its hairline. */
+  .vt-dash .vt-review-bar > .vt-switcher:not([data-open='true']) {
+    box-shadow: 0 0 0 1px var(--vt-line);
+  }
+  .vt-dash .vt-review-bar > .vt-needs-switcher {
+    order: -1;
+  }
+  .vt-dash .vt-switcher[data-open='true'] {
+    flex-direction: column;
+    align-items: stretch;
+  }
+  .vt-dash .vt-switcher[data-open='true'] > [role='menu'] {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    padding-bottom: 3px;
+    border-bottom: 1px solid var(--vt-line);
+  }
+  .vt-dash .vt-switcher[data-open='true'] > [role='menu'] .vt-btn {
+    text-align: left;
+  }
+  /* A pill outside the bar (NeedsShell's fallback when #vt-review-bar is absent) keeps the old floating corner. */
   .vt-dash .vt-switcher {
     position: absolute;
     right: 14px;

@@ -92,6 +92,13 @@ export function needsCount(track: Track): { open: number | null; blocking: numbe
   return { open: track.needs_you.length, blocking: blockingQuestions(track).length }
 }
 
+/** The blocking half of a needs count in words, the same on every A surface: "2 blocking", "0 blocking" (never
+ * "none", which no other surface says), or "not reported" when the source gave no blocking count (null is never 0). */
+export function blockingWords(blocking: number | null): string {
+  // WHY a no-break space: a narrow Needs column split "1 / blocking" over two lines; the count and its word are one token.
+  return blocking === null ? 'not reported' : `${blocking}\u00a0blocking`
+}
+
 /** The build's own note on where this track's questions come from (needs_you_source.note), shown on hover. */
 export function needsSourceNote(track: Track): string | null {
   const raw = field(track, 'needs_you_source')

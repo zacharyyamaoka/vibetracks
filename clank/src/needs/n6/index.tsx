@@ -6,14 +6,15 @@
 // one Copy action. N2's context is grafted onto every card: one compact fact line above the options, and the loop's
 // full verbatim context directly under them, open, no keypress.
 //
-// WHY the card reads eyebrow → question → (newest update) → why → one fact line → options → full context: Zach,
+// WHY the card reads eyebrow → question → why → (latest update) → one fact line → options → full context: Zach,
 // 2026-10-04: "within 1 click … start addressing these … I need enough context though to actually like provide
 // feedback". The judges measured the earlier N6 pushing its options below the fold at 1280x800 with a 4-row fact grid
 // and a nine-button key rail; the question and every option must now sit on the first screen, and the context that
 // is too long for it is the scroll right below, never behind a key.
-// WHY newest UPDATE first and only the newest above the options (as N3 does it): rig items grow by appended UPDATE
-// paragraphs (rig T2 has five); the newest supersedes the original question, so reading oldest-first answers a question
-// the loop no longer asks. The earlier ones sit in the context below, once.
+// WHY only the newest UPDATE above the options, and AFTER the why: rig items grow by appended UPDATE paragraphs (rig T2
+// has five). The newest says what changed and must be on the first screen, but leading with it (round 2) pushed the
+// thing being decided into second place under "Originally"; the round-2 judge asked for decision first, then
+// "Latest update · <header>:". The earlier updates sit in the context below, once.
 // WHY the header counts come from needs.py's counts (blocking_now, wants_you) and read "N blocking · M open": the number
 // Zach clicked on the home cell must be the number he lands on, in the same words; a second arithmetic here is how
 // grasping once read "7 open" on the cell and opened onto an empty page.
@@ -160,9 +161,10 @@ function whenText(doc: NeedsDoc, item: NeedsItem): string {
   const due = appliesAfter(item)
   const at = doc.iteration ? `the loop has finished ${doc.iteration.unit} ${doc.iteration.finished ?? '(not reported)'}` : null
   if (applies.unit === 'never') return 'Never. This waits for you.'
-  // WHY "when: not stated" and never the raw word: detection's plan note gives a default but no time, and the old
-  // line read "After unstated null."
-  if (!due) return WHEN_NOT_STATED
+  // WHY "Not stated by the loop" and never the raw word: detection's plan note gives a default but no time, and the old
+  // line read "After unstated null". WHY not the kit's "when: not stated" here: this sits in a row already labelled
+  // When, and the judges read "When / when: not stated" (the fact line above the options keeps the kit's words).
+  if (!due) return 'Not stated by the loop.'
   if (state === 'in_effect') return `In effect now: due ${due}, and ${at ?? 'that has passed'} (computed by the dashboard).`
   return `Due ${due}${at ? `; ${at}` : ''}.`
 }
@@ -251,7 +253,7 @@ function OpenedShort({ doc, item }: { doc: NeedsDoc; item: NeedsItem }) {
  * sentence from the middle (grasping's "- Notes: Needs a download"), cutting it would break the verbatim body, so the
  * body stays whole. `trimmed` says whether anything was taken, so an empty rest is never mistaken for "no context".
  */
-function contextRemainder(item: NeedsItem): { body: string; trimmed: boolean; leadTaken: boolean } {
+function contextRemainder(item: NeedsItem): { body: string; trimmed: boolean; leadTaken: boolean; lifted: string | null } {
   const base = item.context_base_md || item.context_md
   let body = (item.provenance_md && base.startsWith(item.provenance_md) ? base.slice(item.provenance_md.length) : base).trim()
   let trimmed = false
@@ -274,8 +276,26 @@ function contextRemainder(item: NeedsItem): { body: string; trimmed: boolean; le
     }
   }
   const leadTaken = take(item.context_lead_md)
-  return { body, trimmed, leadTaken }
+  const lead = item.context_lead_md?.trim()
+  if (!leadTaken && lead) {
+    // WHY lift the body's opening block when the lead sits inside it (grasping: "**GG-CNN (planar, Cornell)**" then
+    // "- Licence: BSD-3" / "- Notes: Needs a download …"): those lines are what an approval rests on, and the judges
+    // found them only in Full context, under the note box, while the card above the options said nothing. The block is
+    // cut from the START of the body, so what stays below is still the verbatim rest and nothing prints twice.
+    const at = body.indexOf(lead)
+    const blockEnd = at >= 0 ? body.indexOf('\n\n', at + lead.length) : -1
+    const block = at >= 0 ? (blockEnd >= 0 ? body.slice(0, blockEnd) : body).trim() : ''
+    if (block && block.length <= LIFT_MAX_CHARS) {
+      body = body.slice(block.length).trim()
+      return { body, trimmed: true, leadTaken: true, lifted: block }
+    }
+  }
+  return { body, trimmed, leadTaken, lifted: null }
 }
+
+/** WHY a cap on the lifted block: it lives above the options, so a lead buried deep in a long body stays where it is
+ *  (the body below is verbatim and whole) rather than dragging half the context above the fold. */
+const LIFT_MAX_CHARS = 480
 
 function isEditable(target: EventTarget | null): boolean {
   if (!(target instanceof HTMLElement)) return false
@@ -336,6 +356,9 @@ export default function NeedsLaneContext(props: NeedsProposalProps) {
 
   // "Later" is a session-only mark: visible on the ticks and the end screen, never exported.
   const [later, setLater] = useState<Set<string>>(() => new Set())
+  // WHY a set of cards actually shown, not the position: c jumps to the end from card 3 of 7, and the progress line
+  // read "All 7 seen" while the end screen listed five unanswered. "Seen" means the card was on screen.
+  const [seen, setSeen] = useState<Set<string>>(() => new Set())
   const [legend, setLegend] = useState(false)
   // WHY the lane resets when the route's track changes: the shell keeps this component mounted across tracks, and a
   // lane left at 'end' on grasping opened detection on its end screen, past three unanswered questions.
@@ -344,6 +367,7 @@ export default function NeedsLaneContext(props: NeedsProposalProps) {
     setLaneTrack(track)
     setPosition(null)
     setLater(new Set())
+    setSeen(new Set())
     setIncludeDefaulting(false)
   }
   const [hint, setHint] = useState<string | null>(null)
@@ -379,6 +403,12 @@ export default function NeedsLaneContext(props: NeedsProposalProps) {
     )
     return () => retries.forEach((id) => window.clearTimeout(id))
   }, [hasQueue])
+
+  const currentId = current?.item.id ?? null
+  useEffect(() => {
+    if (!currentId) return
+    setSeen((previous) => (previous.has(currentId) ? previous : new Set(previous).add(currentId)))
+  }, [currentId])
 
   useEffect(() => {
     setHint(null)
@@ -584,7 +614,7 @@ export default function NeedsLaneContext(props: NeedsProposalProps) {
     <div ref={root} className="vt-needs-n6" tabIndex={-1} data-testid="vt-needs-n6" data-n6-item={current?.item.id ?? (atEnd ? 'end' : '')}>
       <div className="n6-main">
         <Header docs={docs} track={track} loading={loading} />
-        {queue.length ? <Progress queue={queue} index={index} atEnd={atEnd || !current} later={later} answers={answers} onJump={goTo} /> : null}
+        {queue.length ? <Progress queue={queue} index={index} atEnd={atEnd || !current} later={later} seen={seen} answers={answers} onJump={goTo} /> : null}
         <div className="n6-stage">{body}</div>
       </div>
     </div>
@@ -658,6 +688,7 @@ function Progress({
   index,
   atEnd,
   later,
+  seen,
   answers,
   onJump,
 }: {
@@ -665,12 +696,14 @@ function Progress({
   index: number
   atEnd: boolean
   later: Set<string>
+  seen: Set<string>
   answers: AnswerStore
   onJump(index: number): void
 }) {
   const current = atEnd ? null : queue[index]
   const answered = queue.filter((entry) => isComplete(answers.get(entry.doc.track, entry.item.local_id))).length
   const multiTrack = new Set(queue.map((entry) => entry.doc.track)).size > 1
+  const seenCount = queue.filter((entry) => seen.has(entry.item.id)).length
   return (
     <div className="n6-progress vt-small" data-testid="vt-n6-progress">
       <span className="n6-progress-where">
@@ -683,13 +716,16 @@ function Progress({
             {multiTrack ? <span className="vt-faint"> · {current.doc.track_title}</span> : null}
           </>
         ) : (
-          <span className="vt-strong">All {queue.length} seen</span>
+          <span className="vt-strong vt-num" data-testid="vt-n6-seen">
+            {seenCount === queue.length ? `All ${queue.length} seen` : `${seenCount} of ${queue.length} seen`}
+          </span>
         )}
       </span>
       <span className="n6-ticks" role="list">
         {queue.map((entry, position) => {
           const draft = answers.get(entry.doc.track, entry.item.local_id)
-          const state = isComplete(draft) ? 'answered' : later.has(entry.item.id) ? 'later' : 'open'
+          // WHY "unanswered" and not "open": "open" on this page is the header's count of what wants Zach.
+          const state = isComplete(draft) ? 'answered' : later.has(entry.item.id) ? 'later' : 'unanswered'
           return (
             <button
               key={entry.item.id}
@@ -712,13 +748,21 @@ function Progress({
   )
 }
 
+/**
+ * How many of `total` entries a collapsed list shows. WHY never "+1 more": the judges read "Blocks H1, H2, H4 +1 more"
+ * on detection, a control that hides exactly as much as it costs; a list hides entries only when it hides two or more.
+ */
+function collapsedCount(total: number, cap: number): number {
+  return total <= cap + 1 ? total : cap
+}
+
 /** WHY at most two evidence entries in the eyebrow: kinsim T33 carries four long paths, which took three lines above
  *  the question; "+2 more" opens the rest in place, the same pattern as the blocks. */
 const EVIDENCE_SHOWN = 2
 
 function EvidenceInline({ backend, doc, item, projection }: Pick<NeedsProposalProps, 'backend' | 'projection'> & { doc: NeedsDoc; item: NeedsItem }) {
   const [all, setAll] = useState(false)
-  const count = all ? item.evidence.length : Math.min(EVIDENCE_SHOWN, item.evidence.length)
+  const count = all ? item.evidence.length : collapsedCount(item.evidence.length, EVIDENCE_SHOWN)
   const hidden = item.evidence.length - count
   return (
     <span className="n6-evidence" data-testid="vt-n6-evidence">
@@ -741,7 +785,7 @@ function EvidenceInline({ backend, doc, item, projection }: Pick<NeedsProposalPr
 function BlocksInline({ item }: { item: NeedsItem }) {
   const [all, setAll] = useState(false)
   if (!item.blocks.length) return <span className="vt-faint">Blocks: none named</span>
-  const shown = all ? item.blocks : item.blocks.slice(0, BLOCKS_SHOWN)
+  const shown = all ? item.blocks : item.blocks.slice(0, collapsedCount(item.blocks.length, BLOCKS_SHOWN))
   const hidden = item.blocks.length - shown.length
   return (
     <span data-testid="vt-n6-blocks">
@@ -759,7 +803,7 @@ function BlocksInline({ item }: { item: NeedsItem }) {
             +{hidden} more
           </button>
         </>
-      ) : all && item.blocks.length > BLOCKS_SHOWN ? (
+      ) : all && item.blocks.length > collapsedCount(item.blocks.length, BLOCKS_SHOWN) ? (
         <>
           {' '}
           <button type="button" className="vt-btn n6-inline-btn" onClick={() => setAll(false)}>
@@ -795,12 +839,12 @@ function Card({
   const { doc, item } = entry
   const draft = answers.get(doc.track, item.local_id)
   const picked = flash ?? effectiveChoice(draft)
-  const { body, trimmed, leadTaken } = contextRemainder(item)
-  // WHY the lead is left out above the options when it is a sentence from the MIDDLE of the body (grasping's
-  // "- Notes: Needs a download"): the body below must stay verbatim and whole, so printing the lead on top too would be
-  // the same words twice; the body, with that sentence in place, starts right under the options.
+  const { body, trimmed, leadTaken, lifted } = contextRemainder(item)
+  // WHY the lead is left out above the options when it is a sentence deep in the body that could not be lifted: the
+  // body below must stay verbatim and whole, so printing the lead on top too would be the same words twice. A lead in
+  // the body's short opening block lifts that whole block instead (contextRemainder).
   const rawLead = item.context_lead_md?.trim() || null
-  const lead = rawLead && (leadTaken || !body.includes(rawLead)) ? rawLead : null
+  const lead = lifted ? null : rawLead && (leadTaken || !body.includes(rawLead)) ? rawLead : null
   const newest = item.updates.length ? item.updates[item.updates.length - 1] : null
   const earlier = item.updates.slice(0, -1).reverse()
   const recommended = item.options.some((option) => option.recommended)
@@ -818,25 +862,34 @@ function Card({
         <Inline text={item.ask || item.title} />
       </h1>
 
+      {/* WHY the decision content first and the newest update second: the judges read rig T2 leading with its fifth
+          UPDATE ("the board's velocity limit acts on …") while the thing being approved ("Ratio, PID … applied in one
+          write") sat second under "Originally"; an approval is read for WHAT it approves, then for what changed since.
+          Both stay above the options, each clamped with an explicit "…more". */}
+      {lifted ? (
+        <div className="n6-lead" data-testid="vt-n6-why" data-lifted="true">
+          <Clamp lines={5} testId="vt-n6-why-clamp">
+            <Md text={lifted} className="n6-prose" />
+          </Clamp>
+        </div>
+      ) : lead ? (
+        <div className="n6-lead" data-testid="vt-n6-why">
+          <Clamp lines={2} testId="vt-n6-why-clamp">
+            <p className="n6-prose">
+              <Inline text={lead} />
+            </p>
+          </Clamp>
+        </div>
+      ) : null}
       {newest ? (
         <div className="n6-lead n6-update-top" data-testid="vt-n6-update">
           <Clamp lines={3} testId="vt-n6-update-clamp">
             <p className="n6-prose">
               <span className="n6-inline-label">
-                Update {newest.header}
-                {item.updates.length > 1 ? ` · newest of ${item.updates.length}` : ''} ·{' '}
+                Latest update · {newest.header}
+                {item.updates.length > 1 ? ` · newest of ${item.updates.length}` : ''}:{' '}
               </span>
               <Inline text={newest.text_md} />
-            </p>
-          </Clamp>
-        </div>
-      ) : null}
-      {lead ? (
-        <div className="n6-lead" data-testid="vt-n6-why">
-          <Clamp lines={2} testId="vt-n6-why-clamp">
-            <p className="n6-prose">
-              {newest ? <span className="n6-inline-label">Originally · </span> : null}
-              <Inline text={lead} />
             </p>
           </Clamp>
         </div>
@@ -961,10 +1014,12 @@ function Card({
           <dd className={item.default.state === 'in_effect' ? 'vt-muted' : undefined}>{whenText(doc, item)}</dd>
           <dt>Opened</dt>
           <dd className="vt-muted">{openedText(doc, item)}</dd>
+          {/* WHY the computed group leads and the loop's status word is quoted: "open" on this page means one thing,
+              the header's "M open" (wants you); the loop file's own "open" is its word, so it is shown as a quote. */}
           <dt>Status</dt>
           <dd>
-            {item.status}
-            {item.raw_status !== item.status ? ` (the loop file says ${item.raw_status})` : ''} · {GROUP_LABEL[item.group].toLowerCase()} (computed)
+            {GROUP_LABEL[item.group]} <span className="vt-muted">(computed)</span>
+            <span className="vt-muted"> · the loop file's status: “{item.raw_status}”</span>
           </dd>
           {item.updated.note ? (
             <>
@@ -978,8 +1033,14 @@ function Card({
           <dd className="vt-muted">
             {doc.answer_channel.kind.replace(/_/g, ' ')}
             {doc.answer_channel.target ? `: ${doc.answer_channel.target}` : ''}
-            {doc.answer_channel.read_back ? `; read back ${doc.answer_channel.read_back}` : ''}
           </dd>
+          {/* WHY its own row: run on after the target it read "read back no loop reads answers yet". */}
+          {doc.answer_channel.read_back ? (
+            <>
+              <dt>Read back</dt>
+              <dd className="vt-muted">{doc.answer_channel.read_back}</dd>
+            </>
+          ) : null}
         </dl>
       </section>
     </article>
@@ -1082,13 +1143,15 @@ function EndScreen({
       {docs.filter(isReported).map((doc) => (
         <p key={doc.track} className="vt-small vt-faint n6-channel">
           {doc.track_title}: {doc.answer_channel.kind === 'jsonl_append' ? 'append the jsonl rows to' : 'paste into'} {doc.answer_channel.target ?? 'the loop'}
-          {doc.answer_channel.read_back ? `; read back ${doc.answer_channel.read_back}` : ''}.
+          <ReadBack doc={doc} />
         </p>
       ))}
       {!includeDefaulting && defaultingCount ? (
         <p className="n6-more vt-small">
           <span className="vt-muted">
-            {defaultingCount} more {defaultingCount === 1 ? 'is' : 'are'} open, but {defaultingCount === 1 ? 'its' : 'their'} default is already in effect (computed from the loop's progress).{' '}
+            {/* WHY not "open": the header's "M open" counts what wants Zach; these are the header's "more defaulting
+                without you", in the same words, so one word never means two things on this page. */}
+            {defaultingCount} more {defaultingCount === 1 ? 'is' : 'are'} defaulting without you: {defaultingCount === 1 ? 'its' : 'their'} default is already in effect (computed from the loop's progress).{' '}
           </span>
           <button type="button" className="vt-btn n6-link" data-testid="vt-n6-more" onClick={onIncludeDefaulting}>
             Review them too →
@@ -1097,6 +1160,20 @@ function EndScreen({
       ) : null}
       {unreported.length ? <NotReported docs={unreported} /> : null}
     </article>
+  )
+}
+
+/**
+ * The end of a channel sentence: ". Read back: <the loop's words>." WHY a labelled sentence of its own: run on after
+ * the target with "; read back" it read "read back no loop reads answers yet", and the loops' read_back texts start
+ * every which way ("at the next wave start", "by hand: …", "no loop reads …").
+ */
+function ReadBack({ doc }: { doc: NeedsDoc }) {
+  if (!doc.answer_channel.read_back) return <>.</>
+  return (
+    <>
+      . <span className="n6-label-inline">Read back:</span> {doc.answer_channel.read_back.replace(/\.$/, '')}.
+    </>
   )
 }
 
@@ -1112,7 +1189,7 @@ function NotReported({ docs }: { docs: NeedsDoc[] }) {
           {doc.answer_channel.target ? (
             <p className="vt-small vt-faint">
               To answer it anyway: {doc.answer_channel.kind.replace(/_/g, ' ')} to {doc.answer_channel.target}
-              {doc.answer_channel.read_back ? `; ${doc.answer_channel.read_back}` : ''}.
+              <ReadBack doc={doc} />
             </p>
           ) : null}
         </div>
@@ -1149,7 +1226,9 @@ function EmptyLane({
       ))}
       {!includeDefaulting && defaultingCount ? (
         <p className="n6-more vt-small">
-          <span className="vt-muted">{defaultingCount} open with the default already in effect. </span>
+          <span className="vt-muted">
+            {defaultingCount} {defaultingCount === 1 ? 'is' : 'are'} defaulting without you: the default is already in effect (computed from the loop's progress).{' '}
+          </span>
           <button type="button" className="vt-btn n6-link" onClick={onIncludeDefaulting}>
             Review them →
           </button>
@@ -1161,7 +1240,7 @@ function EmptyLane({
           {unreported[0].answer_channel.target ? (
             <p className="vt-small vt-faint">
               To answer it anyway: {unreported[0].answer_channel.kind.replace(/_/g, ' ')} to {unreported[0].answer_channel.target}
-              {unreported[0].answer_channel.read_back ? `; ${unreported[0].answer_channel.read_back}` : ''}.
+              <ReadBack doc={unreported[0]} />
             </p>
           ) : null}
         </div>

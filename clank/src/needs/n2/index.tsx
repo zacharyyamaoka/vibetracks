@@ -14,8 +14,9 @@
 // WHY drafts and no "Send": the backend is read-only and the loops read answers from their own channels; Copy answers
 // is the only way out, so no control pretends to submit anything (G2, no fake controls).
 
-import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type RefObject } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState, type RefObject } from 'react'
 import {
+  CHOOSER_RESERVE,
   CopyOut,
   EvidenceLink,
   GROUP_LABEL,
@@ -34,6 +35,9 @@ import {
   type NeedsGroup,
   type NeedsItem,
   type NeedsProposalProps,
+  useFitToScroller,
+  hoverTime,
+  questionText,
 } from '../kit'
 import { Md } from './Md'
 import { formatLocal } from '../../shared/time'
@@ -128,7 +132,6 @@ export default function NeedsN2(props: NeedsProposalProps) {
   const listRef = useRef<HTMLDivElement>(null)
   const paneRef = useRef<HTMLDivElement>(null)
   const noteRef = useRef<HTMLTextAreaElement>(null)
-  const [height, setHeight] = useState<number | null>(null)
 
   // The inbox order: per track, open groups first (the backend already sorts items), answered next, done folded.
   const entries = useMemo<Entry[]>(() => {
@@ -196,19 +199,10 @@ export default function NeedsN2(props: NeedsProposalProps) {
   )
 
   // Fit the split to the scroll container so the list and the reading pane scroll on their own, like a mail client.
-  useLayoutEffect(() => {
-    const root = rootRef.current
-    const scroll = root?.closest('.vt-scroll') as HTMLElement | null
-    if (!root || !scroll) return
-    const fit = () => {
-      const top = root.getBoundingClientRect().top - scroll.getBoundingClientRect().top + scroll.scrollTop
-      setHeight(Math.max(480, Math.floor(scroll.clientHeight - top)))
-    }
-    fit()
-    const observer = new ResizeObserver(fit)
-    observer.observe(scroll)
-    return () => observer.disconnect()
-  }, [])
+  // WHY the kit's useFitToScroller: it keeps the needs pill's corner free while the pill floats, and only a calm end
+  // margin once it is docked in the review bar (before, this fit to the full height and the floating pill covered the
+  // right end of "Something else (write it)" at rest).
+  const height = useFitToScroller(rootRef, CHOOSER_RESERVE, 480)
 
   // Keys work as soon as the page opens: J/K or arrows move, 1/2/3 answer.
   useEffect(() => {
@@ -301,7 +295,7 @@ export default function NeedsN2(props: NeedsProposalProps) {
   return (
     <div
       ref={rootRef}
-      className="vt-needs-n2"
+      className="vt-needs-n2 vt-needs-framed"
       data-testid="vt-needs-n2"
       tabIndex={-1}
       style={height ? { height } : undefined}
@@ -507,8 +501,8 @@ function Row({ doc, item, selected, onSelect, draft, later }: { doc: NeedsDoc; i
       <span className="n2-row-line">
         <span className="n2-row-id vt-num">{item.local_id}</span>
         {/* WHY a CSS line clamp: it ends in a visible ellipsis, and the full title heads the reading pane. */}
-        <span className="n2-row-title" title={item.title}>
-          {item.title}
+        <span className="n2-row-title" title={questionText(item)}>
+          {questionText(item)}
         </span>
         {word ? (
           <span className={`n2-row-state vt-small ${word.tone === 'warn' ? 'vt-tone-warn' : ''}`} data-testid="n2-row-state">
@@ -551,7 +545,7 @@ function ItemPane({ entry, answers, backend, projection, noteRef, later, onChoos
 
   return (
     <div className="n2-card" data-testid="n2-card" data-item={item.id}>
-      <StickyTitle titleRef={titleRef} id={item.local_id} title={item.title} />
+      <StickyTitle titleRef={titleRef} id={item.local_id} title={questionText(item)} />
       <p className="vt-small vt-faint n2-kicker">
         <span className="vt-num">{item.local_id}</span>
         {' · '}
@@ -586,8 +580,8 @@ function ItemPane({ entry, answers, backend, projection, noteRef, later, onChoos
         </dd>
         <dt>Opened</dt>
         <dd className="vt-muted">
-          <span title={item.created.ts ?? undefined}>{opened || '–'}</span>
-          {updated && updated !== shortDate(item.created.ts) ? <span title={item.updated.ts ?? undefined}>{` · updated ${updated}`}</span> : ''}
+          <span title={hoverTime(item.created.ts)}>{opened || '–'}</span>
+          {updated && updated !== shortDate(item.created.ts) ? <span title={hoverTime(item.updated.ts)}>{` · updated ${updated}`}</span> : ''}
           {item.asked_by.agent ? ` · asked by ${item.asked_by.agent}` : ''}
         </dd>
       </dl>
@@ -769,7 +763,7 @@ function LoopAnswer({ item }: { item: NeedsItem }) {
   if (!answer) return null
   return (
     <section className="n2-section n2-loop-answer" data-testid="n2-loop-answer">
-      <h3 className="n2-label">Already recorded by the loop{answer.ts ? <span title={answer.ts}>{` · ${shortDate(answer.ts)}`}</span> : ''}</h3>
+      <h3 className="n2-label">Already recorded by the loop{answer.ts ? <span title={hoverTime(answer.ts)}>{` · ${shortDate(answer.ts)}`}</span> : ''}</h3>
       {answer.by === 'zach' && answer.note ? (
         <p className="n2-prose">
           {answer.quoted ? '“' : ''}
@@ -816,7 +810,7 @@ function CopyPane({ docs, answers, entries, later, onSelect }: NeedsProposalProp
                   <button type="button" className="vt-btn n2-review-row" onClick={() => onSelect(entry.key)}>
                     <span className="n2-row-id vt-num">{entry.item.local_id}</span>
                     <span className="n2-review-text">
-                      <span className="n2-review-title">{entry.item.title}</span>
+                      <span className="n2-review-title" title={questionText(entry.item)}>{questionText(entry.item)}</span>
                       <span className={`vt-small ${complete ? 'vt-muted' : 'vt-tone-warn'}`}>
                         {choice ? choiceLabel(entry.item, choice) : ''}
                         {draft?.note.trim() ? ` · “${draft.note.trim()}”` : complete ? '' : ' · needs a note'}

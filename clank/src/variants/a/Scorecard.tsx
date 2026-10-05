@@ -144,6 +144,7 @@ export function Scorecard({ track, xAxis, showDeltas, selectedKpi, onOpenColumn,
                   className="vt-btn vt-a-colbtn"
                   onClick={() => onOpenColumn(column)}
                   title={`${column.label} · ${column.marker}\nOpen what changed and its evidence`}
+                  aria-label={`${column.label}${index === latestIndex ? ' (latest)' : ''} · ${column.sub} · ${column.marker} · open what changed`}
                   data-testid="vt-a-colhead"
                   data-column={column.key}
                 >
@@ -312,9 +313,17 @@ function CellButton({ kpi, cell, column, onOpen }: { kpi: Kpi; cell: Cell; colum
   ]
     .filter(Boolean)
     .join('\n')
+  // WHY an aria-label naming the KPI, the column and the value: the visible text is only "0.83 · n 4", which a screen
+  // reader or a probe hears as a bare number with no row or column. WHY role and tabIndex spelled out on a native
+  // <button> (whose Enter/Space activation is the browser's own): `.vt-btn` unsets every style, and the scorecard's
+  // keyboard contract should be legible in the markup rather than depend on knowing that `all: unset` keeps focus.
+  const ariaLabel = `${kpi.label} · ${column.label}: ${cell.measured ? text : 'not measured'}${cell.n !== null && cell.of === null ? ` (n ${cell.n})` : ''} · open evidence`
   return (
     <button
       type="button"
+      role="button"
+      tabIndex={0}
+      aria-label={ariaLabel}
       className={`vt-btn vt-a-cellbtn${cell.measured ? '' : ' vt-gap'}${miss ? ' vt-tone-warn' : ''}`}
       onClick={onOpen}
       title={title}

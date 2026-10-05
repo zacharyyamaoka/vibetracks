@@ -7,13 +7,14 @@
 //   (d) the rig's deployments as a quiet sub-list, each opening its own page.
 // Every track (loop or deployment) renders through this one template: "solve the display once".
 
+import { formatLocal } from '../../shared/time'
 import { Fragment, useLayoutEffect, useRef, useState, type ReactNode } from 'react'
 import type { PluginBackend } from '@clank/api'
 import type { Projection, Route, Track } from '../../shared'
 import { Breadcrumb, StatusWord, childrenOf, formatKpiValue, formatValue, latestValue, northStar, trackById, valueAt } from '../../shared'
 import { RoadmapWidget, type RoadmapDocState, type RoadmapSettings, type RoadmapWidgetState } from '../../roadmap'
 import { evidenceOwningMedia, formatSince, unitWord } from './columns'
-import { isReporting, lastMoved, needsCount, needsSourceNote, purposeOf, registryOf, sourceKind } from './live'
+import { isReporting, lastMoved, blockingWords, needsCount, needsSourceNote, purposeOf, registryOf, sourceKind } from './live'
 import { openRung, type Nav } from './nav'
 import { openNeeds } from '../../needs'
 import { TrackMenu, TrackName, type Renamer } from './rename'
@@ -72,7 +73,7 @@ function TrackPageBody({ projection, track, title, nav, xAxis, showDeltas, roadm
         {track.state.detail ? <span className="vt-faint"> · {track.state.detail}</span> : null}
         {track.state.since ? (
           <span className="vt-faint">
-            {' '}· since <span title={track.state.since}>{formatSince(track.state.since)}</span>
+            {' '}· since <span title={formatLocal(track.state.since, { year: true })}>{formatSince(track.state.since)}</span>
           </span>
         ) : null}
         <span className="vt-faint"> · last moved </span>
@@ -354,7 +355,7 @@ function NeedsLine({ track, nav }: { track: Track; nav: Nav }) {
       ? 'not reported'
       : count.open === 0
         ? 'nothing open'
-        : `${count.blocking ?? 0} blocking · ${count.open} open`
+        : `${blockingWords(count.blocking)} · ${count.open} open`
   return (
     <p className="vt-a-needsline">
       <button

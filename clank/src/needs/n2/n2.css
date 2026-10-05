@@ -68,8 +68,12 @@
   .vt-dash .vt-needs-n2 .n2-pane {
     min-height: 0;
     overflow: auto;
-    /* WHY 140px at the bottom: the N-chooser and the A · B · C switcher sit over the bottom-right corner. */
+    /* WHY 140px at the bottom: while the N-chooser floats (no review bar) it sits over the bottom-right corner. */
     padding: 22px 40px 140px 44px;
+  }
+  /* Docked in the review bar, below the scroll area, the pill covers nothing: a normal end margin. */
+  .vt-dash .vt-needs[data-chooser='docked'] .vt-needs-n2 .n2-pane {
+    padding-bottom: 48px;
   }
 
   /* ---- the list */
