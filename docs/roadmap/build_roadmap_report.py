@@ -51,7 +51,14 @@ RECORD_CMD = ("cd ~/vibetracks-roadmap && uv run --no-project --with playwright=
 PREVIEW_CAP = 2_097_024
 
 HERO = json.loads((MEDIA / "hero.json").read_text())
-assert HERO["passed"], f"the recording did not pass: {HERO['failed']} {HERO['page_errors']}"
+# WHY a failing recording may still build, but only for a failure another lane owns (2026-10-05): the report must show
+# the real state, and a check that fails on the Dashboard lane's markup is real state; anything else failing (or any page
+# error) stops the build, so this page never presents a broken widget as shipped.
+FOREIGN_FAILURES = {
+    "kinsim's calm head at 390 px": "the Dashboard lane's: variant A's path lines do not wrap at 390 px (see Found in the real app)",
+}
+_unexplained = [label for label in HERO["failed"] if label not in FOREIGN_FAILURES]
+assert not _unexplained and not HERO["page_errors"], f"the recording did not pass: {_unexplained} {HERO['page_errors']}"
 STILLS = {s["name"]: s for s in HERO["stills"]}
 TRACKS = ["kinsim", "rig", "grasping", "detection"]
 TRACK_TITLE = {"kinsim": "Kinematic Sim", "rig": "Sim to Real & Trajectory Tracking", "grasping": "Grasping", "detection": "Object Detection & Hyperspectral"}
@@ -218,9 +225,10 @@ def audit_file(n: int) -> Path | None:
     return found[-1] if found else None
 
 
-def audit_round(n: int, prefix: str, commits: dict[str, list[str]]) -> str:
+def audit_round(n: int, commits: dict[str, list[str]]) -> str:
     path = audit_file(n)
     items, verdict = findings(path)
+    prefix = items[0]["id"][0] if items else ""  # each round names its own letter (V, W, … A, B): read it, never assume it
     rows = "".join(
         f'<tr><th scope="row">{esc(f["id"])}</th><td>{esc(f["severity"])}</td><td>{inline_md(f["headline"])}</td>'
         f'<td class="fix">{fix_cell(f["id"], commits)}</td></tr>'
@@ -247,6 +255,8 @@ DECISIONS = """
 <ul class="small">
   <li>The roadmap is a live widget in variant A's track page for kinsim, rig, grasping and detection, read from each loop's current
       files through the work-track registry; pyblocks shows “No roadmap reported yet.” The recordings above measure every step.</li>
+  <li>The home page's Progress column now adds “· N proven” from this widget's counts (the Dashboard lane's change; measured on
+      4400: kinsim 4, rig 0, grasping matching the live document, detection 0, pyblocks unchanged), so “19 / 62” no longer reads as proof.</li>
   <li>Freshness is honest end to end: a served fallback says “Not current: &lt;reason&gt;”, a failed refresh says so too, and the
       dashboard's Reload re-projects (measured above).</li>
   <li>Grasping reads the bench's own verdict. On Oct 4 evening the bench tightened what counts as a frozen run
@@ -254,8 +264,9 @@ DECISIONS = """
       the bench rates provisional “claimed”. The copy is gone: claims and per-run frozen status now come from the bench's own
       gallery, run in its own venv through the bridge shared with the Dashboard lane (<code>vibetracks/benches/grasp_bench_bridge.py</code>),
       and if the bench cannot run, grasping says “not current” instead of guessing. Its calm head above is this build's.</li>
-  <li>Tests on the final head: full repo suite 376 OK (the bridge's own tests included), plugin backend 23 OK, widget 158 passed
-      with a clean type check, projector 337 passed (1 bam_ws-only skip).</li>
+  <li>Tests on the final head: every repo test module 415 OK run module by module (a whole-tree <code>unittest discover</code> stops
+      at load on the Dashboard lane's own <code>test_server</code> name collision, which they are fixing), plugin backend 23 OK,
+      widget 158 passed with a clean type check, projector 340 passed (1 bam_ws-only skip).</li>
 </ul>
 <h3>Needs you (each with the default if you say nothing)</h3>
 <ol class="small">
@@ -263,8 +274,6 @@ DECISIONS = """
       Codex pass is green. Default: a merge commit on that unpushed lane branch after both sides pass; never <code>main</code>.</li>
   <li><b>The three kinsim-dashboard roadmap candidates still in the merge-ready queue</b> (lens bar, React Flow, the bam_ws API) were
       built before the roadmap moved here. Recommended: supersede them. Default: leave them held and unlanded.</li>
-  <li><b>The Progress column's “19 / 62” counts claimed rungs too.</b> The Dashboard lane will add “· 4 proven”, read from this
-      widget's counts. Default: they ship that.</li>
 </ol>
 <h3>Deliberately not done</h3>
 <ul class="small">
@@ -508,7 +517,7 @@ the recorder shows the panel again afterwards because Clank saves its layout int
 
     commits = fixed_in()
     rounds = [n for n in range(1, 20) if audit_file(n) is not None]
-    audit = "".join(audit_round(n, "VWXYZQ"[n - 1], commits) for n in rounds)
+    audit = "".join(audit_round(n, commits) for n in rounds)
     last_verdict = findings(audit_file(rounds[-1]))[1]
     where = landed()
 
@@ -529,7 +538,7 @@ the recorder shows the panel again afterwards because Clank saves its layout int
   the roadmap branch is {'inside' if where['claude/vibetracks-dashboard'] else 'not in'} <code>claude/vibetracks-dashboard</code> and
   {'inside' if where['main'] else 'not in'} <code>main</code>. Integrating it is your call.</p>
   <p class="built">Recorded headless from the running lane at {esc(recorded)}: {passed} of {n_checks} measured checks pass
-  ({len(HERO['steps'])} hero steps, {len(HERO['stills'])} stills), 0 page errors. Each calm head's numbers were checked against the
+  ({len(HERO['steps'])} hero steps, {len(HERO['stills'])} stills), 0 page errors{"".join(f"; failing: {esc(label)}, {esc(FOREIGN_FAILURES[label])}" for label in HERO["failed"])}. Each calm head's numbers were checked against the
   live document the API serves. Codex ran {len(rounds)} read-only rounds; the last one says {esc(last_verdict)}, and every
   finding of every round has a fix commit.
   This page is about {OUT_SIZE_MB} MB, so open it in a browser, not the desktop preview.</p>
