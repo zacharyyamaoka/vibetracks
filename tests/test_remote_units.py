@@ -94,6 +94,9 @@ class HostStatus(unittest.TestCase):
         self.assertEqual(hub.host_status(now - 3601, 3, now), "offline")
         self.assertEqual(hub.host_status(now - 75, 15, now), "online")
         self.assertEqual(hub.host_status(None, 3, now), "offline")
+        # an idle worker heartbeats every 300 s: still online at 320 s, stale only after heartbeat + grace
+        self.assertEqual(hub.host_status(now - 320, 3, now, 300), "online")
+        self.assertEqual(hub.host_status(now - 331, 3, now, 300), "stale")
 
     def test_host_header_guard(self) -> None:
         allowed = hub.LOOPBACK | {"hub.tailnet.ts.net"}

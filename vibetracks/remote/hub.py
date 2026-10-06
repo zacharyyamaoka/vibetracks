@@ -107,11 +107,13 @@ def merge_sources(share: str | os.PathLike[str]) -> tuple[dict[str, str], list[d
     return paths, problems
 
 
-def host_status(last_sync: float | None, interval_s: float, now: float) -> str:
+def host_status(last_sync: float | None, interval_s: float, now: float, heartbeat_s: float = 0.0) -> str:
+    # WHY the heartbeat period counts: an idle worker rewrites host.json only every heartbeat_s (300 s by default),
+    # so judging it by interval_s alone painted every healthy, quiet machine "stale" between heartbeats.
     if last_sync is None:
         return "offline"
     age = now - last_sync
-    if age <= 3 * interval_s + ONLINE_GRACE_S:
+    if age <= max(3 * interval_s, heartbeat_s) + ONLINE_GRACE_S:
         return "online"
     if age <= STALE_LIMIT_S:
         return "stale"
@@ -129,9 +131,11 @@ def read_hosts(share: str | os.PathLike[str], now: float) -> tuple[list[dict[str
         last = layout.parse_iso(heartbeat.get("last_sync"))
         interval = heartbeat.get("interval_s")
         interval = float(interval) if isinstance(interval, (int, float)) and not isinstance(interval, bool) else 3.0
+        beat = heartbeat.get("heartbeat_s")
+        beat = float(beat) if isinstance(beat, (int, float)) and not isinstance(beat, bool) else 0.0
         mirrors = heartbeat.get("mirrors") if isinstance(heartbeat.get("mirrors"), list) else []
         skipped = heartbeat.get("skipped") if isinstance(heartbeat.get("skipped"), list) else []
-        rows.append({"host": folder.name, "status": host_status(last, interval, now),
+        rows.append({"host": folder.name, "status": host_status(last, interval, now, beat),
                      "last_sync": heartbeat.get("last_sync") if last is not None else None,
                      "age_s": round(now - last, 1) if last is not None else None,
                      "interval_s": interval, "platform": heartbeat.get("platform"), "sessions_live": 0,

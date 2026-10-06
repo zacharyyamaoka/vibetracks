@@ -340,6 +340,7 @@ def heartbeat(settings: dict[str, Any], mirrored: dict[str, Any], now: float, fo
         "vt_sync_version": layout.VT_SYNC_VERSION,
         "last_sync": layout.iso_utc(now),
         "interval_s": settings["interval_s"],
+        "heartbeat_s": settings["heartbeat_s"],
         "mirrors": mirrored["mirrors"],
         "skipped": mirrored["skipped"],
         "error": mirrored["error"],
