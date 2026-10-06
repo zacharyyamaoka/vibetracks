@@ -270,7 +270,6 @@ def mirror(settings: dict[str, Any]) -> dict[str, Any]:
     errors: list[str] = []
     sources: dict[str, str] = {}
     copied: list[str] = []
-    newest: float | None = None
     removed = 0
     keys: set[str] = set()
     previous = layout.read_json(base / layout.SOURCES_JSON)
@@ -311,7 +310,6 @@ def mirror(settings: dict[str, Any]) -> dict[str, Any]:
                     dest.parent.mkdir(parents=True, exist_ok=True)
                     shutil.copy2(file, dest)
                     copied.append(f"{key}/{relative}")
-                    newest = info.st_mtime if newest is None else max(newest, info.st_mtime)
                 mirrors.append({"key": key, "path": (Path(layout.FILES) / key / relative).as_posix(),
                                 "bytes": info.st_size, "mtime": layout.iso_utc(info.st_mtime)})
             except OSError as error:
@@ -327,7 +325,7 @@ def mirror(settings: dict[str, Any]) -> dict[str, Any]:
                 shutil.rmtree(stale, ignore_errors=True) if stale.is_dir() else stale.unlink()
                 removed += 1
     sources_changed = layout.write_json_if_changed(base / layout.SOURCES_JSON, sources)
-    return {"copied": copied, "removed": removed, "newest": newest, "mirrors": mirrors, "skipped": skipped,
+    return {"copied": copied, "removed": removed, "mirrors": mirrors, "skipped": skipped,
             "error": "; ".join(errors) or None, "sources_changed": sources_changed}
 
 
@@ -364,11 +362,12 @@ def _commit(settings: dict[str, Any], share: Path, host_rel: str) -> bool:
     staged = _names(_git(share, "diff", "--cached", "--name-only", "-z", "--", host_rel).stdout)
     if not staged:
         return False
-    # WHY the newest data file and not now: the hub restores mtimes from the author date, and freshness must read
-    # when the worker wrote its loop file. host.json and sources.json are this process's own bookkeeping, not data.
+    # WHY the newest mirrored file and not now: the hub restores mtimes from the author date, and freshness must
+    # read when the worker wrote its loop file. host.json, sources.json and session cards are written now by this
+    # machine's own bookkeeping; counting them would stamp every loop file in the commit as just written.
     newest = None
     for name in staged:
-        if name.endswith(f"/{layout.HOST_JSON}") or name.endswith(f"/{layout.SOURCES_JSON}"):
+        if not name.startswith(f"{host_rel}/{layout.FILES}/"):
             continue
         try:
             stamp = (share / name).stat().st_mtime
