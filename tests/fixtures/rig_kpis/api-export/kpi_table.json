@@ -1,0 +1,1011 @@
+{
+ "schema": "bam-deployments/kpi-table/1",
+ "contract": "2.5",
+ "granularity": "setting",
+ "generated_at": "2026-10-06T11:31:18",
+ "cache": {
+  "dir": "/home/bam/.cache/rig-kpi-build/kpi-table/cache-demo2",
+  "cache_version": 10,
+  "runs": 293,
+  "scanned_at": "2026-10-06T11:31:18",
+  "sha256": "cf574129fdabbeea449148e606f972703edb272a9c94dfa3861b3d96fa2fe2a7"
+ },
+ "kpi_defs": [
+  {
+   "key": "real_tracking_rms",
+   "label": "Real tracking error (RMS)",
+   "unit": "deg",
+   "lower_is_better": true,
+   "scale": 57.29577951308232
+  },
+  {
+   "key": "real_tracking_p95",
+   "label": "Real tracking error (p95)",
+   "unit": "deg",
+   "lower_is_better": true,
+   "scale": 57.29577951308232
+  },
+  {
+   "key": "sim_real_gap",
+   "label": "Sim–real gap",
+   "unit": "deg",
+   "lower_is_better": true,
+   "scale": 57.29577951308232
+  },
+  {
+   "key": "feedback_torque_proxy",
+   "label": "Feedback torque (proxy)",
+   "unit": "N·m",
+   "lower_is_better": true,
+   "scale": 1.0
+  },
+  {
+   "key": "floor_real_vs_real",
+   "label": "Floor (relative repeat)",
+   "unit": "deg",
+   "lower_is_better": null,
+   "scale": 57.29577951308232
+  },
+  {
+   "key": "real_runs",
+   "label": "Real runs",
+   "unit": "",
+   "lower_is_better": null,
+   "scale": 1.0
+  },
+  {
+   "key": "sim_runs",
+   "label": "Sim runs",
+   "unit": "",
+   "lower_is_better": null,
+   "scale": 1.0
+  },
+  {
+   "key": "aborted_runs",
+   "label": "Aborted runs",
+   "unit": "",
+   "lower_is_better": null,
+   "scale": 1.0
+  },
+  {
+   "key": "twin_fidelity_gap",
+   "label": "Twin fidelity gap (held-out)",
+   "unit": "deg",
+   "lower_is_better": true,
+   "scale": 57.29577951308232
+  },
+  {
+   "key": "twin_tracking_ratio",
+   "label": "Twin tracking ratio (sim / real)",
+   "unit": "×",
+   "lower_is_better": null,
+   "scale": 1.0
+  },
+  {
+   "key": "sim_tracking_rms",
+   "label": "Sim tracking error (RMS)",
+   "unit": "deg",
+   "lower_is_better": true,
+   "scale": 57.29577951308232
+  }
+ ],
+ "rows": [
+  {
+   "deployment_id": "can12-pendulum-10to1",
+   "period": "mujoco_sim|ff_fb|58ff637ef6",
+   "start": "2026-07-29T07:39:26",
+   "end": "2026-07-29T07:52:17",
+   "bundles": [
+    "one_dof_flat_2026-07-29",
+    "one_dof_hardware_gate_2026-07-29"
+   ],
+   "counts": {
+    "real": 0,
+    "sim": 6,
+    "aborted": 0
+   },
+   "kpis": {
+    "real_tracking_rms": null,
+    "real_tracking_p95": null,
+    "sim_real_gap": null,
+    "feedback_torque_proxy": null,
+    "floor_real_vs_real": null,
+    "real_runs": 0,
+    "sim_runs": 6,
+    "aborted_runs": 0,
+    "twin_fidelity_gap": null,
+    "twin_tracking_ratio": null,
+    "sim_tracking_rms": 0.00015968845257496517
+   },
+   "twin_fidelity_gap_basis": null,
+   "backend": "mujoco_sim",
+   "twin_version": null,
+   "control_mode": "ff_fb",
+   "settings": {
+    "torque_cap_nm": 0.8,
+    "mounting": "flat",
+    "kp": 43.3253,
+    "kd": 10.8313,
+    "friction_ff": false,
+    "coulomb_friction_nm": 0.0,
+    "plant": "measured CAN-12 rig; gravity off"
+   },
+   "na_reason": null
+  },
+  {
+   "deployment_id": "can12-pendulum-10to1",
+   "period": "real|ff_fb|bca517b3b9",
+   "start": "2026-07-29T07:52:19",
+   "end": "2026-07-29T07:52:19",
+   "bundles": [
+    "one_dof_hardware_gate_2026-07-29"
+   ],
+   "counts": {
+    "real": 1,
+    "sim": 0,
+    "aborted": 0
+   },
+   "kpis": {
+    "real_tracking_rms": 0.08074255237324744,
+    "real_tracking_p95": 0.10828601290715525,
+    "sim_real_gap": 0.08078487689334748,
+    "feedback_torque_proxy": 0.5950519601271126,
+    "floor_real_vs_real": null,
+    "real_runs": 1,
+    "sim_runs": 0,
+    "aborted_runs": 0,
+    "twin_fidelity_gap": null,
+    "twin_tracking_ratio": null,
+    "sim_tracking_rms": null
+   },
+   "twin_fidelity_gap_basis": null,
+   "backend": "real",
+   "twin_version": null,
+   "control_mode": "ff_fb",
+   "settings": {
+    "torque_cap_nm": 0.8,
+    "mounting": "flat",
+    "kp": 43.3253,
+    "kd": 10.8313,
+    "friction_ff": false,
+    "coulomb_friction_nm": 0.0,
+    "plant": "measured CAN-12 rig; gravity off"
+   },
+   "na_reason": null
+  },
+  {
+   "deployment_id": "can12-pendulum-10to1",
+   "period": "mujoco_sim|ff_fb|8afb5dc919",
+   "start": "2026-07-29T07:56:23",
+   "end": "2026-07-29T07:57:39",
+   "bundles": [
+    "one_dof_hardware_gate_friction_2026-07-29",
+    "one_dof_flat_characterization_2026-07-29"
+   ],
+   "counts": {
+    "real": 0,
+    "sim": 6,
+    "aborted": 0
+   },
+   "kpis": {
+    "real_tracking_rms": null,
+    "real_tracking_p95": null,
+    "sim_real_gap": null,
+    "feedback_torque_proxy": null,
+    "floor_real_vs_real": null,
+    "real_runs": 0,
+    "sim_runs": 6,
+    "aborted_runs": 0,
+    "twin_fidelity_gap": null,
+    "twin_tracking_ratio": null,
+    "sim_tracking_rms": 0.0005685884275647058
+   },
+   "twin_fidelity_gap_basis": null,
+   "backend": "mujoco_sim",
+   "twin_version": null,
+   "control_mode": "ff_fb",
+   "settings": {
+    "torque_cap_nm": 1.25,
+    "mounting": "flat",
+    "kp": 43.3253,
+    "kd": 10.8313,
+    "friction_ff": true,
+    "coulomb_friction_nm": 0.65,
+    "plant": "measured CAN-12 rig; gravity off; 0.65 Nm output Coulomb friction from guarded 2026-07-29 slow-step pilot"
+   },
+   "na_reason": null
+  },
+  {
+   "deployment_id": "can12-pendulum-10to1",
+   "period": "real|ff_fb|46ca979078",
+   "start": "2026-07-29T07:56:25",
+   "end": "2026-07-29T07:58:17",
+   "bundles": [
+    "one_dof_hardware_gate_friction_2026-07-29",
+    "one_dof_flat_characterization_2026-07-29"
+   ],
+   "counts": {
+    "real": 6,
+    "sim": 0,
+    "aborted": 0
+   },
+   "kpis": {
+    "real_tracking_rms": 0.020272129901620042,
+    "real_tracking_p95": 0.028300209978185796,
+    "sim_real_gap": 0.020405157561341633,
+    "feedback_torque_proxy": 0.18759455730215258,
+    "floor_real_vs_real": 0.014977633100829488,
+    "real_runs": 6,
+    "sim_runs": 0,
+    "aborted_runs": 0,
+    "twin_fidelity_gap": null,
+    "twin_tracking_ratio": null,
+    "sim_tracking_rms": null
+   },
+   "twin_fidelity_gap_basis": null,
+   "backend": "real",
+   "twin_version": null,
+   "control_mode": "ff_fb",
+   "settings": {
+    "torque_cap_nm": 1.25,
+    "mounting": "flat",
+    "kp": 43.3253,
+    "kd": 10.8313,
+    "friction_ff": true,
+    "coulomb_friction_nm": 0.65,
+    "plant": "measured CAN-12 rig; gravity off; 0.65 Nm output Coulomb friction from guarded 2026-07-29 slow-step pilot"
+   },
+   "na_reason": null
+  },
+  {
+   "deployment_id": "can12-pendulum-10to1",
+   "period": "mujoco_sim|ff_fb|0bd7588b6c",
+   "start": "2026-07-29T09:24:22",
+   "end": "2026-07-29T09:24:32",
+   "bundles": [
+    "one_dof_gravity_characterization_2026-07-29"
+   ],
+   "counts": {
+    "real": 0,
+    "sim": 5,
+    "aborted": 0
+   },
+   "kpis": {
+    "real_tracking_rms": null,
+    "real_tracking_p95": null,
+    "sim_real_gap": null,
+    "feedback_torque_proxy": null,
+    "floor_real_vs_real": null,
+    "real_runs": 0,
+    "sim_runs": 5,
+    "aborted_runs": 0,
+    "twin_fidelity_gap": null,
+    "twin_tracking_ratio": null,
+    "sim_tracking_rms": 0.00041794928551021116
+   },
+   "twin_fidelity_gap_basis": null,
+   "backend": "mujoco_sim",
+   "twin_version": null,
+   "control_mode": "ff_fb",
+   "settings": {
+    "torque_cap_nm": 1.25,
+    "mounting": "gravity",
+    "kp": 43.3253,
+    "kd": 10.8313,
+    "friction_ff": true,
+    "coulomb_friction_nm": 0.65,
+    "plant": "measured CAN-12 rig; gravity on with q=0 hanging down; 0.65 Nm output Coulomb friction from guarded 2026-07-29 slow-step pilot"
+   },
+   "na_reason": null
+  },
+  {
+   "deployment_id": "can12-pendulum-10to1",
+   "period": "real|ff_fb|e1d8e15916",
+   "start": "2026-07-29T09:24:34",
+   "end": "2026-07-29T09:25:12",
+   "bundles": [
+    "one_dof_gravity_characterization_2026-07-29"
+   ],
+   "counts": {
+    "real": 5,
+    "sim": 0,
+    "aborted": 0
+   },
+   "kpis": {
+    "real_tracking_rms": 0.017968732149088645,
+    "real_tracking_p95": 0.027172907212689983,
+    "sim_real_gap": 0.018058668894420562,
+    "feedback_torque_proxy": 0.16743185437276653,
+    "floor_real_vs_real": null,
+    "real_runs": 5,
+    "sim_runs": 0,
+    "aborted_runs": 0,
+    "twin_fidelity_gap": null,
+    "twin_tracking_ratio": null,
+    "sim_tracking_rms": null
+   },
+   "twin_fidelity_gap_basis": null,
+   "backend": "real",
+   "twin_version": null,
+   "control_mode": "ff_fb",
+   "settings": {
+    "torque_cap_nm": 1.25,
+    "mounting": "gravity",
+    "kp": 43.3253,
+    "kd": 10.8313,
+    "friction_ff": true,
+    "coulomb_friction_nm": 0.65,
+    "plant": "measured CAN-12 rig; gravity on with q=0 hanging down; 0.65 Nm output Coulomb friction from guarded 2026-07-29 slow-step pilot"
+   },
+   "na_reason": null
+  },
+  {
+   "deployment_id": "can12-pendulum-10to1",
+   "period": "real|ff_fb|4f5b9571ff",
+   "start": "2026-07-29T15:10:53",
+   "end": "2026-07-29T16:13:53",
+   "bundles": [
+    "ladder_gate_smoke_2026-07-29",
+    "one_dof_gravity_amplitude_ladder_2026-07-29",
+    "busguard_smoke_2026-07-29",
+    "one_dof_speed_regime_grid_2026-07-29",
+    "maxregime_smoke_2026-07-29",
+    "one_dof_speed_regime_grid_v2_2026-07-29"
+   ],
+   "counts": {
+    "real": 26,
+    "sim": 0,
+    "aborted": 0
+   },
+   "kpis": {
+    "real_tracking_rms": 0.04582706133201603,
+    "real_tracking_p95": 0.08171369402311787,
+    "sim_real_gap": 0.04617731340360604,
+    "feedback_torque_proxy": 0.3409151029580298,
+    "floor_real_vs_real": 0.010638879730180593,
+    "real_runs": 26,
+    "sim_runs": 0,
+    "aborted_runs": 0,
+    "twin_fidelity_gap": null,
+    "twin_tracking_ratio": null,
+    "sim_tracking_rms": null
+   },
+   "twin_fidelity_gap_basis": null,
+   "backend": "real",
+   "twin_version": null,
+   "control_mode": "ff_fb",
+   "settings": {
+    "torque_cap_nm": 6.3754,
+    "mounting": "gravity",
+    "kp": 43.3253,
+    "kd": 10.8313,
+    "friction_ff": true,
+    "coulomb_friction_nm": 0.65,
+    "plant": "measured CAN-12 rig; gravity on with q=0 hanging down; 0.65 Nm output Coulomb friction from guarded 2026-07-29 slow-step pilot"
+   },
+   "na_reason": null
+  },
+  {
+   "deployment_id": "can12-pendulum-10to1",
+   "period": "mujoco_sim|ff_fb|277f90494a",
+   "start": "2026-07-29T15:11:50",
+   "end": "2026-07-29T16:11:17",
+   "bundles": [
+    "one_dof_gravity_amplitude_ladder_2026-07-29",
+    "one_dof_speed_regime_grid_2026-07-29",
+    "one_dof_speed_regime_grid_v2_2026-07-29"
+   ],
+   "counts": {
+    "real": 0,
+    "sim": 111,
+    "aborted": 0
+   },
+   "kpis": {
+    "real_tracking_rms": null,
+    "real_tracking_p95": null,
+    "sim_real_gap": null,
+    "feedback_torque_proxy": null,
+    "floor_real_vs_real": null,
+    "real_runs": 0,
+    "sim_runs": 111,
+    "aborted_runs": 0,
+    "twin_fidelity_gap": null,
+    "twin_tracking_ratio": null,
+    "sim_tracking_rms": 0.0004239753136511439
+   },
+   "twin_fidelity_gap_basis": null,
+   "backend": "mujoco_sim",
+   "twin_version": null,
+   "control_mode": "ff_fb",
+   "settings": {
+    "torque_cap_nm": 6.3754,
+    "mounting": "gravity",
+    "kp": 43.3253,
+    "kd": 10.8313,
+    "friction_ff": true,
+    "coulomb_friction_nm": 0.65,
+    "plant": "measured CAN-12 rig; gravity on with q=0 hanging down; 0.65 Nm output Coulomb friction from guarded 2026-07-29 slow-step pilot"
+   },
+   "na_reason": null
+  },
+  {
+   "deployment_id": "can12-pendulum-10to1",
+   "period": "mujoco_sim|ff_fb|2e7edd3fad",
+   "start": "2026-07-29T16:17:00",
+   "end": "2026-07-29T16:17:05",
+   "bundles": [
+    "limits_sim_2026-07-29"
+   ],
+   "counts": {
+    "real": 0,
+    "sim": 9,
+    "aborted": 0
+   },
+   "kpis": {
+    "real_tracking_rms": null,
+    "real_tracking_p95": null,
+    "sim_real_gap": null,
+    "feedback_torque_proxy": null,
+    "floor_real_vs_real": null,
+    "real_runs": 0,
+    "sim_runs": 9,
+    "aborted_runs": 0,
+    "twin_fidelity_gap": null,
+    "twin_tracking_ratio": null,
+    "sim_tracking_rms": 0.007367916574521618
+   },
+   "twin_fidelity_gap_basis": null,
+   "backend": "mujoco_sim",
+   "twin_version": null,
+   "control_mode": "ff_fb",
+   "settings": {
+    "torque_cap_nm": 9.0004,
+    "mounting": "gravity",
+    "kp": 43.3253,
+    "kd": 10.8313,
+    "friction_ff": true,
+    "coulomb_friction_nm": 0.65,
+    "plant": "measured CAN-12 rig; gravity on with q=0 hanging down; 0.65 Nm output Coulomb friction from guarded 2026-07-29 slow-step pilot"
+   },
+   "na_reason": null
+  },
+  {
+   "deployment_id": "can12-pendulum-10to1",
+   "period": "real|ff_fb|a69eef4352",
+   "start": "2026-07-29T16:17:38",
+   "end": "2026-07-29T16:19:43",
+   "bundles": [
+    "one_dof_limits_hw_2026-07-29",
+    "one_dof_limits_push_2026-07-29"
+   ],
+   "counts": {
+    "real": 14,
+    "sim": 0,
+    "aborted": 0
+   },
+   "kpis": {
+    "real_tracking_rms": 0.08495843413632385,
+    "real_tracking_p95": 0.1590871348825598,
+    "sim_real_gap": null,
+    "feedback_torque_proxy": 0.8920673009556958,
+    "floor_real_vs_real": null,
+    "real_runs": 14,
+    "sim_runs": 0,
+    "aborted_runs": 0,
+    "twin_fidelity_gap": null,
+    "twin_tracking_ratio": null,
+    "sim_tracking_rms": null
+   },
+   "twin_fidelity_gap_basis": null,
+   "backend": "real",
+   "twin_version": null,
+   "control_mode": "ff_fb",
+   "settings": {
+    "torque_cap_nm": 9.0004,
+    "mounting": "gravity",
+    "kp": 43.3253,
+    "kd": 10.8313,
+    "friction_ff": true,
+    "coulomb_friction_nm": 0.65,
+    "plant": "measured CAN-12 rig; gravity on with q=0 hanging down; 0.65 Nm output Coulomb friction from guarded 2026-07-29 slow-step pilot"
+   },
+   "na_reason": null
+  },
+  {
+   "deployment_id": "can12-pendulum-10to1",
+   "period": "real|ff_fb|1aa12be606",
+   "start": "2026-07-29T16:56:14",
+   "end": "2026-07-29T16:56:24",
+   "bundles": [
+    "one_dof_limits_full_torque_2026-07-29"
+   ],
+   "counts": {
+    "real": 5,
+    "sim": 0,
+    "aborted": 0
+   },
+   "kpis": {
+    "real_tracking_rms": 0.10828900330880706,
+    "real_tracking_p95": 0.23355214315902012,
+    "sim_real_gap": null,
+    "feedback_torque_proxy": 2.857905347566566,
+    "floor_real_vs_real": null,
+    "real_runs": 5,
+    "sim_runs": 0,
+    "aborted_runs": 0,
+    "twin_fidelity_gap": null,
+    "twin_tracking_ratio": null,
+    "sim_tracking_rms": null
+   },
+   "twin_fidelity_gap_basis": null,
+   "backend": "real",
+   "twin_version": null,
+   "control_mode": "ff_fb",
+   "settings": {
+    "torque_cap_nm": 36.86,
+    "mounting": "gravity",
+    "kp": 43.3253,
+    "kd": 10.8313,
+    "friction_ff": true,
+    "coulomb_friction_nm": 0.65,
+    "plant": "measured CAN-12 rig; gravity on with q=0 hanging down; 0.65 Nm output Coulomb friction from guarded 2026-07-29 slow-step pilot"
+   },
+   "na_reason": null
+  },
+  {
+   "deployment_id": "can12-pendulum-10to1",
+   "period": "mujoco_twin_replay:V0|ff_fb|44bce2c259",
+   "start": "2026-10-02T22:39:10",
+   "end": "2026-10-02T22:39:51",
+   "bundles": [
+    "can12-pendulum-10to1__twin-V0__2026-10-02"
+   ],
+   "counts": {
+    "real": 0,
+    "sim": 15,
+    "aborted": 0
+   },
+   "kpis": {
+    "real_tracking_rms": null,
+    "real_tracking_p95": null,
+    "sim_real_gap": null,
+    "feedback_torque_proxy": null,
+    "floor_real_vs_real": null,
+    "real_runs": 0,
+    "sim_runs": 15,
+    "aborted_runs": 0,
+    "twin_fidelity_gap": 0.06154236189725181,
+    "twin_tracking_ratio": 0.005090799322055916,
+    "sim_tracking_rms": 0.0003586623407152887
+   },
+   "twin_fidelity_gap_basis": "aligned",
+   "backend": "mujoco_twin_replay",
+   "twin_version": "V0",
+   "control_mode": "ff_fb",
+   "settings": {
+    "torque_cap_nm": 6.3754,
+    "mounting": "gravity",
+    "kp": 43.3253,
+    "kd": 10.8313,
+    "friction_ff": true,
+    "coulomb_friction_nm": 0.65,
+    "plant": "measured CAN-12 rig; gravity on with q=0 hanging down; 0.65 Nm output Coulomb friction from guarded 2026-07-29 slow-step pilot"
+   },
+   "na_reason": null
+  },
+  {
+   "deployment_id": "can12-pendulum-10to1",
+   "period": "mujoco_twin_replay:V1|ff_fb|2b01040115",
+   "start": "2026-10-02T23:02:19",
+   "end": "2026-10-02T23:03:00",
+   "bundles": [
+    "can12-pendulum-10to1__twin-V1__2026-10-02"
+   ],
+   "counts": {
+    "real": 0,
+    "sim": 15,
+    "aborted": 0
+   },
+   "kpis": {
+    "real_tracking_rms": null,
+    "real_tracking_p95": null,
+    "sim_real_gap": null,
+    "feedback_torque_proxy": null,
+    "floor_real_vs_real": null,
+    "real_runs": 0,
+    "sim_runs": 15,
+    "aborted_runs": 0,
+    "twin_fidelity_gap": 0.011158954132726351,
+    "twin_tracking_ratio": 0.9331132011081178,
+    "sim_tracking_rms": 0.05951412086539433
+   },
+   "twin_fidelity_gap_basis": "aligned",
+   "backend": "mujoco_twin_replay",
+   "twin_version": "V1",
+   "control_mode": "ff_fb",
+   "settings": {
+    "torque_cap_nm": 6.3754,
+    "mounting": "gravity",
+    "kp": 43.3253,
+    "kd": 10.8313,
+    "friction_ff": true,
+    "coulomb_friction_nm": 0.65,
+    "plant": "measured CAN-12 rig; gravity on with q=0 hanging down; 0.65 Nm output Coulomb friction from guarded 2026-07-29 slow-step pilot"
+   },
+   "na_reason": null
+  },
+  {
+   "deployment_id": "can12-pendulum-10to1",
+   "period": "mujoco_twin_replay:V1-f2308e5f|ff_fb|bb945462de",
+   "start": "2026-10-03T09:40:06",
+   "end": "2026-10-03T09:41:02",
+   "bundles": [
+    "can12-pendulum-10to1__twin-V1-f2308e5f__2026-10-03"
+   ],
+   "counts": {
+    "real": 0,
+    "sim": 15,
+    "aborted": 0
+   },
+   "kpis": {
+    "real_tracking_rms": null,
+    "real_tracking_p95": null,
+    "sim_real_gap": null,
+    "feedback_torque_proxy": null,
+    "floor_real_vs_real": null,
+    "real_runs": 0,
+    "sim_runs": 15,
+    "aborted_runs": 0,
+    "twin_fidelity_gap": 0.011158954132729828,
+    "twin_tracking_ratio": 0.9331132011076331,
+    "sim_tracking_rms": 0.05951412086536283
+   },
+   "twin_fidelity_gap_basis": "aligned",
+   "backend": "mujoco_twin_replay",
+   "twin_version": "V1-f2308e5f",
+   "control_mode": "ff_fb",
+   "settings": {
+    "torque_cap_nm": 6.3754,
+    "mounting": "gravity",
+    "kp": 43.3253,
+    "kd": 10.8313,
+    "friction_ff": true,
+    "coulomb_friction_nm": 0.65,
+    "plant": "measured CAN-12 rig; gravity on with q=0 hanging down; 0.65 Nm output Coulomb friction from guarded 2026-07-29 slow-step pilot"
+   },
+   "na_reason": null
+  },
+  {
+   "deployment_id": "can12-pendulum-10to1",
+   "period": "kinematic",
+   "start": null,
+   "end": null,
+   "bundles": [],
+   "counts": {
+    "real": 0,
+    "sim": 0,
+    "aborted": 0
+   },
+   "kpis": {
+    "real_tracking_rms": null,
+    "real_tracking_p95": null,
+    "sim_real_gap": null,
+    "feedback_torque_proxy": null,
+    "floor_real_vs_real": null,
+    "real_runs": 0,
+    "sim_runs": 0,
+    "aborted_runs": 0,
+    "twin_fidelity_gap": null,
+    "twin_tracking_ratio": null,
+    "sim_tracking_rms": null
+   },
+   "twin_fidelity_gap_basis": null,
+   "backend": "kinematic",
+   "twin_version": null,
+   "control_mode": null,
+   "settings": {
+    "torque_cap_nm": null,
+    "mounting": null,
+    "kp": null,
+    "kd": null,
+    "friction_ff": null,
+    "coulomb_friction_nm": null,
+    "plant": null
+   },
+   "na_reason": "n/a - follows target by construction"
+  },
+  {
+   "deployment_id": "can16-bench-rotor",
+   "period": "mujoco_sim|ff|d808fc05d0",
+   "start": "2026-07-28T16:53:49",
+   "end": "2026-07-28T16:53:55",
+   "bundles": [
+    "sim_shakeout"
+   ],
+   "counts": {
+    "real": 0,
+    "sim": 5,
+    "aborted": 0
+   },
+   "kpis": {
+    "real_tracking_rms": null,
+    "real_tracking_p95": null,
+    "sim_real_gap": null,
+    "feedback_torque_proxy": null,
+    "floor_real_vs_real": null,
+    "real_runs": 0,
+    "sim_runs": 5,
+    "aborted_runs": 0,
+    "twin_fidelity_gap": null,
+    "twin_tracking_ratio": null,
+    "sim_tracking_rms": 0.001630054186962343
+   },
+   "twin_fidelity_gap_basis": null,
+   "backend": "mujoco_sim",
+   "twin_version": null,
+   "control_mode": "ff",
+   "settings": {
+    "torque_cap_nm": 0.05,
+    "mounting": "default",
+    "kp": 2.0,
+    "kd": 0.01,
+    "friction_ff": false,
+    "coulomb_friction_nm": 0.0,
+    "plant": "placeholder"
+   },
+   "na_reason": null
+  },
+  {
+   "deployment_id": "can16-bench-rotor",
+   "period": "mujoco_sim|ff_fb|18a53bfa31",
+   "start": "2026-07-28T16:53:50",
+   "end": "2026-07-28T16:53:57",
+   "bundles": [
+    "sim_shakeout"
+   ],
+   "counts": {
+    "real": 0,
+    "sim": 5,
+    "aborted": 0
+   },
+   "kpis": {
+    "real_tracking_rms": null,
+    "real_tracking_p95": null,
+    "sim_real_gap": null,
+    "feedback_torque_proxy": null,
+    "floor_real_vs_real": null,
+    "real_runs": 0,
+    "sim_runs": 5,
+    "aborted_runs": 0,
+    "twin_fidelity_gap": null,
+    "twin_tracking_ratio": null,
+    "sim_tracking_rms": 0.0017957821935315553
+   },
+   "twin_fidelity_gap_basis": null,
+   "backend": "mujoco_sim",
+   "twin_version": null,
+   "control_mode": "ff_fb",
+   "settings": {
+    "torque_cap_nm": 0.05,
+    "mounting": "default",
+    "kp": 2.0,
+    "kd": 0.01,
+    "friction_ff": false,
+    "coulomb_friction_nm": 0.0,
+    "plant": "placeholder"
+   },
+   "na_reason": null
+  },
+  {
+   "deployment_id": "can16-bench-rotor",
+   "period": "mujoco_sim|ff|316b1a719d",
+   "start": "2026-07-28T17:01:32",
+   "end": "2026-07-28T17:32:38",
+   "bundles": [
+    "hw_shakeout",
+    "baseline_2026-07-28",
+    "baseline_2026-07-28_cam2"
+   ],
+   "counts": {
+    "real": 0,
+    "sim": 11,
+    "aborted": 0
+   },
+   "kpis": {
+    "real_tracking_rms": null,
+    "real_tracking_p95": null,
+    "sim_real_gap": null,
+    "feedback_torque_proxy": null,
+    "floor_real_vs_real": null,
+    "real_runs": 0,
+    "sim_runs": 11,
+    "aborted_runs": 0,
+    "twin_fidelity_gap": null,
+    "twin_tracking_ratio": null,
+    "sim_tracking_rms": 0.08757270476067573
+   },
+   "twin_fidelity_gap_basis": null,
+   "backend": "mujoco_sim",
+   "twin_version": null,
+   "control_mode": "ff",
+   "settings": {
+    "torque_cap_nm": 0.25,
+    "mounting": "default",
+    "kp": 2.0,
+    "kd": 0.01,
+    "friction_ff": true,
+    "coulomb_friction_nm": 0.0533491,
+    "plant": "identified 2026-07-28 from CAN 16 torque pulses"
+   },
+   "na_reason": null
+  },
+  {
+   "deployment_id": "can16-bench-rotor",
+   "period": "mujoco_sim|ff_fb|e28fd58681",
+   "start": "2026-07-28T17:01:33",
+   "end": "2026-07-28T17:32:40",
+   "bundles": [
+    "hw_shakeout",
+    "baseline_2026-07-28",
+    "baseline_2026-07-28_cam2"
+   ],
+   "counts": {
+    "real": 0,
+    "sim": 11,
+    "aborted": 0
+   },
+   "kpis": {
+    "real_tracking_rms": null,
+    "real_tracking_p95": null,
+    "sim_real_gap": null,
+    "feedback_torque_proxy": null,
+    "floor_real_vs_real": null,
+    "real_runs": 0,
+    "sim_runs": 11,
+    "aborted_runs": 0,
+    "twin_fidelity_gap": null,
+    "twin_tracking_ratio": null,
+    "sim_tracking_rms": 0.00859696771636651
+   },
+   "twin_fidelity_gap_basis": null,
+   "backend": "mujoco_sim",
+   "twin_version": null,
+   "control_mode": "ff_fb",
+   "settings": {
+    "torque_cap_nm": 0.25,
+    "mounting": "default",
+    "kp": 2.0,
+    "kd": 0.01,
+    "friction_ff": true,
+    "coulomb_friction_nm": 0.0533491,
+    "plant": "identified 2026-07-28 from CAN 16 torque pulses"
+   },
+   "na_reason": null
+  },
+  {
+   "deployment_id": "can16-bench-rotor",
+   "period": "real|ff|7349ca3349",
+   "start": "2026-07-28T17:01:35",
+   "end": "2026-07-28T17:33:08",
+   "bundles": [
+    "hw_shakeout",
+    "baseline_2026-07-28",
+    "baseline_2026-07-28_cam2"
+   ],
+   "counts": {
+    "real": 11,
+    "sim": 0,
+    "aborted": 0
+   },
+   "kpis": {
+    "real_tracking_rms": 0.5090090574634867,
+    "real_tracking_p95": 0.9745065266841433,
+    "sim_real_gap": 0.4449620708873213,
+    "feedback_torque_proxy": 0.022688839201499448,
+    "floor_real_vs_real": 0.7696708624387499,
+    "real_runs": 11,
+    "sim_runs": 0,
+    "aborted_runs": 0,
+    "twin_fidelity_gap": null,
+    "twin_tracking_ratio": null,
+    "sim_tracking_rms": null
+   },
+   "twin_fidelity_gap_basis": null,
+   "backend": "real",
+   "twin_version": null,
+   "control_mode": "ff",
+   "settings": {
+    "torque_cap_nm": 0.25,
+    "mounting": "default",
+    "kp": 2.0,
+    "kd": 0.01,
+    "friction_ff": true,
+    "coulomb_friction_nm": 0.0533491,
+    "plant": "identified 2026-07-28 from CAN 16 torque pulses"
+   },
+   "na_reason": null
+  },
+  {
+   "deployment_id": "can16-bench-rotor",
+   "period": "real|ff_fb|2b1142374b",
+   "start": "2026-07-28T17:01:37",
+   "end": "2026-07-28T17:33:17",
+   "bundles": [
+    "hw_shakeout",
+    "baseline_2026-07-28",
+    "baseline_2026-07-28_cam2"
+   ],
+   "counts": {
+    "real": 11,
+    "sim": 0,
+    "aborted": 0
+   },
+   "kpis": {
+    "real_tracking_rms": 0.07741371109586857,
+    "real_tracking_p95": 0.18276580696746342,
+    "sim_real_gap": 0.07667187966982297,
+    "feedback_torque_proxy": 0.030839061671029063,
+    "floor_real_vs_real": 0.026731177632827324,
+    "real_runs": 11,
+    "sim_runs": 0,
+    "aborted_runs": 0,
+    "twin_fidelity_gap": null,
+    "twin_tracking_ratio": null,
+    "sim_tracking_rms": null
+   },
+   "twin_fidelity_gap_basis": null,
+   "backend": "real",
+   "twin_version": null,
+   "control_mode": "ff_fb",
+   "settings": {
+    "torque_cap_nm": 0.25,
+    "mounting": "default",
+    "kp": 2.0,
+    "kd": 0.01,
+    "friction_ff": true,
+    "coulomb_friction_nm": 0.0533491,
+    "plant": "identified 2026-07-28 from CAN 16 torque pulses"
+   },
+   "na_reason": null
+  },
+  {
+   "deployment_id": "can16-bench-rotor",
+   "period": "kinematic",
+   "start": null,
+   "end": null,
+   "bundles": [],
+   "counts": {
+    "real": 0,
+    "sim": 0,
+    "aborted": 0
+   },
+   "kpis": {
+    "real_tracking_rms": null,
+    "real_tracking_p95": null,
+    "sim_real_gap": null,
+    "feedback_torque_proxy": null,
+    "floor_real_vs_real": null,
+    "real_runs": 0,
+    "sim_runs": 0,
+    "aborted_runs": 0,
+    "twin_fidelity_gap": null,
+    "twin_tracking_ratio": null,
+    "sim_tracking_rms": null
+   },
+   "twin_fidelity_gap_basis": null,
+   "backend": "kinematic",
+   "twin_version": null,
+   "control_mode": null,
+   "settings": {
+    "torque_cap_nm": null,
+    "mounting": null,
+    "kp": null,
+    "kd": null,
+    "friction_ff": null,
+    "coulomb_friction_nm": null,
+    "plant": null
+   },
+   "na_reason": "n/a - follows target by construction"
+  }
+ ]
+}

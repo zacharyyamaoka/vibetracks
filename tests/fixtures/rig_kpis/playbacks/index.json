@@ -1,0 +1,2397 @@
+{
+ "schema": "bam-playback-index/1",
+ "deployment_id": "can12-pendulum-10to1",
+ "runs": [
+  {
+   "run_id": "busguard_smoke_2026-07-29/slow_step_045deg_slow__real__ff_fb",
+   "trajectory": "slow_step_045deg_slow",
+   "session": "busguard_smoke_2026-07-29",
+   "started_at": "2026-07-29T15:53:58",
+   "settings": {
+    "control_mode": "ff_fb",
+    "pid": {
+     "kd": 10.83131487411392,
+     "ki": 0.0,
+     "kp": 43.32525949645568
+    },
+    "can_id": 12,
+    "plant": {
+     "coulomb_friction_nm": 0.65,
+     "inertia_kg_m2": 0.10774108140000002,
+     "source": "measured CAN-12 rig; gravity on with q=0 hanging down; 0.65 Nm output Coulomb friction from guarded 2026-07-29 slow-step pilot",
+     "viscous_damping_nm_per_rad_s": 0.0
+    }
+   },
+   "twin_versions": [],
+   "twin_runs": {},
+   "twin_vs_real_rms_rad": {},
+   "samples": 1097,
+   "duration_s": 10.96,
+   "video_path": null,
+   "angle_frame": {
+    "rest_position_rad": -6.47129,
+    "source": "deployment record can12-pendulum-10to1, component j1, rest_position_rad",
+    "position_rad": "rest_position_rad + q (q = raw reading - the run's meta.start_position_rad)"
+   },
+   "entities": {
+    "target": "/kinematic/j1",
+    "real": "/real/j1"
+   },
+   "file": "busguard_smoke_2026-07-29__slow_step_045deg_slow__real__ff_fb.rrd",
+   "size_bytes": 891815
+  },
+  {
+   "run_id": "ladder_gate_smoke_2026-07-29/slow_step_045deg__real__ff_fb",
+   "trajectory": "slow_step_045deg",
+   "session": "ladder_gate_smoke_2026-07-29",
+   "started_at": "2026-07-29T15:10:53",
+   "settings": {
+    "control_mode": "ff_fb",
+    "pid": {
+     "kd": 10.83131487411392,
+     "ki": 0.0,
+     "kp": 43.32525949645568
+    },
+    "can_id": 12,
+    "plant": {
+     "coulomb_friction_nm": 0.65,
+     "inertia_kg_m2": 0.10774108140000002,
+     "source": "measured CAN-12 rig; gravity on with q=0 hanging down; 0.65 Nm output Coulomb friction from guarded 2026-07-29 slow-step pilot",
+     "viscous_damping_nm_per_rad_s": 0.0
+    }
+   },
+   "twin_versions": [],
+   "twin_runs": {},
+   "twin_vs_real_rms_rad": {},
+   "samples": 1097,
+   "duration_s": 10.96,
+   "video_path": null,
+   "angle_frame": {
+    "rest_position_rad": -6.47129,
+    "source": "deployment record can12-pendulum-10to1, component j1, rest_position_rad",
+    "position_rad": "rest_position_rad + q (q = raw reading - the run's meta.start_position_rad)"
+   },
+   "entities": {
+    "target": "/kinematic/j1",
+    "real": "/real/j1"
+   },
+   "file": "ladder_gate_smoke_2026-07-29__slow_step_045deg__real__ff_fb.rrd",
+   "size_bytes": 889613
+  },
+  {
+   "run_id": "maxregime_smoke_2026-07-29/fast_step_180deg_max__real__ff_fb",
+   "trajectory": "fast_step_180deg_max",
+   "session": "maxregime_smoke_2026-07-29",
+   "started_at": "2026-07-29T16:04:58",
+   "settings": {
+    "control_mode": "ff_fb",
+    "pid": {
+     "kd": 10.83131487411392,
+     "ki": 0.0,
+     "kp": 43.32525949645568
+    },
+    "can_id": 12,
+    "plant": {
+     "coulomb_friction_nm": 0.65,
+     "inertia_kg_m2": 0.10774108140000002,
+     "source": "measured CAN-12 rig; gravity on with q=0 hanging down; 0.65 Nm output Coulomb friction from guarded 2026-07-29 slow-step pilot",
+     "viscous_damping_nm_per_rad_s": 0.0
+    }
+   },
+   "twin_versions": [],
+   "twin_runs": {},
+   "twin_vs_real_rms_rad": {},
+   "samples": 522,
+   "duration_s": 5.21,
+   "video_path": null,
+   "angle_frame": {
+    "rest_position_rad": -6.47129,
+    "source": "deployment record can12-pendulum-10to1, component j1, rest_position_rad",
+    "position_rad": "rest_position_rad + q (q = raw reading - the run's meta.start_position_rad)"
+   },
+   "entities": {
+    "target": "/kinematic/j1",
+    "real": "/real/j1"
+   },
+   "file": "maxregime_smoke_2026-07-29__fast_step_180deg_max__real__ff_fb.rrd",
+   "size_bytes": 585796
+  },
+  {
+   "run_id": "one_dof_flat_characterization_2026-07-29/chirp__real__ff_fb",
+   "trajectory": "chirp",
+   "session": "one_dof_flat_characterization_2026-07-29",
+   "started_at": "2026-07-29T07:58:02",
+   "settings": {
+    "control_mode": "ff_fb",
+    "pid": {
+     "kd": 10.83131487411392,
+     "ki": 0.0,
+     "kp": 43.32525949645568
+    },
+    "can_id": 12,
+    "plant": {
+     "coulomb_friction_nm": 0.65,
+     "inertia_kg_m2": 0.10774108140000002,
+     "source": "measured CAN-12 rig; gravity off; 0.65 Nm output Coulomb friction from guarded 2026-07-29 slow-step pilot",
+     "viscous_damping_nm_per_rad_s": 0.0
+    }
+   },
+   "twin_versions": [],
+   "twin_runs": {},
+   "twin_vs_real_rms_rad": {},
+   "samples": 1234,
+   "duration_s": 12.33,
+   "video_path": "/home/bam/bam_ws/src/core/mdp/agent/actor/trajectory_generation/traj_integration_tests/out/one_dof_flat_characterization_2026-07-29/media/chirp__real__ff_fb.mp4",
+   "angle_frame": {
+    "rest_position_rad": -6.47129,
+    "source": "deployment record can12-pendulum-10to1, component j1, rest_position_rad",
+    "position_rad": "rest_position_rad + q (q = raw reading - the run's meta.start_position_rad)"
+   },
+   "entities": {
+    "target": "/kinematic/j1",
+    "real": "/real/j1"
+   },
+   "file": "one_dof_flat_characterization_2026-07-29__chirp__real__ff_fb.rrd",
+   "size_bytes": 940948
+  },
+  {
+   "run_id": "one_dof_flat_characterization_2026-07-29/fast_step__real__ff_fb",
+   "trajectory": "fast_step",
+   "session": "one_dof_flat_characterization_2026-07-29",
+   "started_at": "2026-07-29T07:57:45",
+   "settings": {
+    "control_mode": "ff_fb",
+    "pid": {
+     "kd": 10.83131487411392,
+     "ki": 0.0,
+     "kp": 43.32525949645568
+    },
+    "can_id": 12,
+    "plant": {
+     "coulomb_friction_nm": 0.65,
+     "inertia_kg_m2": 0.10774108140000002,
+     "source": "measured CAN-12 rig; gravity off; 0.65 Nm output Coulomb friction from guarded 2026-07-29 slow-step pilot",
+     "viscous_damping_nm_per_rad_s": 0.0
+    }
+   },
+   "twin_versions": [],
+   "twin_runs": {},
+   "twin_vs_real_rms_rad": {},
+   "samples": 201,
+   "duration_s": 2.0,
+   "video_path": "/home/bam/bam_ws/src/core/mdp/agent/actor/trajectory_generation/traj_integration_tests/out/one_dof_flat_characterization_2026-07-29/media/fast_step__real__ff_fb.mp4",
+   "angle_frame": {
+    "rest_position_rad": -6.47129,
+    "source": "deployment record can12-pendulum-10to1, component j1, rest_position_rad",
+    "position_rad": "rest_position_rad + q (q = raw reading - the run's meta.start_position_rad)"
+   },
+   "entities": {
+    "target": "/kinematic/j1",
+    "real": "/real/j1"
+   },
+   "file": "one_dof_flat_characterization_2026-07-29__fast_step__real__ff_fb.rrd",
+   "size_bytes": 417333
+  },
+  {
+   "run_id": "one_dof_flat_characterization_2026-07-29/sawtooth__real__ff_fb",
+   "trajectory": "sawtooth",
+   "session": "one_dof_flat_characterization_2026-07-29",
+   "started_at": "2026-07-29T07:58:17",
+   "settings": {
+    "control_mode": "ff_fb",
+    "pid": {
+     "kd": 10.83131487411392,
+     "ki": 0.0,
+     "kp": 43.32525949645568
+    },
+    "can_id": 12,
+    "plant": {
+     "coulomb_friction_nm": 0.65,
+     "inertia_kg_m2": 0.10774108140000002,
+     "source": "measured CAN-12 rig; gravity off; 0.65 Nm output Coulomb friction from guarded 2026-07-29 slow-step pilot",
+     "viscous_damping_nm_per_rad_s": 0.0
+    }
+   },
+   "twin_versions": [],
+   "twin_runs": {},
+   "twin_vs_real_rms_rad": {},
+   "samples": 1120,
+   "duration_s": 11.19,
+   "video_path": "/home/bam/bam_ws/src/core/mdp/agent/actor/trajectory_generation/traj_integration_tests/out/one_dof_flat_characterization_2026-07-29/media/sawtooth__real__ff_fb.mp4",
+   "angle_frame": {
+    "rest_position_rad": -6.47129,
+    "source": "deployment record can12-pendulum-10to1, component j1, rest_position_rad",
+    "position_rad": "rest_position_rad + q (q = raw reading - the run's meta.start_position_rad)"
+   },
+   "entities": {
+    "target": "/kinematic/j1",
+    "real": "/real/j1"
+   },
+   "file": "one_dof_flat_characterization_2026-07-29__sawtooth__real__ff_fb.rrd",
+   "size_bytes": 888170
+  },
+  {
+   "run_id": "one_dof_flat_characterization_2026-07-29/sinusoidal__real__ff_fb",
+   "trajectory": "sinusoidal",
+   "session": "one_dof_flat_characterization_2026-07-29",
+   "started_at": "2026-07-29T07:57:48",
+   "settings": {
+    "control_mode": "ff_fb",
+    "pid": {
+     "kd": 10.83131487411392,
+     "ki": 0.0,
+     "kp": 43.32525949645568
+    },
+    "can_id": 12,
+    "plant": {
+     "coulomb_friction_nm": 0.65,
+     "inertia_kg_m2": 0.10774108140000002,
+     "source": "measured CAN-12 rig; gravity off; 0.65 Nm output Coulomb friction from guarded 2026-07-29 slow-step pilot",
+     "viscous_damping_nm_per_rad_s": 0.0
+    }
+   },
+   "twin_versions": [],
+   "twin_runs": {},
+   "twin_vs_real_rms_rad": {},
+   "samples": 1253,
+   "duration_s": 12.52,
+   "video_path": "/home/bam/bam_ws/src/core/mdp/agent/actor/trajectory_generation/traj_integration_tests/out/one_dof_flat_characterization_2026-07-29/media/sinusoidal__real__ff_fb.mp4",
+   "angle_frame": {
+    "rest_position_rad": -6.47129,
+    "source": "deployment record can12-pendulum-10to1, component j1, rest_position_rad",
+    "position_rad": "rest_position_rad + q (q = raw reading - the run's meta.start_position_rad)"
+   },
+   "entities": {
+    "target": "/kinematic/j1",
+    "real": "/real/j1"
+   },
+   "file": "one_dof_flat_characterization_2026-07-29__sinusoidal__real__ff_fb.rrd",
+   "size_bytes": 910931
+  },
+  {
+   "run_id": "one_dof_flat_characterization_2026-07-29/slow_step__real__ff_fb",
+   "trajectory": "slow_step",
+   "session": "one_dof_flat_characterization_2026-07-29",
+   "started_at": "2026-07-29T07:57:41",
+   "settings": {
+    "control_mode": "ff_fb",
+    "pid": {
+     "kd": 10.83131487411392,
+     "ki": 0.0,
+     "kp": 43.32525949645568
+    },
+    "can_id": 12,
+    "plant": {
+     "coulomb_friction_nm": 0.65,
+     "inertia_kg_m2": 0.10774108140000002,
+     "source": "measured CAN-12 rig; gravity off; 0.65 Nm output Coulomb friction from guarded 2026-07-29 slow-step pilot",
+     "viscous_damping_nm_per_rad_s": 0.0
+    }
+   },
+   "twin_versions": [],
+   "twin_runs": {},
+   "twin_vs_real_rms_rad": {},
+   "samples": 331,
+   "duration_s": 3.3000000000000003,
+   "video_path": "/home/bam/bam_ws/src/core/mdp/agent/actor/trajectory_generation/traj_integration_tests/out/one_dof_flat_characterization_2026-07-29/media/slow_step__real__ff_fb.mp4",
+   "angle_frame": {
+    "rest_position_rad": -6.47129,
+    "source": "deployment record can12-pendulum-10to1, component j1, rest_position_rad",
+    "position_rad": "rest_position_rad + q (q = raw reading - the run's meta.start_position_rad)"
+   },
+   "entities": {
+    "target": "/kinematic/j1",
+    "real": "/real/j1"
+   },
+   "file": "one_dof_flat_characterization_2026-07-29__slow_step__real__ff_fb.rrd",
+   "size_bytes": 482577
+  },
+  {
+   "run_id": "one_dof_gravity_amplitude_ladder_2026-07-29/chirp_045deg__real__ff_fb",
+   "trajectory": "chirp_045deg",
+   "session": "one_dof_gravity_amplitude_ladder_2026-07-29",
+   "started_at": "2026-07-29T15:14:37",
+   "settings": {
+    "control_mode": "ff_fb",
+    "pid": {
+     "kd": 10.83131487411392,
+     "ki": 0.0,
+     "kp": 43.32525949645568
+    },
+    "can_id": 12,
+    "plant": {
+     "coulomb_friction_nm": 0.65,
+     "inertia_kg_m2": 0.10774108140000002,
+     "source": "measured CAN-12 rig; gravity on with q=0 hanging down; 0.65 Nm output Coulomb friction from guarded 2026-07-29 slow-step pilot",
+     "viscous_damping_nm_per_rad_s": 0.0
+    }
+   },
+   "twin_versions": [
+    "V0",
+    "V1",
+    "V1-f2308e5f"
+   ],
+   "twin_runs": {
+    "V0": "can12-pendulum-10to1__twin-V0__2026-10-02/chirp_045deg__sim__ff_fb",
+    "V1": "can12-pendulum-10to1__twin-V1__2026-10-02/chirp_045deg__sim__ff_fb",
+    "V1-f2308e5f": "can12-pendulum-10to1__twin-V1-f2308e5f__2026-10-03/chirp_045deg__sim__ff_fb"
+   },
+   "twin_vs_real_rms_rad": {
+    "V0": 0.046177313035117976,
+    "V1": 0.00923136175066267,
+    "V1-f2308e5f": 0.009231361750656357
+   },
+   "samples": 1773,
+   "duration_s": 17.72,
+   "video_path": "/home/bam/bam_ws/src/core/mdp/agent/actor/trajectory_generation/traj_integration_tests/out/one_dof_gravity_amplitude_ladder_2026-07-29/media/chirp_045deg__real__ff_fb.mp4",
+   "angle_frame": {
+    "rest_position_rad": -6.47129,
+    "source": "deployment record can12-pendulum-10to1, component j1, rest_position_rad",
+    "position_rad": "rest_position_rad + q (q = raw reading - the run's meta.start_position_rad)"
+   },
+   "entities": {
+    "target": "/kinematic/j1",
+    "real": "/real/j1",
+    "V0": "/twin/V0/j1",
+    "V1": "/twin/V1/j1",
+    "V1-f2308e5f": "/sim/j1"
+   },
+   "file": "one_dof_gravity_amplitude_ladder_2026-07-29__chirp_045deg__real__ff_fb.rrd",
+   "size_bytes": 2351083
+  },
+  {
+   "run_id": "one_dof_gravity_amplitude_ladder_2026-07-29/chirp_090deg__real__ff_fb",
+   "trajectory": "chirp_090deg",
+   "session": "one_dof_gravity_amplitude_ladder_2026-07-29",
+   "started_at": "2026-07-29T15:16:41",
+   "settings": {
+    "control_mode": "ff_fb",
+    "pid": {
+     "kd": 10.83131487411392,
+     "ki": 0.0,
+     "kp": 43.32525949645568
+    },
+    "can_id": 12,
+    "plant": {
+     "coulomb_friction_nm": 0.65,
+     "inertia_kg_m2": 0.10774108140000002,
+     "source": "measured CAN-12 rig; gravity on with q=0 hanging down; 0.65 Nm output Coulomb friction from guarded 2026-07-29 slow-step pilot",
+     "viscous_damping_nm_per_rad_s": 0.0
+    }
+   },
+   "twin_versions": [
+    "V0",
+    "V1",
+    "V1-f2308e5f"
+   ],
+   "twin_runs": {
+    "V0": "can12-pendulum-10to1__twin-V0__2026-10-02/chirp_090deg__sim__ff_fb",
+    "V1": "can12-pendulum-10to1__twin-V1__2026-10-02/chirp_090deg__sim__ff_fb",
+    "V1-f2308e5f": "can12-pendulum-10to1__twin-V1-f2308e5f__2026-10-03/chirp_090deg__sim__ff_fb"
+   },
+   "twin_vs_real_rms_rad": {
+    "V0": 0.06766696682756111,
+    "V1": 0.008609403785791218,
+    "V1-f2308e5f": 0.008609403785795834
+   },
+   "samples": 2296,
+   "duration_s": 22.95,
+   "video_path": "/home/bam/bam_ws/src/core/mdp/agent/actor/trajectory_generation/traj_integration_tests/out/one_dof_gravity_amplitude_ladder_2026-07-29/media/chirp_090deg__real__ff_fb.mp4",
+   "angle_frame": {
+    "rest_position_rad": -6.47129,
+    "source": "deployment record can12-pendulum-10to1, component j1, rest_position_rad",
+    "position_rad": "rest_position_rad + q (q = raw reading - the run's meta.start_position_rad)"
+   },
+   "entities": {
+    "target": "/kinematic/j1",
+    "real": "/real/j1",
+    "V0": "/twin/V0/j1",
+    "V1": "/twin/V1/j1",
+    "V1-f2308e5f": "/sim/j1"
+   },
+   "file": "one_dof_gravity_amplitude_ladder_2026-07-29__chirp_090deg__real__ff_fb.rrd",
+   "size_bytes": 2961900
+  },
+  {
+   "run_id": "one_dof_gravity_amplitude_ladder_2026-07-29/chirp_180deg__real__ff_fb",
+   "trajectory": "chirp_180deg",
+   "session": "one_dof_gravity_amplitude_ladder_2026-07-29",
+   "started_at": "2026-07-29T15:19:49",
+   "settings": {
+    "control_mode": "ff_fb",
+    "pid": {
+     "kd": 10.83131487411392,
+     "ki": 0.0,
+     "kp": 43.32525949645568
+    },
+    "can_id": 12,
+    "plant": {
+     "coulomb_friction_nm": 0.65,
+     "inertia_kg_m2": 0.10774108140000002,
+     "source": "measured CAN-12 rig; gravity on with q=0 hanging down; 0.65 Nm output Coulomb friction from guarded 2026-07-29 slow-step pilot",
+     "viscous_damping_nm_per_rad_s": 0.0
+    }
+   },
+   "twin_versions": [
+    "V0",
+    "V1",
+    "V1-f2308e5f"
+   ],
+   "twin_runs": {
+    "V0": "can12-pendulum-10to1__twin-V0__2026-10-02/chirp_180deg__sim__ff_fb",
+    "V1": "can12-pendulum-10to1__twin-V1__2026-10-02/chirp_180deg__sim__ff_fb",
+    "V1-f2308e5f": "can12-pendulum-10to1__twin-V1-f2308e5f__2026-10-03/chirp_180deg__sim__ff_fb"
+   },
+   "twin_vs_real_rms_rad": {
+    "V0": 0.11535125509272645,
+    "V1": 0.061814074348761,
+    "V1-f2308e5f": 0.06181407434884148
+   },
+   "samples": 3343,
+   "duration_s": 33.42,
+   "video_path": "/home/bam/bam_ws/src/core/mdp/agent/actor/trajectory_generation/traj_integration_tests/out/one_dof_gravity_amplitude_ladder_2026-07-29/media/chirp_180deg__real__ff_fb.mp4",
+   "angle_frame": {
+    "rest_position_rad": -6.47129,
+    "source": "deployment record can12-pendulum-10to1, component j1, rest_position_rad",
+    "position_rad": "rest_position_rad + q (q = raw reading - the run's meta.start_position_rad)"
+   },
+   "entities": {
+    "target": "/kinematic/j1",
+    "real": "/real/j1",
+    "V0": "/twin/V0/j1",
+    "V1": "/twin/V1/j1",
+    "V1-f2308e5f": "/sim/j1"
+   },
+   "file": "one_dof_gravity_amplitude_ladder_2026-07-29__chirp_180deg__real__ff_fb.rrd",
+   "size_bytes": 4119129
+  },
+  {
+   "run_id": "one_dof_gravity_amplitude_ladder_2026-07-29/fast_step_045deg__real__ff_fb",
+   "trajectory": "fast_step_045deg",
+   "session": "one_dof_gravity_amplitude_ladder_2026-07-29",
+   "started_at": "2026-07-29T15:13:33",
+   "settings": {
+    "control_mode": "ff_fb",
+    "pid": {
+     "kd": 10.83131487411392,
+     "ki": 0.0,
+     "kp": 43.32525949645568
+    },
+    "can_id": 12,
+    "plant": {
+     "coulomb_friction_nm": 0.65,
+     "inertia_kg_m2": 0.10774108140000002,
+     "source": "measured CAN-12 rig; gravity on with q=0 hanging down; 0.65 Nm output Coulomb friction from guarded 2026-07-29 slow-step pilot",
+     "viscous_damping_nm_per_rad_s": 0.0
+    }
+   },
+   "twin_versions": [
+    "V0",
+    "V1",
+    "V1-f2308e5f"
+   ],
+   "twin_runs": {
+    "V0": "can12-pendulum-10to1__twin-V0__2026-10-02/fast_step_045deg__sim__ff_fb",
+    "V1": "can12-pendulum-10to1__twin-V1__2026-10-02/fast_step_045deg__sim__ff_fb",
+    "V1-f2308e5f": "can12-pendulum-10to1__twin-V1-f2308e5f__2026-10-03/fast_step_045deg__sim__ff_fb"
+   },
+   "twin_vs_real_rms_rad": {
+    "V0": 0.036753637148121715,
+    "V1": 0.011358042395996361,
+    "V1-f2308e5f": 0.011358042395986551
+   },
+   "samples": 634,
+   "duration_s": 6.33,
+   "video_path": "/home/bam/bam_ws/src/core/mdp/agent/actor/trajectory_generation/traj_integration_tests/out/one_dof_gravity_amplitude_ladder_2026-07-29/media/fast_step_045deg__real__ff_fb.mp4",
+   "angle_frame": {
+    "rest_position_rad": -6.47129,
+    "source": "deployment record can12-pendulum-10to1, component j1, rest_position_rad",
+    "position_rad": "rest_position_rad + q (q = raw reading - the run's meta.start_position_rad)"
+   },
+   "entities": {
+    "target": "/kinematic/j1",
+    "real": "/real/j1",
+    "V0": "/twin/V0/j1",
+    "V1": "/twin/V1/j1",
+    "V1-f2308e5f": "/sim/j1"
+   },
+   "file": "one_dof_gravity_amplitude_ladder_2026-07-29__fast_step_045deg__real__ff_fb.rrd",
+   "size_bytes": 1120976
+  },
+  {
+   "run_id": "one_dof_gravity_amplitude_ladder_2026-07-29/fast_step_090deg__real__ff_fb",
+   "trajectory": "fast_step_090deg",
+   "session": "one_dof_gravity_amplitude_ladder_2026-07-29",
+   "started_at": "2026-07-29T15:15:21",
+   "settings": {
+    "control_mode": "ff_fb",
+    "pid": {
+     "kd": 10.83131487411392,
+     "ki": 0.0,
+     "kp": 43.32525949645568
+    },
+    "can_id": 12,
+    "plant": {
+     "coulomb_friction_nm": 0.65,
+     "inertia_kg_m2": 0.10774108140000002,
+     "source": "measured CAN-12 rig; gravity on with q=0 hanging down; 0.65 Nm output Coulomb friction from guarded 2026-07-29 slow-step pilot",
+     "viscous_damping_nm_per_rad_s": 0.0
+    }
+   },
+   "twin_versions": [
+    "V0",
+    "V1",
+    "V1-f2308e5f"
+   ],
+   "twin_runs": {
+    "V0": "can12-pendulum-10to1__twin-V0__2026-10-02/fast_step_090deg__sim__ff_fb",
+    "V1": "can12-pendulum-10to1__twin-V1__2026-10-02/fast_step_090deg__sim__ff_fb",
+    "V1-f2308e5f": "can12-pendulum-10to1__twin-V1-f2308e5f__2026-10-03/fast_step_090deg__sim__ff_fb"
+   },
+   "twin_vs_real_rms_rad": {
+    "V0": 0.06022772410806006,
+    "V1": 0.011219607074240807,
+    "V1-f2308e5f": 0.011219607074254867
+   },
+   "samples": 1027,
+   "duration_s": 10.26,
+   "video_path": "/home/bam/bam_ws/src/core/mdp/agent/actor/trajectory_generation/traj_integration_tests/out/one_dof_gravity_amplitude_ladder_2026-07-29/media/fast_step_090deg__real__ff_fb.mp4",
+   "angle_frame": {
+    "rest_position_rad": -6.47129,
+    "source": "deployment record can12-pendulum-10to1, component j1, rest_position_rad",
+    "position_rad": "rest_position_rad + q (q = raw reading - the run's meta.start_position_rad)"
+   },
+   "entities": {
+    "target": "/kinematic/j1",
+    "real": "/real/j1",
+    "V0": "/twin/V0/j1",
+    "V1": "/twin/V1/j1",
+    "V1-f2308e5f": "/sim/j1"
+   },
+   "file": "one_dof_gravity_amplitude_ladder_2026-07-29__fast_step_090deg__real__ff_fb.rrd",
+   "size_bytes": 1536752
+  },
+  {
+   "run_id": "one_dof_gravity_amplitude_ladder_2026-07-29/fast_step_180deg__real__ff_fb",
+   "trajectory": "fast_step_180deg",
+   "session": "one_dof_gravity_amplitude_ladder_2026-07-29",
+   "started_at": "2026-07-29T15:17:50",
+   "settings": {
+    "control_mode": "ff_fb",
+    "pid": {
+     "kd": 10.83131487411392,
+     "ki": 0.0,
+     "kp": 43.32525949645568
+    },
+    "can_id": 12,
+    "plant": {
+     "coulomb_friction_nm": 0.65,
+     "inertia_kg_m2": 0.10774108140000002,
+     "source": "measured CAN-12 rig; gravity on with q=0 hanging down; 0.65 Nm output Coulomb friction from guarded 2026-07-29 slow-step pilot",
+     "viscous_damping_nm_per_rad_s": 0.0
+    }
+   },
+   "twin_versions": [
+    "V0",
+    "V1",
+    "V1-f2308e5f"
+   ],
+   "twin_runs": {
+    "V0": "can12-pendulum-10to1__twin-V0__2026-10-02/fast_step_180deg__sim__ff_fb",
+    "V1": "can12-pendulum-10to1__twin-V1__2026-10-02/fast_step_180deg__sim__ff_fb",
+    "V1-f2308e5f": "can12-pendulum-10to1__twin-V1-f2308e5f__2026-10-03/fast_step_180deg__sim__ff_fb"
+   },
+   "twin_vs_real_rms_rad": {
+    "V0": 0.09461889269981738,
+    "V1": 0.0229543759238272,
+    "V1-f2308e5f": 0.022954375923854953
+   },
+   "samples": 1812,
+   "duration_s": 18.11,
+   "video_path": "/home/bam/bam_ws/src/core/mdp/agent/actor/trajectory_generation/traj_integration_tests/out/one_dof_gravity_amplitude_ladder_2026-07-29/media/fast_step_180deg__real__ff_fb.mp4",
+   "angle_frame": {
+    "rest_position_rad": -6.47129,
+    "source": "deployment record can12-pendulum-10to1, component j1, rest_position_rad",
+    "position_rad": "rest_position_rad + q (q = raw reading - the run's meta.start_position_rad)"
+   },
+   "entities": {
+    "target": "/kinematic/j1",
+    "real": "/real/j1",
+    "V0": "/twin/V0/j1",
+    "V1": "/twin/V1/j1",
+    "V1-f2308e5f": "/sim/j1"
+   },
+   "file": "one_dof_gravity_amplitude_ladder_2026-07-29__fast_step_180deg__real__ff_fb.rrd",
+   "size_bytes": 2416467
+  },
+  {
+   "run_id": "one_dof_gravity_amplitude_ladder_2026-07-29/sawtooth_045deg__real__ff_fb",
+   "trajectory": "sawtooth_045deg",
+   "session": "one_dof_gravity_amplitude_ladder_2026-07-29",
+   "started_at": "2026-07-29T15:14:19",
+   "settings": {
+    "control_mode": "ff_fb",
+    "pid": {
+     "kd": 10.83131487411392,
+     "ki": 0.0,
+     "kp": 43.32525949645568
+    },
+    "can_id": 12,
+    "plant": {
+     "coulomb_friction_nm": 0.65,
+     "inertia_kg_m2": 0.10774108140000002,
+     "source": "measured CAN-12 rig; gravity on with q=0 hanging down; 0.65 Nm output Coulomb friction from guarded 2026-07-29 slow-step pilot",
+     "viscous_damping_nm_per_rad_s": 0.0
+    }
+   },
+   "twin_versions": [
+    "V0",
+    "V1",
+    "V1-f2308e5f"
+   ],
+   "twin_runs": {
+    "V0": "can12-pendulum-10to1__twin-V0__2026-10-02/sawtooth_045deg__sim__ff_fb",
+    "V1": "can12-pendulum-10to1__twin-V1__2026-10-02/sawtooth_045deg__sim__ff_fb",
+    "V1-f2308e5f": "can12-pendulum-10to1__twin-V1-f2308e5f__2026-10-03/sawtooth_045deg__sim__ff_fb"
+   },
+   "twin_vs_real_rms_rad": {
+    "V0": 0.0368365150466768,
+    "V1": 0.010366250764512797,
+    "V1-f2308e5f": 0.010366250764493237
+   },
+   "samples": 1513,
+   "duration_s": 15.120000000000001,
+   "video_path": "/home/bam/bam_ws/src/core/mdp/agent/actor/trajectory_generation/traj_integration_tests/out/one_dof_gravity_amplitude_ladder_2026-07-29/media/sawtooth_045deg__real__ff_fb.mp4",
+   "angle_frame": {
+    "rest_position_rad": -6.47129,
+    "source": "deployment record can12-pendulum-10to1, component j1, rest_position_rad",
+    "position_rad": "rest_position_rad + q (q = raw reading - the run's meta.start_position_rad)"
+   },
+   "entities": {
+    "target": "/kinematic/j1",
+    "real": "/real/j1",
+    "V0": "/twin/V0/j1",
+    "V1": "/twin/V1/j1",
+    "V1-f2308e5f": "/sim/j1"
+   },
+   "file": "one_dof_gravity_amplitude_ladder_2026-07-29__sawtooth_045deg__real__ff_fb.rrd",
+   "size_bytes": 2109542
+  },
+  {
+   "run_id": "one_dof_gravity_amplitude_ladder_2026-07-29/sawtooth_090deg__real__ff_fb",
+   "trajectory": "sawtooth_090deg",
+   "session": "one_dof_gravity_amplitude_ladder_2026-07-29",
+   "started_at": "2026-07-29T15:16:11",
+   "settings": {
+    "control_mode": "ff_fb",
+    "pid": {
+     "kd": 10.83131487411392,
+     "ki": 0.0,
+     "kp": 43.32525949645568
+    },
+    "can_id": 12,
+    "plant": {
+     "coulomb_friction_nm": 0.65,
+     "inertia_kg_m2": 0.10774108140000002,
+     "source": "measured CAN-12 rig; gravity on with q=0 hanging down; 0.65 Nm output Coulomb friction from guarded 2026-07-29 slow-step pilot",
+     "viscous_damping_nm_per_rad_s": 0.0
+    }
+   },
+   "twin_versions": [
+    "V0",
+    "V1",
+    "V1-f2308e5f"
+   ],
+   "twin_runs": {
+    "V0": "can12-pendulum-10to1__twin-V0__2026-10-02/sawtooth_090deg__sim__ff_fb",
+    "V1": "can12-pendulum-10to1__twin-V1__2026-10-02/sawtooth_090deg__sim__ff_fb",
+    "V1-f2308e5f": "can12-pendulum-10to1__twin-V1-f2308e5f__2026-10-03/sawtooth_090deg__sim__ff_fb"
+   },
+   "twin_vs_real_rms_rad": {
+    "V0": 0.06262983614108611,
+    "V1": 0.01168450171509206,
+    "V1-f2308e5f": 0.01168450171510271
+   },
+   "samples": 2534,
+   "duration_s": 25.330000000000002,
+   "video_path": "/home/bam/bam_ws/src/core/mdp/agent/actor/trajectory_generation/traj_integration_tests/out/one_dof_gravity_amplitude_ladder_2026-07-29/media/sawtooth_090deg__real__ff_fb.mp4",
+   "angle_frame": {
+    "rest_position_rad": -6.47129,
+    "source": "deployment record can12-pendulum-10to1, component j1, rest_position_rad",
+    "position_rad": "rest_position_rad + q (q = raw reading - the run's meta.start_position_rad)"
+   },
+   "entities": {
+    "target": "/kinematic/j1",
+    "real": "/real/j1",
+    "V0": "/twin/V0/j1",
+    "V1": "/twin/V1/j1",
+    "V1-f2308e5f": "/sim/j1"
+   },
+   "file": "one_dof_gravity_amplitude_ladder_2026-07-29__sawtooth_090deg__real__ff_fb.rrd",
+   "size_bytes": 3231586
+  },
+  {
+   "run_id": "one_dof_gravity_amplitude_ladder_2026-07-29/sawtooth_180deg__real__ff_fb",
+   "trajectory": "sawtooth_180deg",
+   "session": "one_dof_gravity_amplitude_ladder_2026-07-29",
+   "started_at": "2026-07-29T15:19:22",
+   "settings": {
+    "control_mode": "ff_fb",
+    "pid": {
+     "kd": 10.83131487411392,
+     "ki": 0.0,
+     "kp": 43.32525949645568
+    },
+    "can_id": 12,
+    "plant": {
+     "coulomb_friction_nm": 0.65,
+     "inertia_kg_m2": 0.10774108140000002,
+     "source": "measured CAN-12 rig; gravity on with q=0 hanging down; 0.65 Nm output Coulomb friction from guarded 2026-07-29 slow-step pilot",
+     "viscous_damping_nm_per_rad_s": 0.0
+    }
+   },
+   "twin_versions": [
+    "V0",
+    "V1",
+    "V1-f2308e5f"
+   ],
+   "twin_runs": {
+    "V0": "can12-pendulum-10to1__twin-V0__2026-10-02/sawtooth_180deg__sim__ff_fb",
+    "V1": "can12-pendulum-10to1__twin-V1__2026-10-02/sawtooth_180deg__sim__ff_fb",
+    "V1-f2308e5f": "can12-pendulum-10to1__twin-V1-f2308e5f__2026-10-03/sawtooth_180deg__sim__ff_fb"
+   },
+   "twin_vs_real_rms_rad": {
+    "V0": 0.09703878682716353,
+    "V1": 0.017110925392655397,
+    "V1-f2308e5f": 0.017110925392686573
+   },
+   "samples": 2339,
+   "duration_s": 23.38,
+   "video_path": "/home/bam/bam_ws/src/core/mdp/agent/actor/trajectory_generation/traj_integration_tests/out/one_dof_gravity_amplitude_ladder_2026-07-29/media/sawtooth_180deg__real__ff_fb.mp4",
+   "angle_frame": {
+    "rest_position_rad": -6.47129,
+    "source": "deployment record can12-pendulum-10to1, component j1, rest_position_rad",
+    "position_rad": "rest_position_rad + q (q = raw reading - the run's meta.start_position_rad)"
+   },
+   "entities": {
+    "target": "/kinematic/j1",
+    "real": "/real/j1",
+    "V0": "/twin/V0/j1",
+    "V1": "/twin/V1/j1",
+    "V1-f2308e5f": "/sim/j1"
+   },
+   "file": "one_dof_gravity_amplitude_ladder_2026-07-29__sawtooth_180deg__real__ff_fb.rrd",
+   "size_bytes": 3029843
+  },
+  {
+   "run_id": "one_dof_gravity_amplitude_ladder_2026-07-29/sinusoid_045deg__real__ff_fb",
+   "trajectory": "sinusoid_045deg",
+   "session": "one_dof_gravity_amplitude_ladder_2026-07-29",
+   "started_at": "2026-07-29T15:13:41",
+   "settings": {
+    "control_mode": "ff_fb",
+    "pid": {
+     "kd": 10.83131487411392,
+     "ki": 0.0,
+     "kp": 43.32525949645568
+    },
+    "can_id": 12,
+    "plant": {
+     "coulomb_friction_nm": 0.65,
+     "inertia_kg_m2": 0.10774108140000002,
+     "source": "measured CAN-12 rig; gravity on with q=0 hanging down; 0.65 Nm output Coulomb friction from guarded 2026-07-29 slow-step pilot",
+     "viscous_damping_nm_per_rad_s": 0.0
+    }
+   },
+   "twin_versions": [
+    "V0",
+    "V1",
+    "V1-f2308e5f"
+   ],
+   "twin_runs": {
+    "V0": "can12-pendulum-10to1__twin-V0__2026-10-02/sinusoid_045deg__sim__ff_fb",
+    "V1": "can12-pendulum-10to1__twin-V1__2026-10-02/sinusoid_045deg__sim__ff_fb",
+    "V1-f2308e5f": "can12-pendulum-10to1__twin-V1-f2308e5f__2026-10-03/sinusoid_045deg__sim__ff_fb"
+   },
+   "twin_vs_real_rms_rad": {
+    "V0": 0.043395235508645554,
+    "V1": 0.010775777068111244,
+    "V1-f2308e5f": 0.010775777068110282
+   },
+   "samples": 3203,
+   "duration_s": 32.02,
+   "video_path": "/home/bam/bam_ws/src/core/mdp/agent/actor/trajectory_generation/traj_integration_tests/out/one_dof_gravity_amplitude_ladder_2026-07-29/media/sinusoid_045deg__real__ff_fb.mp4",
+   "angle_frame": {
+    "rest_position_rad": -6.47129,
+    "source": "deployment record can12-pendulum-10to1, component j1, rest_position_rad",
+    "position_rad": "rest_position_rad + q (q = raw reading - the run's meta.start_position_rad)"
+   },
+   "entities": {
+    "target": "/kinematic/j1",
+    "real": "/real/j1",
+    "V0": "/twin/V0/j1",
+    "V1": "/twin/V1/j1",
+    "V1-f2308e5f": "/sim/j1"
+   },
+   "file": "one_dof_gravity_amplitude_ladder_2026-07-29__sinusoid_045deg__real__ff_fb.rrd",
+   "size_bytes": 4007089
+  },
+  {
+   "run_id": "one_dof_gravity_amplitude_ladder_2026-07-29/sinusoid_090deg__real__ff_fb",
+   "trajectory": "sinusoid_090deg",
+   "session": "one_dof_gravity_amplitude_ladder_2026-07-29",
+   "started_at": "2026-07-29T15:15:33",
+   "settings": {
+    "control_mode": "ff_fb",
+    "pid": {
+     "kd": 10.83131487411392,
+     "ki": 0.0,
+     "kp": 43.32525949645568
+    },
+    "can_id": 12,
+    "plant": {
+     "coulomb_friction_nm": 0.65,
+     "inertia_kg_m2": 0.10774108140000002,
+     "source": "measured CAN-12 rig; gravity on with q=0 hanging down; 0.65 Nm output Coulomb friction from guarded 2026-07-29 slow-step pilot",
+     "viscous_damping_nm_per_rad_s": 0.0
+    }
+   },
+   "twin_versions": [
+    "V0",
+    "V1",
+    "V1-f2308e5f"
+   ],
+   "twin_runs": {
+    "V0": "can12-pendulum-10to1__twin-V0__2026-10-02/sinusoid_090deg__sim__ff_fb",
+    "V1": "can12-pendulum-10to1__twin-V1__2026-10-02/sinusoid_090deg__sim__ff_fb",
+    "V1-f2308e5f": "can12-pendulum-10to1__twin-V1-f2308e5f__2026-10-03/sinusoid_090deg__sim__ff_fb"
+   },
+   "twin_vs_real_rms_rad": {
+    "V0": 0.07032610984678095,
+    "V1": 0.01300658329942996,
+    "V1-f2308e5f": 0.013006583299445864
+   },
+   "samples": 3203,
+   "duration_s": 32.02,
+   "video_path": "/home/bam/bam_ws/src/core/mdp/agent/actor/trajectory_generation/traj_integration_tests/out/one_dof_gravity_amplitude_ladder_2026-07-29/media/sinusoid_090deg__real__ff_fb.mp4",
+   "angle_frame": {
+    "rest_position_rad": -6.47129,
+    "source": "deployment record can12-pendulum-10to1, component j1, rest_position_rad",
+    "position_rad": "rest_position_rad + q (q = raw reading - the run's meta.start_position_rad)"
+   },
+   "entities": {
+    "target": "/kinematic/j1",
+    "real": "/real/j1",
+    "V0": "/twin/V0/j1",
+    "V1": "/twin/V1/j1",
+    "V1-f2308e5f": "/sim/j1"
+   },
+   "file": "one_dof_gravity_amplitude_ladder_2026-07-29__sinusoid_090deg__real__ff_fb.rrd",
+   "size_bytes": 4026325
+  },
+  {
+   "run_id": "one_dof_gravity_amplitude_ladder_2026-07-29/sinusoid_180deg__real__ff_fb",
+   "trajectory": "sinusoid_180deg",
+   "session": "one_dof_gravity_amplitude_ladder_2026-07-29",
+   "started_at": "2026-07-29T15:18:12",
+   "settings": {
+    "control_mode": "ff_fb",
+    "pid": {
+     "kd": 10.83131487411392,
+     "ki": 0.0,
+     "kp": 43.32525949645568
+    },
+    "can_id": 12,
+    "plant": {
+     "coulomb_friction_nm": 0.65,
+     "inertia_kg_m2": 0.10774108140000002,
+     "source": "measured CAN-12 rig; gravity on with q=0 hanging down; 0.65 Nm output Coulomb friction from guarded 2026-07-29 slow-step pilot",
+     "viscous_damping_nm_per_rad_s": 0.0
+    }
+   },
+   "twin_versions": [
+    "V0",
+    "V1",
+    "V1-f2308e5f"
+   ],
+   "twin_runs": {
+    "V0": "can12-pendulum-10to1__twin-V0__2026-10-02/sinusoid_180deg__sim__ff_fb",
+    "V1": "can12-pendulum-10to1__twin-V1__2026-10-02/sinusoid_180deg__sim__ff_fb",
+    "V1-f2308e5f": "can12-pendulum-10to1__twin-V1-f2308e5f__2026-10-03/sinusoid_180deg__sim__ff_fb"
+   },
+   "twin_vs_real_rms_rad": {
+    "V0": 0.10943876399899158,
+    "V1": 0.03258440072254448,
+    "V1-f2308e5f": 0.03258440072259586
+   },
+   "samples": 5945,
+   "duration_s": 59.44,
+   "video_path": "/home/bam/bam_ws/src/core/mdp/agent/actor/trajectory_generation/traj_integration_tests/out/one_dof_gravity_amplitude_ladder_2026-07-29/media/sinusoid_180deg__real__ff_fb.mp4",
+   "angle_frame": {
+    "rest_position_rad": -6.47129,
+    "source": "deployment record can12-pendulum-10to1, component j1, rest_position_rad",
+    "position_rad": "rest_position_rad + q (q = raw reading - the run's meta.start_position_rad)"
+   },
+   "entities": {
+    "target": "/kinematic/j1",
+    "real": "/real/j1",
+    "V0": "/twin/V0/j1",
+    "V1": "/twin/V1/j1",
+    "V1-f2308e5f": "/sim/j1"
+   },
+   "file": "one_dof_gravity_amplitude_ladder_2026-07-29__sinusoid_180deg__real__ff_fb.rrd",
+   "size_bytes": 7365126
+  },
+  {
+   "run_id": "one_dof_gravity_amplitude_ladder_2026-07-29/slow_step_045deg__real__ff_fb",
+   "trajectory": "slow_step_045deg",
+   "session": "one_dof_gravity_amplitude_ladder_2026-07-29",
+   "started_at": "2026-07-29T15:13:19",
+   "settings": {
+    "control_mode": "ff_fb",
+    "pid": {
+     "kd": 10.83131487411392,
+     "ki": 0.0,
+     "kp": 43.32525949645568
+    },
+    "can_id": 12,
+    "plant": {
+     "coulomb_friction_nm": 0.65,
+     "inertia_kg_m2": 0.10774108140000002,
+     "source": "measured CAN-12 rig; gravity on with q=0 hanging down; 0.65 Nm output Coulomb friction from guarded 2026-07-29 slow-step pilot",
+     "viscous_damping_nm_per_rad_s": 0.0
+    }
+   },
+   "twin_versions": [
+    "V0",
+    "V1",
+    "V1-f2308e5f"
+   ],
+   "twin_runs": {
+    "V0": "can12-pendulum-10to1__twin-V0__2026-10-02/slow_step_045deg__sim__ff_fb",
+    "V1": "can12-pendulum-10to1__twin-V1__2026-10-02/slow_step_045deg__sim__ff_fb",
+    "V1-f2308e5f": "can12-pendulum-10to1__twin-V1-f2308e5f__2026-10-03/slow_step_045deg__sim__ff_fb"
+   },
+   "twin_vs_real_rms_rad": {
+    "V0": 0.03350531188423097,
+    "V1": 0.012608797891107736,
+    "V1-f2308e5f": 0.012608797891087115
+   },
+   "samples": 1097,
+   "duration_s": 10.96,
+   "video_path": "/home/bam/bam_ws/src/core/mdp/agent/actor/trajectory_generation/traj_integration_tests/out/one_dof_gravity_amplitude_ladder_2026-07-29/media/slow_step_045deg__real__ff_fb.mp4",
+   "angle_frame": {
+    "rest_position_rad": -6.47129,
+    "source": "deployment record can12-pendulum-10to1, component j1, rest_position_rad",
+    "position_rad": "rest_position_rad + q (q = raw reading - the run's meta.start_position_rad)"
+   },
+   "entities": {
+    "target": "/kinematic/j1",
+    "real": "/real/j1",
+    "V0": "/twin/V0/j1",
+    "V1": "/twin/V1/j1",
+    "V1-f2308e5f": "/sim/j1"
+   },
+   "file": "one_dof_gravity_amplitude_ladder_2026-07-29__slow_step_045deg__real__ff_fb.rrd",
+   "size_bytes": 1645364
+  },
+  {
+   "run_id": "one_dof_gravity_amplitude_ladder_2026-07-29/slow_step_090deg__real__ff_fb",
+   "trajectory": "slow_step_090deg",
+   "session": "one_dof_gravity_amplitude_ladder_2026-07-29",
+   "started_at": "2026-07-29T15:14:58",
+   "settings": {
+    "control_mode": "ff_fb",
+    "pid": {
+     "kd": 10.83131487411392,
+     "ki": 0.0,
+     "kp": 43.32525949645568
+    },
+    "can_id": 12,
+    "plant": {
+     "coulomb_friction_nm": 0.65,
+     "inertia_kg_m2": 0.10774108140000002,
+     "source": "measured CAN-12 rig; gravity on with q=0 hanging down; 0.65 Nm output Coulomb friction from guarded 2026-07-29 slow-step pilot",
+     "viscous_damping_nm_per_rad_s": 0.0
+    }
+   },
+   "twin_versions": [
+    "V0",
+    "V1",
+    "V1-f2308e5f"
+   ],
+   "twin_runs": {
+    "V0": "can12-pendulum-10to1__twin-V0__2026-10-02/slow_step_090deg__sim__ff_fb",
+    "V1": "can12-pendulum-10to1__twin-V1__2026-10-02/slow_step_090deg__sim__ff_fb",
+    "V1-f2308e5f": "can12-pendulum-10to1__twin-V1-f2308e5f__2026-10-03/slow_step_090deg__sim__ff_fb"
+   },
+   "twin_vs_real_rms_rad": {
+    "V0": 0.05875638377097342,
+    "V1": 0.01370182632078188,
+    "V1-f2308e5f": 0.013701826320792915
+   },
+   "samples": 1882,
+   "duration_s": 18.81,
+   "video_path": "/home/bam/bam_ws/src/core/mdp/agent/actor/trajectory_generation/traj_integration_tests/out/one_dof_gravity_amplitude_ladder_2026-07-29/media/slow_step_090deg__real__ff_fb.mp4",
+   "angle_frame": {
+    "rest_position_rad": -6.47129,
+    "source": "deployment record can12-pendulum-10to1, component j1, rest_position_rad",
+    "position_rad": "rest_position_rad + q (q = raw reading - the run's meta.start_position_rad)"
+   },
+   "entities": {
+    "target": "/kinematic/j1",
+    "real": "/real/j1",
+    "V0": "/twin/V0/j1",
+    "V1": "/twin/V1/j1",
+    "V1-f2308e5f": "/sim/j1"
+   },
+   "file": "one_dof_gravity_amplitude_ladder_2026-07-29__slow_step_090deg__real__ff_fb.rrd",
+   "size_bytes": 2482077
+  },
+  {
+   "run_id": "one_dof_gravity_amplitude_ladder_2026-07-29/slow_step_180deg__real__ff_fb",
+   "trajectory": "slow_step_180deg",
+   "session": "one_dof_gravity_amplitude_ladder_2026-07-29",
+   "started_at": "2026-07-29T15:17:09",
+   "settings": {
+    "control_mode": "ff_fb",
+    "pid": {
+     "kd": 10.83131487411392,
+     "ki": 0.0,
+     "kp": 43.32525949645568
+    },
+    "can_id": 12,
+    "plant": {
+     "coulomb_friction_nm": 0.65,
+     "inertia_kg_m2": 0.10774108140000002,
+     "source": "measured CAN-12 rig; gravity on with q=0 hanging down; 0.65 Nm output Coulomb friction from guarded 2026-07-29 slow-step pilot",
+     "viscous_damping_nm_per_rad_s": 0.0
+    }
+   },
+   "twin_versions": [
+    "V0",
+    "V1",
+    "V1-f2308e5f"
+   ],
+   "twin_runs": {
+    "V0": "can12-pendulum-10to1__twin-V0__2026-10-02/slow_step_180deg__sim__ff_fb",
+    "V1": "can12-pendulum-10to1__twin-V1__2026-10-02/slow_step_180deg__sim__ff_fb",
+    "V1-f2308e5f": "can12-pendulum-10to1__twin-V1-f2308e5f__2026-10-03/slow_step_180deg__sim__ff_fb"
+   },
+   "twin_vs_real_rms_rad": {
+    "V0": 0.09205217849386348,
+    "V1": 0.021117815683731354,
+    "V1-f2308e5f": 0.021117815683758534
+   },
+   "samples": 3453,
+   "duration_s": 34.52,
+   "video_path": "/home/bam/bam_ws/src/core/mdp/agent/actor/trajectory_generation/traj_integration_tests/out/one_dof_gravity_amplitude_ladder_2026-07-29/media/slow_step_180deg__real__ff_fb.mp4",
+   "angle_frame": {
+    "rest_position_rad": -6.47129,
+    "source": "deployment record can12-pendulum-10to1, component j1, rest_position_rad",
+    "position_rad": "rest_position_rad + q (q = raw reading - the run's meta.start_position_rad)"
+   },
+   "entities": {
+    "target": "/kinematic/j1",
+    "real": "/real/j1",
+    "V0": "/twin/V0/j1",
+    "V1": "/twin/V1/j1",
+    "V1-f2308e5f": "/sim/j1"
+   },
+   "file": "one_dof_gravity_amplitude_ladder_2026-07-29__slow_step_180deg__real__ff_fb.rrd",
+   "size_bytes": 4283120
+  },
+  {
+   "run_id": "one_dof_gravity_characterization_2026-07-29/chirp__real__ff_fb",
+   "trajectory": "chirp",
+   "session": "one_dof_gravity_characterization_2026-07-29",
+   "started_at": "2026-07-29T09:24:57",
+   "settings": {
+    "control_mode": "ff_fb",
+    "pid": {
+     "kd": 10.83131487411392,
+     "ki": 0.0,
+     "kp": 43.32525949645568
+    },
+    "can_id": 12,
+    "plant": {
+     "coulomb_friction_nm": 0.65,
+     "inertia_kg_m2": 0.10774108140000002,
+     "source": "measured CAN-12 rig; gravity on with q=0 hanging down; 0.65 Nm output Coulomb friction from guarded 2026-07-29 slow-step pilot",
+     "viscous_damping_nm_per_rad_s": 0.0
+    }
+   },
+   "twin_versions": [],
+   "twin_runs": {},
+   "twin_vs_real_rms_rad": {},
+   "samples": 1234,
+   "duration_s": 12.33,
+   "video_path": "/home/bam/bam_ws/src/core/mdp/agent/actor/trajectory_generation/traj_integration_tests/out/one_dof_gravity_characterization_2026-07-29/media/chirp__real__ff_fb.mp4",
+   "angle_frame": {
+    "rest_position_rad": -6.47129,
+    "source": "deployment record can12-pendulum-10to1, component j1, rest_position_rad",
+    "position_rad": "rest_position_rad + q (q = raw reading - the run's meta.start_position_rad)"
+   },
+   "entities": {
+    "target": "/kinematic/j1",
+    "real": "/real/j1"
+   },
+   "file": "one_dof_gravity_characterization_2026-07-29__chirp__real__ff_fb.rrd",
+   "size_bytes": 945800
+  },
+  {
+   "run_id": "one_dof_gravity_characterization_2026-07-29/fast_step__real__ff_fb",
+   "trajectory": "fast_step",
+   "session": "one_dof_gravity_characterization_2026-07-29",
+   "started_at": "2026-07-29T09:24:39",
+   "settings": {
+    "control_mode": "ff_fb",
+    "pid": {
+     "kd": 10.83131487411392,
+     "ki": 0.0,
+     "kp": 43.32525949645568
+    },
+    "can_id": 12,
+    "plant": {
+     "coulomb_friction_nm": 0.65,
+     "inertia_kg_m2": 0.10774108140000002,
+     "source": "measured CAN-12 rig; gravity on with q=0 hanging down; 0.65 Nm output Coulomb friction from guarded 2026-07-29 slow-step pilot",
+     "viscous_damping_nm_per_rad_s": 0.0
+    }
+   },
+   "twin_versions": [],
+   "twin_runs": {},
+   "twin_vs_real_rms_rad": {},
+   "samples": 201,
+   "duration_s": 2.0,
+   "video_path": "/home/bam/bam_ws/src/core/mdp/agent/actor/trajectory_generation/traj_integration_tests/out/one_dof_gravity_characterization_2026-07-29/media/fast_step__real__ff_fb.mp4",
+   "angle_frame": {
+    "rest_position_rad": -6.47129,
+    "source": "deployment record can12-pendulum-10to1, component j1, rest_position_rad",
+    "position_rad": "rest_position_rad + q (q = raw reading - the run's meta.start_position_rad)"
+   },
+   "entities": {
+    "target": "/kinematic/j1",
+    "real": "/real/j1"
+   },
+   "file": "one_dof_gravity_characterization_2026-07-29__fast_step__real__ff_fb.rrd",
+   "size_bytes": 416152
+  },
+  {
+   "run_id": "one_dof_gravity_characterization_2026-07-29/sawtooth__real__ff_fb",
+   "trajectory": "sawtooth",
+   "session": "one_dof_gravity_characterization_2026-07-29",
+   "started_at": "2026-07-29T09:25:12",
+   "settings": {
+    "control_mode": "ff_fb",
+    "pid": {
+     "kd": 10.83131487411392,
+     "ki": 0.0,
+     "kp": 43.32525949645568
+    },
+    "can_id": 12,
+    "plant": {
+     "coulomb_friction_nm": 0.65,
+     "inertia_kg_m2": 0.10774108140000002,
+     "source": "measured CAN-12 rig; gravity on with q=0 hanging down; 0.65 Nm output Coulomb friction from guarded 2026-07-29 slow-step pilot",
+     "viscous_damping_nm_per_rad_s": 0.0
+    }
+   },
+   "twin_versions": [],
+   "twin_runs": {},
+   "twin_vs_real_rms_rad": {},
+   "samples": 1120,
+   "duration_s": 11.19,
+   "video_path": "/home/bam/bam_ws/src/core/mdp/agent/actor/trajectory_generation/traj_integration_tests/out/one_dof_gravity_characterization_2026-07-29/media/sawtooth__real__ff_fb.mp4",
+   "angle_frame": {
+    "rest_position_rad": -6.47129,
+    "source": "deployment record can12-pendulum-10to1, component j1, rest_position_rad",
+    "position_rad": "rest_position_rad + q (q = raw reading - the run's meta.start_position_rad)"
+   },
+   "entities": {
+    "target": "/kinematic/j1",
+    "real": "/real/j1"
+   },
+   "file": "one_dof_gravity_characterization_2026-07-29__sawtooth__real__ff_fb.rrd",
+   "size_bytes": 880907
+  },
+  {
+   "run_id": "one_dof_gravity_characterization_2026-07-29/sinusoidal__real__ff_fb",
+   "trajectory": "sinusoidal",
+   "session": "one_dof_gravity_characterization_2026-07-29",
+   "started_at": "2026-07-29T09:24:42",
+   "settings": {
+    "control_mode": "ff_fb",
+    "pid": {
+     "kd": 10.83131487411392,
+     "ki": 0.0,
+     "kp": 43.32525949645568
+    },
+    "can_id": 12,
+    "plant": {
+     "coulomb_friction_nm": 0.65,
+     "inertia_kg_m2": 0.10774108140000002,
+     "source": "measured CAN-12 rig; gravity on with q=0 hanging down; 0.65 Nm output Coulomb friction from guarded 2026-07-29 slow-step pilot",
+     "viscous_damping_nm_per_rad_s": 0.0
+    }
+   },
+   "twin_versions": [],
+   "twin_runs": {},
+   "twin_vs_real_rms_rad": {},
+   "samples": 1253,
+   "duration_s": 12.52,
+   "video_path": "/home/bam/bam_ws/src/core/mdp/agent/actor/trajectory_generation/traj_integration_tests/out/one_dof_gravity_characterization_2026-07-29/media/sinusoidal__real__ff_fb.mp4",
+   "angle_frame": {
+    "rest_position_rad": -6.47129,
+    "source": "deployment record can12-pendulum-10to1, component j1, rest_position_rad",
+    "position_rad": "rest_position_rad + q (q = raw reading - the run's meta.start_position_rad)"
+   },
+   "entities": {
+    "target": "/kinematic/j1",
+    "real": "/real/j1"
+   },
+   "file": "one_dof_gravity_characterization_2026-07-29__sinusoidal__real__ff_fb.rrd",
+   "size_bytes": 905826
+  },
+  {
+   "run_id": "one_dof_gravity_characterization_2026-07-29/slow_step__real__ff_fb",
+   "trajectory": "slow_step",
+   "session": "one_dof_gravity_characterization_2026-07-29",
+   "started_at": "2026-07-29T09:24:34",
+   "settings": {
+    "control_mode": "ff_fb",
+    "pid": {
+     "kd": 10.83131487411392,
+     "ki": 0.0,
+     "kp": 43.32525949645568
+    },
+    "can_id": 12,
+    "plant": {
+     "coulomb_friction_nm": 0.65,
+     "inertia_kg_m2": 0.10774108140000002,
+     "source": "measured CAN-12 rig; gravity on with q=0 hanging down; 0.65 Nm output Coulomb friction from guarded 2026-07-29 slow-step pilot",
+     "viscous_damping_nm_per_rad_s": 0.0
+    }
+   },
+   "twin_versions": [],
+   "twin_runs": {},
+   "twin_vs_real_rms_rad": {},
+   "samples": 331,
+   "duration_s": 3.3000000000000003,
+   "video_path": "/home/bam/bam_ws/src/core/mdp/agent/actor/trajectory_generation/traj_integration_tests/out/one_dof_gravity_characterization_2026-07-29/media/slow_step__real__ff_fb.mp4",
+   "angle_frame": {
+    "rest_position_rad": -6.47129,
+    "source": "deployment record can12-pendulum-10to1, component j1, rest_position_rad",
+    "position_rad": "rest_position_rad + q (q = raw reading - the run's meta.start_position_rad)"
+   },
+   "entities": {
+    "target": "/kinematic/j1",
+    "real": "/real/j1"
+   },
+   "file": "one_dof_gravity_characterization_2026-07-29__slow_step__real__ff_fb.rrd",
+   "size_bytes": 481978
+  },
+  {
+   "run_id": "one_dof_hardware_gate_2026-07-29/slow_step__real__ff_fb",
+   "trajectory": "slow_step",
+   "session": "one_dof_hardware_gate_2026-07-29",
+   "started_at": "2026-07-29T07:52:19",
+   "settings": {
+    "control_mode": "ff_fb",
+    "pid": {
+     "kd": 10.83131487411392,
+     "ki": 0.0,
+     "kp": 43.32525949645568
+    },
+    "can_id": 12,
+    "plant": {
+     "coulomb_friction_nm": 0.0,
+     "inertia_kg_m2": 0.10774108140000002,
+     "source": "measured CAN-12 rig; gravity off",
+     "viscous_damping_nm_per_rad_s": 0.0
+    }
+   },
+   "twin_versions": [],
+   "twin_runs": {},
+   "twin_vs_real_rms_rad": {},
+   "samples": 331,
+   "duration_s": 3.3000000000000003,
+   "video_path": "/home/bam/bam_ws/src/core/mdp/agent/actor/trajectory_generation/traj_integration_tests/out/one_dof_hardware_gate_2026-07-29/media/slow_step__real__ff_fb.mp4",
+   "angle_frame": {
+    "rest_position_rad": -6.47129,
+    "source": "deployment record can12-pendulum-10to1, component j1, rest_position_rad",
+    "position_rad": "rest_position_rad + q (q = raw reading - the run's meta.start_position_rad)"
+   },
+   "entities": {
+    "target": "/kinematic/j1",
+    "real": "/real/j1"
+   },
+   "file": "one_dof_hardware_gate_2026-07-29__slow_step__real__ff_fb.rrd",
+   "size_bytes": 477909
+  },
+  {
+   "run_id": "one_dof_hardware_gate_friction_2026-07-29/slow_step__real__ff_fb",
+   "trajectory": "slow_step",
+   "session": "one_dof_hardware_gate_friction_2026-07-29",
+   "started_at": "2026-07-29T07:56:25",
+   "settings": {
+    "control_mode": "ff_fb",
+    "pid": {
+     "kd": 10.83131487411392,
+     "ki": 0.0,
+     "kp": 43.32525949645568
+    },
+    "can_id": 12,
+    "plant": {
+     "coulomb_friction_nm": 0.65,
+     "inertia_kg_m2": 0.10774108140000002,
+     "source": "measured CAN-12 rig; gravity off; 0.65 Nm output Coulomb friction from guarded 2026-07-29 slow-step pilot",
+     "viscous_damping_nm_per_rad_s": 0.0
+    }
+   },
+   "twin_versions": [],
+   "twin_runs": {},
+   "twin_vs_real_rms_rad": {},
+   "samples": 331,
+   "duration_s": 3.3000000000000003,
+   "video_path": "/home/bam/bam_ws/src/core/mdp/agent/actor/trajectory_generation/traj_integration_tests/out/one_dof_hardware_gate_friction_2026-07-29/media/slow_step__real__ff_fb.mp4",
+   "angle_frame": {
+    "rest_position_rad": -6.47129,
+    "source": "deployment record can12-pendulum-10to1, component j1, rest_position_rad",
+    "position_rad": "rest_position_rad + q (q = raw reading - the run's meta.start_position_rad)"
+   },
+   "entities": {
+    "target": "/kinematic/j1",
+    "real": "/real/j1"
+   },
+   "file": "one_dof_hardware_gate_friction_2026-07-29__slow_step__real__ff_fb.rrd",
+   "size_bytes": 481721
+  },
+  {
+   "run_id": "one_dof_limits_full_torque_2026-07-29/sweep_090deg_v13__real__ff_fb",
+   "trajectory": "sweep_090deg_v13",
+   "session": "one_dof_limits_full_torque_2026-07-29",
+   "started_at": "2026-07-29T16:56:14",
+   "settings": {
+    "control_mode": "ff_fb",
+    "pid": {
+     "kd": 10.83131487411392,
+     "ki": 0.0,
+     "kp": 43.32525949645568
+    },
+    "can_id": 12,
+    "plant": {
+     "coulomb_friction_nm": 0.65,
+     "inertia_kg_m2": 0.10774108140000002,
+     "source": "measured CAN-12 rig; gravity on with q=0 hanging down; 0.65 Nm output Coulomb friction from guarded 2026-07-29 slow-step pilot",
+     "viscous_damping_nm_per_rad_s": 0.0
+    }
+   },
+   "twin_versions": [],
+   "twin_runs": {},
+   "twin_vs_real_rms_rad": {},
+   "samples": 212,
+   "duration_s": 2.11,
+   "video_path": null,
+   "angle_frame": {
+    "rest_position_rad": -6.47129,
+    "source": "deployment record can12-pendulum-10to1, component j1, rest_position_rad",
+    "position_rad": "rest_position_rad + q (q = raw reading - the run's meta.start_position_rad)"
+   },
+   "entities": {
+    "target": "/kinematic/j1",
+    "real": "/real/j1"
+   },
+   "file": "one_dof_limits_full_torque_2026-07-29__sweep_090deg_v13__real__ff_fb.rrd",
+   "size_bytes": 424405
+  },
+  {
+   "run_id": "one_dof_limits_full_torque_2026-07-29/sweep_090deg_v14__real__ff_fb",
+   "trajectory": "sweep_090deg_v14",
+   "session": "one_dof_limits_full_torque_2026-07-29",
+   "started_at": "2026-07-29T16:56:16",
+   "settings": {
+    "control_mode": "ff_fb",
+    "pid": {
+     "kd": 10.83131487411392,
+     "ki": 0.0,
+     "kp": 43.32525949645568
+    },
+    "can_id": 12,
+    "plant": {
+     "coulomb_friction_nm": 0.65,
+     "inertia_kg_m2": 0.10774108140000002,
+     "source": "measured CAN-12 rig; gravity on with q=0 hanging down; 0.65 Nm output Coulomb friction from guarded 2026-07-29 slow-step pilot",
+     "viscous_damping_nm_per_rad_s": 0.0
+    }
+   },
+   "twin_versions": [],
+   "twin_runs": {},
+   "twin_vs_real_rms_rad": {},
+   "samples": 207,
+   "duration_s": 2.06,
+   "video_path": null,
+   "angle_frame": {
+    "rest_position_rad": -6.47129,
+    "source": "deployment record can12-pendulum-10to1, component j1, rest_position_rad",
+    "position_rad": "rest_position_rad + q (q = raw reading - the run's meta.start_position_rad)"
+   },
+   "entities": {
+    "target": "/kinematic/j1",
+    "real": "/real/j1"
+   },
+   "file": "one_dof_limits_full_torque_2026-07-29__sweep_090deg_v14__real__ff_fb.rrd",
+   "size_bytes": 421900
+  },
+  {
+   "run_id": "one_dof_limits_full_torque_2026-07-29/sweep_090deg_v15__real__ff_fb",
+   "trajectory": "sweep_090deg_v15",
+   "session": "one_dof_limits_full_torque_2026-07-29",
+   "started_at": "2026-07-29T16:56:19",
+   "settings": {
+    "control_mode": "ff_fb",
+    "pid": {
+     "kd": 10.83131487411392,
+     "ki": 0.0,
+     "kp": 43.32525949645568
+    },
+    "can_id": 12,
+    "plant": {
+     "coulomb_friction_nm": 0.65,
+     "inertia_kg_m2": 0.10774108140000002,
+     "source": "measured CAN-12 rig; gravity on with q=0 hanging down; 0.65 Nm output Coulomb friction from guarded 2026-07-29 slow-step pilot",
+     "viscous_damping_nm_per_rad_s": 0.0
+    }
+   },
+   "twin_versions": [],
+   "twin_runs": {},
+   "twin_vs_real_rms_rad": {},
+   "samples": 202,
+   "duration_s": 2.0100000000000002,
+   "video_path": null,
+   "angle_frame": {
+    "rest_position_rad": -6.47129,
+    "source": "deployment record can12-pendulum-10to1, component j1, rest_position_rad",
+    "position_rad": "rest_position_rad + q (q = raw reading - the run's meta.start_position_rad)"
+   },
+   "entities": {
+    "target": "/kinematic/j1",
+    "real": "/real/j1"
+   },
+   "file": "one_dof_limits_full_torque_2026-07-29__sweep_090deg_v15__real__ff_fb.rrd",
+   "size_bytes": 419608
+  },
+  {
+   "run_id": "one_dof_limits_full_torque_2026-07-29/sweep_090deg_v16__real__ff_fb",
+   "trajectory": "sweep_090deg_v16",
+   "session": "one_dof_limits_full_torque_2026-07-29",
+   "started_at": "2026-07-29T16:56:21",
+   "settings": {
+    "control_mode": "ff_fb",
+    "pid": {
+     "kd": 10.83131487411392,
+     "ki": 0.0,
+     "kp": 43.32525949645568
+    },
+    "can_id": 12,
+    "plant": {
+     "coulomb_friction_nm": 0.65,
+     "inertia_kg_m2": 0.10774108140000002,
+     "source": "measured CAN-12 rig; gravity on with q=0 hanging down; 0.65 Nm output Coulomb friction from guarded 2026-07-29 slow-step pilot",
+     "viscous_damping_nm_per_rad_s": 0.0
+    }
+   },
+   "twin_versions": [],
+   "twin_runs": {},
+   "twin_vs_real_rms_rad": {},
+   "samples": 197,
+   "duration_s": 1.96,
+   "video_path": null,
+   "angle_frame": {
+    "rest_position_rad": -6.47129,
+    "source": "deployment record can12-pendulum-10to1, component j1, rest_position_rad",
+    "position_rad": "rest_position_rad + q (q = raw reading - the run's meta.start_position_rad)"
+   },
+   "entities": {
+    "target": "/kinematic/j1",
+    "real": "/real/j1"
+   },
+   "file": "one_dof_limits_full_torque_2026-07-29__sweep_090deg_v16__real__ff_fb.rrd",
+   "size_bytes": 416413
+  },
+  {
+   "run_id": "one_dof_limits_full_torque_2026-07-29/sweep_090deg_v18__real__ff_fb",
+   "trajectory": "sweep_090deg_v18",
+   "session": "one_dof_limits_full_torque_2026-07-29",
+   "started_at": "2026-07-29T16:56:24",
+   "settings": {
+    "control_mode": "ff_fb",
+    "pid": {
+     "kd": 10.83131487411392,
+     "ki": 0.0,
+     "kp": 43.32525949645568
+    },
+    "can_id": 12,
+    "plant": {
+     "coulomb_friction_nm": 0.65,
+     "inertia_kg_m2": 0.10774108140000002,
+     "source": "measured CAN-12 rig; gravity on with q=0 hanging down; 0.65 Nm output Coulomb friction from guarded 2026-07-29 slow-step pilot",
+     "viscous_damping_nm_per_rad_s": 0.0
+    }
+   },
+   "twin_versions": [],
+   "twin_runs": {},
+   "twin_vs_real_rms_rad": {},
+   "samples": 189,
+   "duration_s": 1.8800000000000001,
+   "video_path": null,
+   "angle_frame": {
+    "rest_position_rad": -6.47129,
+    "source": "deployment record can12-pendulum-10to1, component j1, rest_position_rad",
+    "position_rad": "rest_position_rad + q (q = raw reading - the run's meta.start_position_rad)"
+   },
+   "entities": {
+    "target": "/kinematic/j1",
+    "real": "/real/j1"
+   },
+   "file": "one_dof_limits_full_torque_2026-07-29__sweep_090deg_v18__real__ff_fb.rrd",
+   "size_bytes": 412679
+  },
+  {
+   "run_id": "one_dof_limits_hw_2026-07-29/sweep_090deg_v1__real__ff_fb",
+   "trajectory": "sweep_090deg_v1",
+   "session": "one_dof_limits_hw_2026-07-29",
+   "started_at": "2026-07-29T16:17:38",
+   "settings": {
+    "control_mode": "ff_fb",
+    "pid": {
+     "kd": 10.83131487411392,
+     "ki": 0.0,
+     "kp": 43.32525949645568
+    },
+    "can_id": 12,
+    "plant": {
+     "coulomb_friction_nm": 0.65,
+     "inertia_kg_m2": 0.10774108140000002,
+     "source": "measured CAN-12 rig; gravity on with q=0 hanging down; 0.65 Nm output Coulomb friction from guarded 2026-07-29 slow-step pilot",
+     "viscous_damping_nm_per_rad_s": 0.0
+    }
+   },
+   "twin_versions": [],
+   "twin_runs": {},
+   "twin_vs_real_rms_rad": {},
+   "samples": 1137,
+   "duration_s": 11.36,
+   "video_path": "/home/bam/bam_ws/src/core/mdp/agent/actor/trajectory_generation/traj_integration_tests/out/one_dof_limits_hw_2026-07-29/media/sweep_090deg_v1__real__ff_fb.mp4",
+   "angle_frame": {
+    "rest_position_rad": -6.47129,
+    "source": "deployment record can12-pendulum-10to1, component j1, rest_position_rad",
+    "position_rad": "rest_position_rad + q (q = raw reading - the run's meta.start_position_rad)"
+   },
+   "entities": {
+    "target": "/kinematic/j1",
+    "real": "/real/j1"
+   },
+   "file": "one_dof_limits_hw_2026-07-29__sweep_090deg_v1__real__ff_fb.rrd",
+   "size_bytes": 917602
+  },
+  {
+   "run_id": "one_dof_limits_hw_2026-07-29/sweep_090deg_v1p5__real__ff_fb",
+   "trajectory": "sweep_090deg_v1p5",
+   "session": "one_dof_limits_hw_2026-07-29",
+   "started_at": "2026-07-29T16:17:52",
+   "settings": {
+    "control_mode": "ff_fb",
+    "pid": {
+     "kd": 10.83131487411392,
+     "ki": 0.0,
+     "kp": 43.32525949645568
+    },
+    "can_id": 12,
+    "plant": {
+     "coulomb_friction_nm": 0.65,
+     "inertia_kg_m2": 0.10774108140000002,
+     "source": "measured CAN-12 rig; gravity on with q=0 hanging down; 0.65 Nm output Coulomb friction from guarded 2026-07-29 slow-step pilot",
+     "viscous_damping_nm_per_rad_s": 0.0
+    }
+   },
+   "twin_versions": [],
+   "twin_runs": {},
+   "twin_vs_real_rms_rad": {},
+   "samples": 802,
+   "duration_s": 8.01,
+   "video_path": "/home/bam/bam_ws/src/core/mdp/agent/actor/trajectory_generation/traj_integration_tests/out/one_dof_limits_hw_2026-07-29/media/sweep_090deg_v1p5__real__ff_fb.mp4",
+   "angle_frame": {
+    "rest_position_rad": -6.47129,
+    "source": "deployment record can12-pendulum-10to1, component j1, rest_position_rad",
+    "position_rad": "rest_position_rad + q (q = raw reading - the run's meta.start_position_rad)"
+   },
+   "entities": {
+    "target": "/kinematic/j1",
+    "real": "/real/j1"
+   },
+   "file": "one_dof_limits_hw_2026-07-29__sweep_090deg_v1p5__real__ff_fb.rrd",
+   "size_bytes": 737842
+  },
+  {
+   "run_id": "one_dof_limits_hw_2026-07-29/sweep_090deg_v2__real__ff_fb",
+   "trajectory": "sweep_090deg_v2",
+   "session": "one_dof_limits_hw_2026-07-29",
+   "started_at": "2026-07-29T16:18:02",
+   "settings": {
+    "control_mode": "ff_fb",
+    "pid": {
+     "kd": 10.83131487411392,
+     "ki": 0.0,
+     "kp": 43.32525949645568
+    },
+    "can_id": 12,
+    "plant": {
+     "coulomb_friction_nm": 0.65,
+     "inertia_kg_m2": 0.10774108140000002,
+     "source": "measured CAN-12 rig; gravity on with q=0 hanging down; 0.65 Nm output Coulomb friction from guarded 2026-07-29 slow-step pilot",
+     "viscous_damping_nm_per_rad_s": 0.0
+    }
+   },
+   "twin_versions": [],
+   "twin_runs": {},
+   "twin_vs_real_rms_rad": {},
+   "samples": 634,
+   "duration_s": 6.33,
+   "video_path": "/home/bam/bam_ws/src/core/mdp/agent/actor/trajectory_generation/traj_integration_tests/out/one_dof_limits_hw_2026-07-29/media/sweep_090deg_v2__real__ff_fb.mp4",
+   "angle_frame": {
+    "rest_position_rad": -6.47129,
+    "source": "deployment record can12-pendulum-10to1, component j1, rest_position_rad",
+    "position_rad": "rest_position_rad + q (q = raw reading - the run's meta.start_position_rad)"
+   },
+   "entities": {
+    "target": "/kinematic/j1",
+    "real": "/real/j1"
+   },
+   "file": "one_dof_limits_hw_2026-07-29__sweep_090deg_v2__real__ff_fb.rrd",
+   "size_bytes": 645171
+  },
+  {
+   "run_id": "one_dof_limits_hw_2026-07-29/sweep_090deg_v3__real__ff_fb",
+   "trajectory": "sweep_090deg_v3",
+   "session": "one_dof_limits_hw_2026-07-29",
+   "started_at": "2026-07-29T16:18:10",
+   "settings": {
+    "control_mode": "ff_fb",
+    "pid": {
+     "kd": 10.83131487411392,
+     "ki": 0.0,
+     "kp": 43.32525949645568
+    },
+    "can_id": 12,
+    "plant": {
+     "coulomb_friction_nm": 0.65,
+     "inertia_kg_m2": 0.10774108140000002,
+     "source": "measured CAN-12 rig; gravity on with q=0 hanging down; 0.65 Nm output Coulomb friction from guarded 2026-07-29 slow-step pilot",
+     "viscous_damping_nm_per_rad_s": 0.0
+    }
+   },
+   "twin_versions": [],
+   "twin_runs": {},
+   "twin_vs_real_rms_rad": {},
+   "samples": 467,
+   "duration_s": 4.66,
+   "video_path": "/home/bam/bam_ws/src/core/mdp/agent/actor/trajectory_generation/traj_integration_tests/out/one_dof_limits_hw_2026-07-29/media/sweep_090deg_v3__real__ff_fb.mp4",
+   "angle_frame": {
+    "rest_position_rad": -6.47129,
+    "source": "deployment record can12-pendulum-10to1, component j1, rest_position_rad",
+    "position_rad": "rest_position_rad + q (q = raw reading - the run's meta.start_position_rad)"
+   },
+   "entities": {
+    "target": "/kinematic/j1",
+    "real": "/real/j1"
+   },
+   "file": "one_dof_limits_hw_2026-07-29__sweep_090deg_v3__real__ff_fb.rrd",
+   "size_bytes": 557216
+  },
+  {
+   "run_id": "one_dof_limits_hw_2026-07-29/sweep_090deg_v4__real__ff_fb",
+   "trajectory": "sweep_090deg_v4",
+   "session": "one_dof_limits_hw_2026-07-29",
+   "started_at": "2026-07-29T16:18:16",
+   "settings": {
+    "control_mode": "ff_fb",
+    "pid": {
+     "kd": 10.83131487411392,
+     "ki": 0.0,
+     "kp": 43.32525949645568
+    },
+    "can_id": 12,
+    "plant": {
+     "coulomb_friction_nm": 0.65,
+     "inertia_kg_m2": 0.10774108140000002,
+     "source": "measured CAN-12 rig; gravity on with q=0 hanging down; 0.65 Nm output Coulomb friction from guarded 2026-07-29 slow-step pilot",
+     "viscous_damping_nm_per_rad_s": 0.0
+    }
+   },
+   "twin_versions": [],
+   "twin_runs": {},
+   "twin_vs_real_rms_rad": {},
+   "samples": 383,
+   "duration_s": 3.8200000000000003,
+   "video_path": "/home/bam/bam_ws/src/core/mdp/agent/actor/trajectory_generation/traj_integration_tests/out/one_dof_limits_hw_2026-07-29/media/sweep_090deg_v4__real__ff_fb.mp4",
+   "angle_frame": {
+    "rest_position_rad": -6.47129,
+    "source": "deployment record can12-pendulum-10to1, component j1, rest_position_rad",
+    "position_rad": "rest_position_rad + q (q = raw reading - the run's meta.start_position_rad)"
+   },
+   "entities": {
+    "target": "/kinematic/j1",
+    "real": "/real/j1"
+   },
+   "file": "one_dof_limits_hw_2026-07-29__sweep_090deg_v4__real__ff_fb.rrd",
+   "size_bytes": 514049
+  },
+  {
+   "run_id": "one_dof_limits_hw_2026-07-29/sweep_090deg_v5__real__ff_fb",
+   "trajectory": "sweep_090deg_v5",
+   "session": "one_dof_limits_hw_2026-07-29",
+   "started_at": "2026-07-29T16:18:21",
+   "settings": {
+    "control_mode": "ff_fb",
+    "pid": {
+     "kd": 10.83131487411392,
+     "ki": 0.0,
+     "kp": 43.32525949645568
+    },
+    "can_id": 12,
+    "plant": {
+     "coulomb_friction_nm": 0.65,
+     "inertia_kg_m2": 0.10774108140000002,
+     "source": "measured CAN-12 rig; gravity on with q=0 hanging down; 0.65 Nm output Coulomb friction from guarded 2026-07-29 slow-step pilot",
+     "viscous_damping_nm_per_rad_s": 0.0
+    }
+   },
+   "twin_versions": [],
+   "twin_runs": {},
+   "twin_vs_real_rms_rad": {},
+   "samples": 334,
+   "duration_s": 3.33,
+   "video_path": "/home/bam/bam_ws/src/core/mdp/agent/actor/trajectory_generation/traj_integration_tests/out/one_dof_limits_hw_2026-07-29/media/sweep_090deg_v5__real__ff_fb.mp4",
+   "angle_frame": {
+    "rest_position_rad": -6.47129,
+    "source": "deployment record can12-pendulum-10to1, component j1, rest_position_rad",
+    "position_rad": "rest_position_rad + q (q = raw reading - the run's meta.start_position_rad)"
+   },
+   "entities": {
+    "target": "/kinematic/j1",
+    "real": "/real/j1"
+   },
+   "file": "one_dof_limits_hw_2026-07-29__sweep_090deg_v5__real__ff_fb.rrd",
+   "size_bytes": 488462
+  },
+  {
+   "run_id": "one_dof_limits_hw_2026-07-29/sweep_090deg_v6__real__ff_fb",
+   "trajectory": "sweep_090deg_v6",
+   "session": "one_dof_limits_hw_2026-07-29",
+   "started_at": "2026-07-29T16:18:26",
+   "settings": {
+    "control_mode": "ff_fb",
+    "pid": {
+     "kd": 10.83131487411392,
+     "ki": 0.0,
+     "kp": 43.32525949645568
+    },
+    "can_id": 12,
+    "plant": {
+     "coulomb_friction_nm": 0.65,
+     "inertia_kg_m2": 0.10774108140000002,
+     "source": "measured CAN-12 rig; gravity on with q=0 hanging down; 0.65 Nm output Coulomb friction from guarded 2026-07-29 slow-step pilot",
+     "viscous_damping_nm_per_rad_s": 0.0
+    }
+   },
+   "twin_versions": [],
+   "twin_runs": {},
+   "twin_vs_real_rms_rad": {},
+   "samples": 301,
+   "duration_s": 3.0,
+   "video_path": "/home/bam/bam_ws/src/core/mdp/agent/actor/trajectory_generation/traj_integration_tests/out/one_dof_limits_hw_2026-07-29/media/sweep_090deg_v6__real__ff_fb.mp4",
+   "angle_frame": {
+    "rest_position_rad": -6.47129,
+    "source": "deployment record can12-pendulum-10to1, component j1, rest_position_rad",
+    "position_rad": "rest_position_rad + q (q = raw reading - the run's meta.start_position_rad)"
+   },
+   "entities": {
+    "target": "/kinematic/j1",
+    "real": "/real/j1"
+   },
+   "file": "one_dof_limits_hw_2026-07-29__sweep_090deg_v6__real__ff_fb.rrd",
+   "size_bytes": 470841
+  },
+  {
+   "run_id": "one_dof_limits_hw_2026-07-29/sweep_090deg_v7__real__ff_fb",
+   "trajectory": "sweep_090deg_v7",
+   "session": "one_dof_limits_hw_2026-07-29",
+   "started_at": "2026-07-29T16:18:30",
+   "settings": {
+    "control_mode": "ff_fb",
+    "pid": {
+     "kd": 10.83131487411392,
+     "ki": 0.0,
+     "kp": 43.32525949645568
+    },
+    "can_id": 12,
+    "plant": {
+     "coulomb_friction_nm": 0.65,
+     "inertia_kg_m2": 0.10774108140000002,
+     "source": "measured CAN-12 rig; gravity on with q=0 hanging down; 0.65 Nm output Coulomb friction from guarded 2026-07-29 slow-step pilot",
+     "viscous_damping_nm_per_rad_s": 0.0
+    }
+   },
+   "twin_versions": [],
+   "twin_runs": {},
+   "twin_vs_real_rms_rad": {},
+   "samples": 277,
+   "duration_s": 2.7600000000000002,
+   "video_path": "/home/bam/bam_ws/src/core/mdp/agent/actor/trajectory_generation/traj_integration_tests/out/one_dof_limits_hw_2026-07-29/media/sweep_090deg_v7__real__ff_fb.mp4",
+   "angle_frame": {
+    "rest_position_rad": -6.47129,
+    "source": "deployment record can12-pendulum-10to1, component j1, rest_position_rad",
+    "position_rad": "rest_position_rad + q (q = raw reading - the run's meta.start_position_rad)"
+   },
+   "entities": {
+    "target": "/kinematic/j1",
+    "real": "/real/j1"
+   },
+   "file": "one_dof_limits_hw_2026-07-29__sweep_090deg_v7__real__ff_fb.rrd",
+   "size_bytes": 458542
+  },
+  {
+   "run_id": "one_dof_limits_hw_2026-07-29/sweep_090deg_v8__real__ff_fb",
+   "trajectory": "sweep_090deg_v8",
+   "session": "one_dof_limits_hw_2026-07-29",
+   "started_at": "2026-07-29T16:18:34",
+   "settings": {
+    "control_mode": "ff_fb",
+    "pid": {
+     "kd": 10.83131487411392,
+     "ki": 0.0,
+     "kp": 43.32525949645568
+    },
+    "can_id": 12,
+    "plant": {
+     "coulomb_friction_nm": 0.65,
+     "inertia_kg_m2": 0.10774108140000002,
+     "source": "measured CAN-12 rig; gravity on with q=0 hanging down; 0.65 Nm output Coulomb friction from guarded 2026-07-29 slow-step pilot",
+     "viscous_damping_nm_per_rad_s": 0.0
+    }
+   },
+   "twin_versions": [],
+   "twin_runs": {},
+   "twin_vs_real_rms_rad": {},
+   "samples": 260,
+   "duration_s": 2.59,
+   "video_path": "/home/bam/bam_ws/src/core/mdp/agent/actor/trajectory_generation/traj_integration_tests/out/one_dof_limits_hw_2026-07-29/media/sweep_090deg_v8__real__ff_fb.mp4",
+   "angle_frame": {
+    "rest_position_rad": -6.47129,
+    "source": "deployment record can12-pendulum-10to1, component j1, rest_position_rad",
+    "position_rad": "rest_position_rad + q (q = raw reading - the run's meta.start_position_rad)"
+   },
+   "entities": {
+    "target": "/kinematic/j1",
+    "real": "/real/j1"
+   },
+   "file": "one_dof_limits_hw_2026-07-29__sweep_090deg_v8__real__ff_fb.rrd",
+   "size_bytes": 450202
+  },
+  {
+   "run_id": "one_dof_limits_push_2026-07-29/sweep_090deg_v10__real__ff_fb",
+   "trajectory": "sweep_090deg_v10",
+   "session": "one_dof_limits_push_2026-07-29",
+   "started_at": "2026-07-29T16:19:35",
+   "settings": {
+    "control_mode": "ff_fb",
+    "pid": {
+     "kd": 10.83131487411392,
+     "ki": 0.0,
+     "kp": 43.32525949645568
+    },
+    "can_id": 12,
+    "plant": {
+     "coulomb_friction_nm": 0.65,
+     "inertia_kg_m2": 0.10774108140000002,
+     "source": "measured CAN-12 rig; gravity on with q=0 hanging down; 0.65 Nm output Coulomb friction from guarded 2026-07-29 slow-step pilot",
+     "viscous_damping_nm_per_rad_s": 0.0
+    }
+   },
+   "twin_versions": [],
+   "twin_runs": {},
+   "twin_vs_real_rms_rad": {},
+   "samples": 235,
+   "duration_s": 2.34,
+   "video_path": null,
+   "angle_frame": {
+    "rest_position_rad": -6.47129,
+    "source": "deployment record can12-pendulum-10to1, component j1, rest_position_rad",
+    "position_rad": "rest_position_rad + q (q = raw reading - the run's meta.start_position_rad)"
+   },
+   "entities": {
+    "target": "/kinematic/j1",
+    "real": "/real/j1"
+   },
+   "file": "one_dof_limits_push_2026-07-29__sweep_090deg_v10__real__ff_fb.rrd",
+   "size_bytes": 436531
+  },
+  {
+   "run_id": "one_dof_limits_push_2026-07-29/sweep_090deg_v11__real__ff_fb",
+   "trajectory": "sweep_090deg_v11",
+   "session": "one_dof_limits_push_2026-07-29",
+   "started_at": "2026-07-29T16:19:37",
+   "settings": {
+    "control_mode": "ff_fb",
+    "pid": {
+     "kd": 10.83131487411392,
+     "ki": 0.0,
+     "kp": 43.32525949645568
+    },
+    "can_id": 12,
+    "plant": {
+     "coulomb_friction_nm": 0.65,
+     "inertia_kg_m2": 0.10774108140000002,
+     "source": "measured CAN-12 rig; gravity on with q=0 hanging down; 0.65 Nm output Coulomb friction from guarded 2026-07-29 slow-step pilot",
+     "viscous_damping_nm_per_rad_s": 0.0
+    }
+   },
+   "twin_versions": [],
+   "twin_runs": {},
+   "twin_vs_real_rms_rad": {},
+   "samples": 226,
+   "duration_s": 2.25,
+   "video_path": null,
+   "angle_frame": {
+    "rest_position_rad": -6.47129,
+    "source": "deployment record can12-pendulum-10to1, component j1, rest_position_rad",
+    "position_rad": "rest_position_rad + q (q = raw reading - the run's meta.start_position_rad)"
+   },
+   "entities": {
+    "target": "/kinematic/j1",
+    "real": "/real/j1"
+   },
+   "file": "one_dof_limits_push_2026-07-29__sweep_090deg_v11__real__ff_fb.rrd",
+   "size_bytes": 431719
+  },
+  {
+   "run_id": "one_dof_limits_push_2026-07-29/sweep_090deg_v12__real__ff_fb",
+   "trajectory": "sweep_090deg_v12",
+   "session": "one_dof_limits_push_2026-07-29",
+   "started_at": "2026-07-29T16:19:40",
+   "settings": {
+    "control_mode": "ff_fb",
+    "pid": {
+     "kd": 10.83131487411392,
+     "ki": 0.0,
+     "kp": 43.32525949645568
+    },
+    "can_id": 12,
+    "plant": {
+     "coulomb_friction_nm": 0.65,
+     "inertia_kg_m2": 0.10774108140000002,
+     "source": "measured CAN-12 rig; gravity on with q=0 hanging down; 0.65 Nm output Coulomb friction from guarded 2026-07-29 slow-step pilot",
+     "viscous_damping_nm_per_rad_s": 0.0
+    }
+   },
+   "twin_versions": [],
+   "twin_runs": {},
+   "twin_vs_real_rms_rad": {},
+   "samples": 219,
+   "duration_s": 2.18,
+   "video_path": null,
+   "angle_frame": {
+    "rest_position_rad": -6.47129,
+    "source": "deployment record can12-pendulum-10to1, component j1, rest_position_rad",
+    "position_rad": "rest_position_rad + q (q = raw reading - the run's meta.start_position_rad)"
+   },
+   "entities": {
+    "target": "/kinematic/j1",
+    "real": "/real/j1"
+   },
+   "file": "one_dof_limits_push_2026-07-29__sweep_090deg_v12__real__ff_fb.rrd",
+   "size_bytes": 427980
+  },
+  {
+   "run_id": "one_dof_limits_push_2026-07-29/sweep_090deg_v13__real__ff_fb",
+   "trajectory": "sweep_090deg_v13",
+   "session": "one_dof_limits_push_2026-07-29",
+   "started_at": "2026-07-29T16:19:43",
+   "settings": {
+    "control_mode": "ff_fb",
+    "pid": {
+     "kd": 10.83131487411392,
+     "ki": 0.0,
+     "kp": 43.32525949645568
+    },
+    "can_id": 12,
+    "plant": {
+     "coulomb_friction_nm": 0.65,
+     "inertia_kg_m2": 0.10774108140000002,
+     "source": "measured CAN-12 rig; gravity on with q=0 hanging down; 0.65 Nm output Coulomb friction from guarded 2026-07-29 slow-step pilot",
+     "viscous_damping_nm_per_rad_s": 0.0
+    }
+   },
+   "twin_versions": [],
+   "twin_runs": {},
+   "twin_vs_real_rms_rad": {},
+   "samples": 212,
+   "duration_s": 2.11,
+   "video_path": null,
+   "angle_frame": {
+    "rest_position_rad": -6.47129,
+    "source": "deployment record can12-pendulum-10to1, component j1, rest_position_rad",
+    "position_rad": "rest_position_rad + q (q = raw reading - the run's meta.start_position_rad)"
+   },
+   "entities": {
+    "target": "/kinematic/j1",
+    "real": "/real/j1"
+   },
+   "file": "one_dof_limits_push_2026-07-29__sweep_090deg_v13__real__ff_fb.rrd",
+   "size_bytes": 424321
+  },
+  {
+   "run_id": "one_dof_limits_push_2026-07-29/sweep_090deg_v9__real__ff_fb",
+   "trajectory": "sweep_090deg_v9",
+   "session": "one_dof_limits_push_2026-07-29",
+   "started_at": "2026-07-29T16:19:32",
+   "settings": {
+    "control_mode": "ff_fb",
+    "pid": {
+     "kd": 10.83131487411392,
+     "ki": 0.0,
+     "kp": 43.32525949645568
+    },
+    "can_id": 12,
+    "plant": {
+     "coulomb_friction_nm": 0.65,
+     "inertia_kg_m2": 0.10774108140000002,
+     "source": "measured CAN-12 rig; gravity on with q=0 hanging down; 0.65 Nm output Coulomb friction from guarded 2026-07-29 slow-step pilot",
+     "viscous_damping_nm_per_rad_s": 0.0
+    }
+   },
+   "twin_versions": [],
+   "twin_runs": {},
+   "twin_vs_real_rms_rad": {},
+   "samples": 246,
+   "duration_s": 2.45,
+   "video_path": null,
+   "angle_frame": {
+    "rest_position_rad": -6.47129,
+    "source": "deployment record can12-pendulum-10to1, component j1, rest_position_rad",
+    "position_rad": "rest_position_rad + q (q = raw reading - the run's meta.start_position_rad)"
+   },
+   "entities": {
+    "target": "/kinematic/j1",
+    "real": "/real/j1"
+   },
+   "file": "one_dof_limits_push_2026-07-29__sweep_090deg_v9__real__ff_fb.rrd",
+   "size_bytes": 442905
+  },
+  {
+   "run_id": "one_dof_speed_regime_grid_2026-07-29/fast_step_045deg_slow__real__ff_fb",
+   "trajectory": "fast_step_045deg_slow",
+   "session": "one_dof_speed_regime_grid_2026-07-29",
+   "started_at": "2026-07-29T15:59:30",
+   "settings": {
+    "control_mode": "ff_fb",
+    "pid": {
+     "kd": 10.83131487411392,
+     "ki": 0.0,
+     "kp": 43.32525949645568
+    },
+    "can_id": 12,
+    "plant": {
+     "coulomb_friction_nm": 0.65,
+     "inertia_kg_m2": 0.10774108140000002,
+     "source": "measured CAN-12 rig; gravity on with q=0 hanging down; 0.65 Nm output Coulomb friction from guarded 2026-07-29 slow-step pilot",
+     "viscous_damping_nm_per_rad_s": 0.0
+    }
+   },
+   "twin_versions": [],
+   "twin_runs": {},
+   "twin_vs_real_rms_rad": {},
+   "samples": 1097,
+   "duration_s": 10.96,
+   "video_path": "/home/bam/bam_ws/src/core/mdp/agent/actor/trajectory_generation/traj_integration_tests/out/one_dof_speed_regime_grid_2026-07-29/media/fast_step_045deg_slow__real__ff_fb.mp4",
+   "angle_frame": {
+    "rest_position_rad": -6.47129,
+    "source": "deployment record can12-pendulum-10to1, component j1, rest_position_rad",
+    "position_rad": "rest_position_rad + q (q = raw reading - the run's meta.start_position_rad)"
+   },
+   "entities": {
+    "target": "/kinematic/j1",
+    "real": "/real/j1"
+   },
+   "file": "one_dof_speed_regime_grid_2026-07-29__fast_step_045deg_slow__real__ff_fb.rrd",
+   "size_bytes": 889981
+  },
+  {
+   "run_id": "one_dof_speed_regime_grid_2026-07-29/slow_step_045deg_slow__real__ff_fb",
+   "trajectory": "slow_step_045deg_slow",
+   "session": "one_dof_speed_regime_grid_2026-07-29",
+   "started_at": "2026-07-29T15:59:16",
+   "settings": {
+    "control_mode": "ff_fb",
+    "pid": {
+     "kd": 10.83131487411392,
+     "ki": 0.0,
+     "kp": 43.32525949645568
+    },
+    "can_id": 12,
+    "plant": {
+     "coulomb_friction_nm": 0.65,
+     "inertia_kg_m2": 0.10774108140000002,
+     "source": "measured CAN-12 rig; gravity on with q=0 hanging down; 0.65 Nm output Coulomb friction from guarded 2026-07-29 slow-step pilot",
+     "viscous_damping_nm_per_rad_s": 0.0
+    }
+   },
+   "twin_versions": [],
+   "twin_runs": {},
+   "twin_vs_real_rms_rad": {},
+   "samples": 1097,
+   "duration_s": 10.96,
+   "video_path": "/home/bam/bam_ws/src/core/mdp/agent/actor/trajectory_generation/traj_integration_tests/out/one_dof_speed_regime_grid_2026-07-29/media/slow_step_045deg_slow__real__ff_fb.mp4",
+   "angle_frame": {
+    "rest_position_rad": -6.47129,
+    "source": "deployment record can12-pendulum-10to1, component j1, rest_position_rad",
+    "position_rad": "rest_position_rad + q (q = raw reading - the run's meta.start_position_rad)"
+   },
+   "entities": {
+    "target": "/kinematic/j1",
+    "real": "/real/j1"
+   },
+   "file": "one_dof_speed_regime_grid_2026-07-29__slow_step_045deg_slow__real__ff_fb.rrd",
+   "size_bytes": 892858
+  },
+  {
+   "run_id": "one_dof_speed_regime_grid_v2_2026-07-29/chirp_045deg_slow__real__ff_fb",
+   "trajectory": "chirp_045deg_slow",
+   "session": "one_dof_speed_regime_grid_v2_2026-07-29",
+   "started_at": "2026-07-29T16:13:27",
+   "settings": {
+    "control_mode": "ff_fb",
+    "pid": {
+     "kd": 10.83131487411392,
+     "ki": 0.0,
+     "kp": 43.32525949645568
+    },
+    "can_id": 12,
+    "plant": {
+     "coulomb_friction_nm": 0.65,
+     "inertia_kg_m2": 0.10774108140000002,
+     "source": "measured CAN-12 rig; gravity on with q=0 hanging down; 0.65 Nm output Coulomb friction from guarded 2026-07-29 slow-step pilot",
+     "viscous_damping_nm_per_rad_s": 0.0
+    }
+   },
+   "twin_versions": [],
+   "twin_runs": {},
+   "twin_vs_real_rms_rad": {},
+   "samples": 2162,
+   "duration_s": 21.61,
+   "video_path": "/home/bam/bam_ws/src/core/mdp/agent/actor/trajectory_generation/traj_integration_tests/out/one_dof_speed_regime_grid_v2_2026-07-29/media/chirp_045deg_slow__real__ff_fb.mp4",
+   "angle_frame": {
+    "rest_position_rad": -6.47129,
+    "source": "deployment record can12-pendulum-10to1, component j1, rest_position_rad",
+    "position_rad": "rest_position_rad + q (q = raw reading - the run's meta.start_position_rad)"
+   },
+   "entities": {
+    "target": "/kinematic/j1",
+    "real": "/real/j1"
+   },
+   "file": "one_dof_speed_regime_grid_v2_2026-07-29__chirp_045deg_slow__real__ff_fb.rrd",
+   "size_bytes": 1426350
+  },
+  {
+   "run_id": "one_dof_speed_regime_grid_v2_2026-07-29/fast_step_045deg_slow__real__ff_fb",
+   "trajectory": "fast_step_045deg_slow",
+   "session": "one_dof_speed_regime_grid_v2_2026-07-29",
+   "started_at": "2026-07-29T16:11:33",
+   "settings": {
+    "control_mode": "ff_fb",
+    "pid": {
+     "kd": 10.83131487411392,
+     "ki": 0.0,
+     "kp": 43.32525949645568
+    },
+    "can_id": 12,
+    "plant": {
+     "coulomb_friction_nm": 0.65,
+     "inertia_kg_m2": 0.10774108140000002,
+     "source": "measured CAN-12 rig; gravity on with q=0 hanging down; 0.65 Nm output Coulomb friction from guarded 2026-07-29 slow-step pilot",
+     "viscous_damping_nm_per_rad_s": 0.0
+    }
+   },
+   "twin_versions": [],
+   "twin_runs": {},
+   "twin_vs_real_rms_rad": {},
+   "samples": 1097,
+   "duration_s": 10.96,
+   "video_path": "/home/bam/bam_ws/src/core/mdp/agent/actor/trajectory_generation/traj_integration_tests/out/one_dof_speed_regime_grid_v2_2026-07-29/media/fast_step_045deg_slow__real__ff_fb.mp4",
+   "angle_frame": {
+    "rest_position_rad": -6.47129,
+    "source": "deployment record can12-pendulum-10to1, component j1, rest_position_rad",
+    "position_rad": "rest_position_rad + q (q = raw reading - the run's meta.start_position_rad)"
+   },
+   "entities": {
+    "target": "/kinematic/j1",
+    "real": "/real/j1"
+   },
+   "file": "one_dof_speed_regime_grid_v2_2026-07-29__fast_step_045deg_slow__real__ff_fb.rrd",
+   "size_bytes": 887984
+  },
+  {
+   "run_id": "one_dof_speed_regime_grid_v2_2026-07-29/sawtooth_045deg_slow__real__ff_fb",
+   "trajectory": "sawtooth_045deg_slow",
+   "session": "one_dof_speed_regime_grid_v2_2026-07-29",
+   "started_at": "2026-07-29T16:12:57",
+   "settings": {
+    "control_mode": "ff_fb",
+    "pid": {
+     "kd": 10.83131487411392,
+     "ki": 0.0,
+     "kp": 43.32525949645568
+    },
+    "can_id": 12,
+    "plant": {
+     "coulomb_friction_nm": 0.65,
+     "inertia_kg_m2": 0.10774108140000002,
+     "source": "measured CAN-12 rig; gravity on with q=0 hanging down; 0.65 Nm output Coulomb friction from guarded 2026-07-29 slow-step pilot",
+     "viscous_damping_nm_per_rad_s": 0.0
+    }
+   },
+   "twin_versions": [],
+   "twin_runs": {},
+   "twin_vs_real_rms_rad": {},
+   "samples": 2504,
+   "duration_s": 25.03,
+   "video_path": "/home/bam/bam_ws/src/core/mdp/agent/actor/trajectory_generation/traj_integration_tests/out/one_dof_speed_regime_grid_v2_2026-07-29/media/sawtooth_045deg_slow__real__ff_fb.mp4",
+   "angle_frame": {
+    "rest_position_rad": -6.47129,
+    "source": "deployment record can12-pendulum-10to1, component j1, rest_position_rad",
+    "position_rad": "rest_position_rad + q (q = raw reading - the run's meta.start_position_rad)"
+   },
+   "entities": {
+    "target": "/kinematic/j1",
+    "real": "/real/j1"
+   },
+   "file": "one_dof_speed_regime_grid_v2_2026-07-29__sawtooth_045deg_slow__real__ff_fb.rrd",
+   "size_bytes": 1648476
+  },
+  {
+   "run_id": "one_dof_speed_regime_grid_v2_2026-07-29/sinusoid_045deg_slow__real__ff_fb",
+   "trajectory": "sinusoid_045deg_slow",
+   "session": "one_dof_speed_regime_grid_v2_2026-07-29",
+   "started_at": "2026-07-29T16:11:47",
+   "settings": {
+    "control_mode": "ff_fb",
+    "pid": {
+     "kd": 10.83131487411392,
+     "ki": 0.0,
+     "kp": 43.32525949645568
+    },
+    "can_id": 12,
+    "plant": {
+     "coulomb_friction_nm": 0.65,
+     "inertia_kg_m2": 0.10774108140000002,
+     "source": "measured CAN-12 rig; gravity on with q=0 hanging down; 0.65 Nm output Coulomb friction from guarded 2026-07-29 slow-step pilot",
+     "viscous_damping_nm_per_rad_s": 0.0
+    }
+   },
+   "twin_versions": [],
+   "twin_runs": {},
+   "twin_vs_real_rms_rad": {},
+   "samples": 6020,
+   "duration_s": 60.19,
+   "video_path": "/home/bam/bam_ws/src/core/mdp/agent/actor/trajectory_generation/traj_integration_tests/out/one_dof_speed_regime_grid_v2_2026-07-29/media/sinusoid_045deg_slow__real__ff_fb.mp4",
+   "angle_frame": {
+    "rest_position_rad": -6.47129,
+    "source": "deployment record can12-pendulum-10to1, component j1, rest_position_rad",
+    "position_rad": "rest_position_rad + q (q = raw reading - the run's meta.start_position_rad)"
+   },
+   "entities": {
+    "target": "/kinematic/j1",
+    "real": "/real/j1"
+   },
+   "file": "one_dof_speed_regime_grid_v2_2026-07-29__sinusoid_045deg_slow__real__ff_fb.rrd",
+   "size_bytes": 3625852
+  },
+  {
+   "run_id": "one_dof_speed_regime_grid_v2_2026-07-29/slow_step_045deg_slow__real__ff_fb",
+   "trajectory": "slow_step_045deg_slow",
+   "session": "one_dof_speed_regime_grid_v2_2026-07-29",
+   "started_at": "2026-07-29T16:11:20",
+   "settings": {
+    "control_mode": "ff_fb",
+    "pid": {
+     "kd": 10.83131487411392,
+     "ki": 0.0,
+     "kp": 43.32525949645568
+    },
+    "can_id": 12,
+    "plant": {
+     "coulomb_friction_nm": 0.65,
+     "inertia_kg_m2": 0.10774108140000002,
+     "source": "measured CAN-12 rig; gravity on with q=0 hanging down; 0.65 Nm output Coulomb friction from guarded 2026-07-29 slow-step pilot",
+     "viscous_damping_nm_per_rad_s": 0.0
+    }
+   },
+   "twin_versions": [],
+   "twin_runs": {},
+   "twin_vs_real_rms_rad": {},
+   "samples": 1097,
+   "duration_s": 10.96,
+   "video_path": "/home/bam/bam_ws/src/core/mdp/agent/actor/trajectory_generation/traj_integration_tests/out/one_dof_speed_regime_grid_v2_2026-07-29/media/slow_step_045deg_slow__real__ff_fb.mp4",
+   "angle_frame": {
+    "rest_position_rad": -6.47129,
+    "source": "deployment record can12-pendulum-10to1, component j1, rest_position_rad",
+    "position_rad": "rest_position_rad + q (q = raw reading - the run's meta.start_position_rad)"
+   },
+   "entities": {
+    "target": "/kinematic/j1",
+    "real": "/real/j1"
+   },
+   "file": "one_dof_speed_regime_grid_v2_2026-07-29__slow_step_045deg_slow__real__ff_fb.rrd",
+   "size_bytes": 891137
+  },
+  {
+   "run_id": "one_dof_speed_regime_grid_v2_2026-07-29/slow_step_090deg_slow__real__ff_fb",
+   "trajectory": "slow_step_090deg_slow",
+   "session": "one_dof_speed_regime_grid_v2_2026-07-29",
+   "started_at": "2026-07-29T16:13:53",
+   "settings": {
+    "control_mode": "ff_fb",
+    "pid": {
+     "kd": 10.83131487411392,
+     "ki": 0.0,
+     "kp": 43.32525949645568
+    },
+    "can_id": 12,
+    "plant": {
+     "coulomb_friction_nm": 0.65,
+     "inertia_kg_m2": 0.10774108140000002,
+     "source": "measured CAN-12 rig; gravity on with q=0 hanging down; 0.65 Nm output Coulomb friction from guarded 2026-07-29 slow-step pilot",
+     "viscous_damping_nm_per_rad_s": 0.0
+    }
+   },
+   "twin_versions": [],
+   "twin_runs": {},
+   "twin_vs_real_rms_rad": {},
+   "samples": 1882,
+   "duration_s": 18.81,
+   "video_path": "/home/bam/bam_ws/src/core/mdp/agent/actor/trajectory_generation/traj_integration_tests/out/one_dof_speed_regime_grid_v2_2026-07-29/media/slow_step_090deg_slow__real__ff_fb.mp4",
+   "angle_frame": {
+    "rest_position_rad": -6.47129,
+    "source": "deployment record can12-pendulum-10to1, component j1, rest_position_rad",
+    "position_rad": "rest_position_rad + q (q = raw reading - the run's meta.start_position_rad)"
+   },
+   "entities": {
+    "target": "/kinematic/j1",
+    "real": "/real/j1"
+   },
+   "file": "one_dof_speed_regime_grid_v2_2026-07-29__slow_step_090deg_slow__real__ff_fb.rrd",
+   "size_bytes": 1307154
+  }
+ ]
+}

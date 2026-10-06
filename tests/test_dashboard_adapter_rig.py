@@ -163,7 +163,12 @@ class RigAdapterTest(unittest.TestCase):
         self.sources = {"rig_loop_status": str(self.loop / "loop-status.json"), "rig_events": str(self.loop / "loop_events.jsonl"),
                         "rig_ladder": str(self.loop / "ladder.json"), "deployments_fixtures_dir": str(self.fixtures),
                         rig.CACHE_KEY: str(self.cache), "rig_triage": str(self.loop / "triage.json"),
-                        "rig_roadmap": str(self.loop / "ROADMAP.md"), "rig_audits_dir": str(self.loop / "audits")}
+                        "rig_roadmap": str(self.loop / "ROADMAP.md"), "rig_audits_dir": str(self.loop / "audits"),
+                        # Contract patch 2026-10-06 (rig track page): the robot-KPI inputs, absent here; the KPI table,
+                        # playbacks and links over real fixtures are tests/test_dashboard_adapter_rig_kpis.py.
+                        "rig_kpi_table": str(root / "no-kpi-export"), "rig_playbacks": str(root / "no-playbacks"),
+                        "rig_rerun_viewer": str(root / "no-viewer" / "rerun"), "rig_kpi_docs": str(root / "no-docs" / "KPIS.md"),
+                        "rig_living_report": str(root / "no-report.html")}
         self.assertEqual(sorted(self.sources), sorted(rig.READS))  # the fixture declares exactly what the note does
         self.work_track = WorkTrack(id="rig", title="Sim to Real", status="running", priority=2, owner=None, adapter="rig",
                                     sources=list(self.sources), roadmap=None, children=["can12", "can16"],
@@ -199,8 +204,8 @@ class RigAdapterTest(unittest.TestCase):
         track = self.track()
         self.assertEqual(base.problems(track), [])
         self.assertEqual([it["id"] for it in track["iterations"]], ["T0", "T1", "T2"])
-        self.assertTrue(4 <= len(track["kpis"]) <= 10)
-        self.assertEqual(track["north_star"], "rungs_green")
+        self.assertEqual(len(track["kpis"]), 12)  # contract patch 2026-10-06: 6 robot KPIs + 6 loop-health KPIs
+        self.assertEqual(track["north_star"], "real_tracking_rms")  # contract patch 2026-10-06: Zach's robot KPI leads
         self.assertEqual(track["state"]["word"], "Running")
         self.assertEqual(track["state"]["tone"], "warn")  # a blocker is recorded
         self.assertIn("blocker: No rig attached", track["state"]["detail"])
@@ -217,14 +222,15 @@ class RigAdapterTest(unittest.TestCase):
 
     def test_missing_is_null_never_zero(self) -> None:
         track = self.track()
-        for kpi_id in ("packages_landed", "audits", "elapsed_h", "days_since_real", "disk_pct", "twin_gap"):
+        # contract patch 2026-10-06: days_since_real and twin_gap moved to the robot KPIs (read from the KPI table;
+        # tests/test_dashboard_adapter_rig_kpis.py), so only the loop's own KPIs are checked here.
+        for kpi_id in ("packages_landed", "audits", "elapsed_h", "disk_pct"):
             value = self.kpi(track, kpi_id)["values"][1]  # T1 recorded no event
             self.assertIsNone(value["value"], kpi_id)
             self.assertFalse(value["measured"], kpi_id)
             self.assertTrue(value["note"], kpi_id)
         self.assertEqual(self.series(self.kpi(track, "packages_landed")), [0, None, 2])
         self.assertEqual(self.series(self.kpi(track, "audits")), [0, None, 1])
-        self.assertEqual(self.series(self.kpi(track, "days_since_real")), [9, None, 10])
 
     def test_no_ladder_and_no_events_is_an_unmeasured_north_star(self) -> None:
         # WHY (audit 2026-10-04, finding 4): this used to be value 0, measured, "0 of None", with a note citing
@@ -262,12 +268,9 @@ class RigAdapterTest(unittest.TestCase):
         self.assertEqual(self.series(kpi), [1.0, None, 30.0])
         self.assertIn("never agent-hours", kpi["note"])
 
-    def test_twin_gap_placed_by_time_with_gate(self) -> None:
-        kpi = self.kpi(self.track(), "twin_gap")
-        self.assertEqual(self.series(kpi), [3.438, None, 0.636])
-        self.assertEqual(kpi["target"]["value"], 0.8)
-        self.assertEqual(kpi["status"]["word"], "under gate")
-        self.assertIn("(cache)", kpi["values"][2]["note"])
+    # contract patch 2026-10-06: test_twin_gap_placed_by_time_with_gate is superseded by
+    # tests/test_dashboard_adapter_rig_kpis.py::RigKpisTest::test_twin_gap_carries_its_gate_and_its_v0_baseline (the twin
+    # gap is now the KPI table export's newest twin row, with the TW2 gate and the V0 baseline).
 
     def test_disk_parsed_from_prose_against_the_roadmap_line(self) -> None:
         kpi = self.kpi(self.track(), "disk_pct")

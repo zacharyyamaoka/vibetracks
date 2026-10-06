@@ -168,8 +168,12 @@ class LiveAdaptersTest(unittest.TestCase):
     def test_human_times_say_their_zone(self) -> None:
         # Every clock time a person reads carries a zone ("10-04 17:55 PDT"). Machine fields (ISO stamps, paths,
         # provenance) and evidence notes, which quote the loops' own words verbatim, are not checked.
+        # Contract patch 2026-10-06 (rig track page): "start", "end", "started_at" and "scanned_at" are machine ISO fields
+        # copied verbatim from the bam_deployments KPI-table export and the playback index.json (the rig's kpi_table
+        # and playbacks blocks); the page formats them through formatLocal, with a zone.
         skip = frozenset({"when", "since", "date", "ts", "generated_at", "modified", "newest", "computed_at", "path",
-                          "value", "provenance", "evidence", "source", "media", "links", "registry", "freshness"})
+                          "value", "provenance", "evidence", "source", "media", "links", "registry", "freshness",
+                          "start", "end", "started_at", "scanned_at"})
         bare = re.compile(r"(?<![\d:])\d{1,2}:\d{2}(?::\d{2})?(?![\d:])(?!\s?(?:[A-Z]{2,5}\b|UTC[+-]))")
         # and the zone is this machine's: "17:55 PDT" beside "00:55 UTC" is the mix this rule exists to end
         foreign = None if "UTC" in time.tzname else re.compile(r"\d{1,2}:\d{2}(?::\d{2})? UTC\b")
