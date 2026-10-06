@@ -143,12 +143,16 @@ function signature(track) {
 function renderHome() {
   const tracks = state.tracks || [];
   const hosts = state.hosts || [];
-  const online = hosts.filter((h) => h.status === "online").length;
+  // WHY the hub counts: it runs the tracks whose files live on it (here, most of them), so "1 of 2 machines online"
+  // read as if most of the work were down. The hub is online by definition while this page answers.
+  const hubName = (state.hub || {}).host_name;
+  const hubListed = hosts.some((h) => h.host === hubName);
+  const total = hosts.length + (hubName && !hubListed ? 1 : 0);
+  const online = hosts.filter((h) => h.status === "online").length + (hubName && !hubListed ? 1 : 0);
   const needing = tracks.filter((t) => t.needs_you_count && typeof t.needs_you_count.open === "number"
     && t.needs_you_count.open > 0).length;
   const parts = [`${tracks.length} ${tracks.length === 1 ? "track" : "tracks"}`];
-  parts.push(hosts.length ? `${online} of ${hosts.length} ${hosts.length === 1 ? "machine" : "machines"} online`
-    : "no machines syncing yet");
+  parts.push(`${online} of ${total} ${total === 1 ? "machine" : "machines"} online`);
   if (needing) parts.push(`${needing} ${needing === 1 ? "needs" : "need"} you`);
   const out = [el("p", { class: "status", text: parts.join(" · ") })];
   out.push(...hubAlerts());
