@@ -1,0 +1,464 @@
+/* N6 "Lane + context": N1's lane (copied from n1/zen.css, renamed) plus N2's fact rows and the always-open verbatim
+   context. Rooted in .vt-dash .vt-needs-n6, @layer base (clank-workbench CLAUDE.md §1.5). WHY a single centred column of
+   reading width: the question, its facts and the options carry the page; nothing sits beside them to compete. */
+@layer base {
+  .vt-dash .vt-needs-n6 {
+    position: relative;
+    container: vt-n6 / inline-size;
+    outline: none;
+  }
+  .vt-dash .vt-needs-n6.vt-needs-n6:focus-visible {
+    outline: none;
+  }
+  /* WHY one centred column and nothing beside it: the key rail that used to sit left of the card stacked ABOVE the
+     header below 1180 px and pushed the options off the first screen; the keys are now one quiet line under the
+     options. */
+  .vt-dash .vt-needs-n6 .n6-main {
+    max-width: 760px;
+    margin: 0 auto;
+    min-width: 0;
+  }
+  .vt-dash .vt-needs-n6 .n6-stage {
+    padding: 0 32px 120px;
+  }
+  .vt-dash .vt-needs-n6 .n6-quiet {
+    padding-top: 40px;
+  }
+
+  /* ---- progress: one row ("1 of 3 · Blocking now", one tick per card, "0 answered") */
+  .vt-dash .vt-needs-n6 .n6-progress {
+    display: flex;
+    align-items: center;
+    gap: 14px;
+    padding: 6px 32px 0;
+  }
+  .vt-dash .vt-needs-n6 .n6-progress-where {
+    flex: none;
+  }
+  .vt-dash .vt-needs-n6 .n6-progress-meter {
+    margin-left: auto;
+    flex: none;
+  }
+  .vt-dash .vt-needs-n6 .n6-ticks {
+    display: flex;
+    flex: 1;
+    min-width: 0;
+    gap: 4px;
+  }
+  .vt-dash .vt-needs-n6 .n6-tick {
+    flex: 1;
+    max-width: 56px;
+    height: 4px;
+    border-radius: 2px;
+    background: var(--vt-line);
+  }
+  .vt-dash .vt-needs-n6 .n6-tick:hover {
+    background: var(--vt-faint);
+  }
+  .vt-dash .vt-needs-n6 .n6-tick[data-state='answered'] {
+    background: var(--vt-grey);
+  }
+  .vt-dash .vt-needs-n6 .n6-tick[data-state='later'] {
+    background: repeating-linear-gradient(90deg, var(--vt-faint) 0 3px, transparent 3px 6px);
+  }
+  .vt-dash .vt-needs-n6 .n6-tick[aria-current='step'] {
+    box-shadow: 0 0 0 1.5px var(--vt-fg);
+  }
+
+  /* ---- the card */
+  /* WHY 18px and not N1's 36: the update, the why and the fact line sit above the options, so the lane gives back the
+     space that keeps every option on the first screen at 1280x800. */
+  .vt-dash .vt-needs-n6 .n6-card {
+    padding-top: 18px;
+    animation: vt-n6-in 180ms ease-out;
+  }
+  @keyframes vt-n6-in {
+    from {
+      opacity: 0;
+      transform: translateX(14px);
+    }
+    to {
+      opacity: 1;
+      transform: none;
+    }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .vt-dash .vt-needs-n6 .n6-card {
+      animation: none;
+    }
+  }
+  .vt-dash .vt-needs-n6 .n6-question {
+    margin-top: 4px;
+    font-size: 23px;
+    line-height: 1.28;
+    font-weight: 650;
+    letter-spacing: -0.01em;
+  }
+  .vt-dash .vt-needs-n6 code {
+    font-family: var(--vt-mono);
+    font-size: 0.88em;
+    padding: 0 3px;
+    border-radius: 3px;
+    background: var(--vt-band);
+  }
+  /* The newest update and the why lead: the loop's own words, clamped with an explicit "…more". */
+  .vt-dash .vt-needs-n6 .n6-lead {
+    margin-top: 10px;
+  }
+  .vt-dash .vt-needs-n6 .n6-lead .n6-prose {
+    font-size: 14.5px;
+    line-height: 1.55;
+  }
+  .vt-dash .vt-needs-n6 .n6-update-top {
+    padding-left: 10px;
+    border-left: 2px solid var(--vt-line);
+  }
+  .vt-dash .vt-needs-n6 .n6-inline-label {
+    color: var(--vt-faint);
+    font-size: 12.5px;
+  }
+  .vt-dash .vt-needs-n6 .n6-clamp {
+    position: relative;
+  }
+  .vt-dash .vt-needs-n6 .n6-clamp[data-open='false'] .n6-clamp-body {
+    max-height: calc(var(--n6-lines) * 1lh);
+    overflow: hidden;
+  }
+  .vt-dash .vt-needs-n6 .n6-clamp-body {
+    line-height: 1.55;
+    font-size: 14.5px;
+  }
+  /* The "…more" sits over the end of the last visible line, on a fade, so the cut is never silent. */
+  .vt-dash .vt-needs-n6 .n6-clamp-more {
+    position: absolute;
+    right: 0;
+    bottom: 0;
+    padding: 0 2px 0 36px;
+    font-size: 14.5px;
+    line-height: 1.55;
+    color: var(--vt-fg);
+    font-weight: 500;
+    background: linear-gradient(90deg, transparent, var(--vt-bg) 30px);
+  }
+  .vt-dash .vt-needs-n6 .n6-clamp-more:hover,
+  .vt-dash .vt-needs-n6 .n6-clamp-less:hover,
+  .vt-dash .vt-needs-n6 .n6-inline-btn:hover,
+  .vt-dash .vt-needs-n6 .n6-keys-toggle:hover {
+    text-decoration: underline;
+    color: var(--vt-fg);
+  }
+  .vt-dash .vt-needs-n6 .n6-clamp-less {
+    color: var(--vt-grey);
+  }
+  /* ONE compact fact line: "Blocks BT3, BT4 · If silent: option 2 after wave 5 · Opened wave 3 · 10-02". */
+  .vt-dash .vt-needs-n6 .n6-factline {
+    margin-top: 10px;
+    line-height: 1.55;
+    overflow-wrap: anywhere;
+  }
+  .vt-dash .vt-needs-n6 .n6-factline .vt-strong {
+    color: var(--vt-fg);
+    font-weight: 500;
+  }
+  .vt-dash .vt-needs-n6 .n6-sep {
+    color: var(--vt-faint);
+  }
+  .vt-dash .vt-needs-n6 .n6-inline-btn {
+    color: var(--vt-grey);
+    font-weight: 500;
+  }
+
+  /* ---- options: numbered rows, the key on the left, the loop's own words underneath */
+  .vt-dash .vt-needs-n6 .n6-options {
+    margin-top: 12px;
+  }
+  .vt-dash .vt-needs-n6 .n6-option {
+    display: flex;
+    gap: 12px;
+    width: 100%;
+    margin-top: 6px;
+    padding: 8px 12px;
+    border-radius: 6px;
+    box-shadow: 0 0 0 1px var(--vt-line);
+  }
+  .vt-dash .vt-needs-n6 .n6-option:hover {
+    background: var(--vt-hover);
+  }
+  .vt-dash .vt-needs-n6 .n6-option[aria-pressed='true'] {
+    background: var(--vt-press);
+    box-shadow: 0 0 0 1.5px var(--vt-fg);
+  }
+  .vt-dash .vt-needs-n6 .n6-option-text {
+    display: flex;
+    flex-direction: column;
+    min-width: 0;
+    gap: 2px;
+  }
+  .vt-dash .vt-needs-n6 .n6-option-label {
+    font-weight: 600;
+  }
+  .vt-dash .vt-needs-n6 .n6-tag {
+    margin-left: 8px;
+    font-weight: 400;
+    font-size: 12px;
+    color: var(--vt-grey);
+    padding: 0 6px;
+    border-radius: 4px;
+    background: var(--vt-band);
+  }
+  .vt-dash .vt-needs-n6 .n6-option-when {
+    color: var(--vt-grey);
+  }
+  .vt-dash .vt-needs-n6 .n6-option-detail {
+    color: var(--vt-grey);
+    line-height: 1.45;
+  }
+  .vt-dash .vt-needs-n6 .n6-key {
+    display: inline-block;
+    min-width: 20px;
+    height: 20px;
+    padding: 0 5px;
+    border-radius: 4px;
+    box-shadow: inset 0 -1px 0 var(--vt-line), 0 0 0 1px var(--vt-line);
+    font-family: var(--vt-font);
+    font-size: 11.5px;
+    line-height: 20px;
+    text-align: center;
+    color: var(--vt-grey);
+    background: var(--vt-bg);
+    flex: none;
+  }
+  .vt-dash .vt-needs-n6 .n6-note {
+    display: block;
+    width: 100%;
+    margin-top: 8px;
+    padding: 8px 10px;
+    border: 1px solid var(--vt-line);
+    border-radius: 6px;
+    background: transparent;
+    color: var(--vt-fg);
+    font: inherit;
+    font-size: 14px;
+    resize: vertical;
+  }
+  .vt-dash .vt-needs-n6 .n6-note:focus {
+    outline: none;
+    border-color: var(--vt-grey);
+  }
+  .vt-dash .vt-needs-n6 .n6-draft-line {
+    margin-top: 6px;
+    min-height: 20px;
+  }
+  .vt-dash .vt-needs-n6 .n6-clear:hover,
+  .vt-dash .vt-needs-n6 .n6-link:hover {
+    color: var(--vt-fg);
+    text-decoration: underline;
+  }
+
+  /* ---- context: open, verbatim, directly under the options (Zach: "I need enough context") */
+  .vt-dash .vt-needs-n6 .n6-context {
+    margin-top: 24px;
+    padding-top: 14px;
+    border-top: 1px solid var(--vt-line);
+  }
+  .vt-dash .vt-needs-n6 .n6-context > * + * {
+    margin-top: 10px;
+  }
+  .vt-dash .vt-needs-n6 .n6-prose {
+    line-height: 1.6;
+    overflow-wrap: anywhere;
+  }
+  .vt-dash .vt-needs-n6 .n6-update {
+    margin-bottom: 14px;
+    padding-left: 12px;
+    border-left: 2px solid var(--vt-line);
+  }
+  .vt-dash .vt-needs-n6 .n6-original {
+    margin-top: 18px;
+  }
+  .vt-dash .vt-needs-n6 .n6-provenance {
+    margin-bottom: 6px;
+  }
+  /* N2's fact rows, in full, at the end of the context (the line above the options is their short form). */
+  .vt-dash .vt-needs-n6 .n6-facts {
+    display: grid;
+    grid-template-columns: 128px minmax(0, 1fr);
+    gap: 7px 16px;
+    margin: 18px 0 0;
+    padding: 12px 0;
+    border-top: 1px solid var(--vt-line);
+  }
+  .vt-dash .vt-needs-n6 .n6-block-row {
+    display: block;
+  }
+  .vt-dash .vt-needs-n6 .n6-facts dt {
+    color: var(--vt-faint);
+  }
+  .vt-dash .vt-needs-n6 .n6-facts dd {
+    margin: 0;
+    min-width: 0;
+    line-height: 1.55;
+    overflow-wrap: anywhere;
+  }
+  /* N3's inline evidence row, in the eyebrow. */
+  .vt-dash .vt-needs-n6 .n6-evidence {
+    display: inline;
+  }
+  .vt-dash .vt-needs-n6 .n6-evidence .vt-needs-evidence + .vt-needs-evidence {
+    margin-left: 10px;
+  }
+  .vt-dash .vt-needs-n6 .n6-evidence a {
+    color: var(--vt-fg);
+  }
+
+  /* ---- end screen */
+  .vt-dash .vt-needs-n6 .n6-summary {
+    margin-top: 22px;
+    border-top: 1px solid var(--vt-line);
+  }
+  .vt-dash .vt-needs-n6 .n6-summary-row {
+    display: flex;
+    gap: 14px;
+    width: 100%;
+    padding: 9px 4px;
+    border-bottom: 1px solid var(--vt-line);
+  }
+  .vt-dash .vt-needs-n6 .n6-summary-row:hover {
+    background: var(--vt-hover);
+  }
+  /* WHY nowrap and a minimum, not a fixed width: ids run from "T2" to "M5.contact_graspnet", and a 34px column broke
+     "plan-1" across two lines. */
+  .vt-dash .vt-needs-n6 .n6-summary-id {
+    min-width: 34px;
+    flex: none;
+    white-space: nowrap;
+  }
+  .vt-dash .vt-needs-n6 .n6-summary-text {
+    display: flex;
+    flex-direction: column;
+    min-width: 0;
+  }
+  .vt-dash .vt-needs-n6 .n6-summary-title {
+    font-weight: 500;
+  }
+  /* Zach's note as saved: its line breaks stay (never folded to one line, never trimmed). */
+  .vt-dash .vt-needs-n6 .n6-summary-note {
+    white-space: pre-wrap;
+  }
+  .vt-dash .vt-needs-n6 .n6-copy {
+    margin-top: 22px;
+  }
+  .vt-dash .vt-needs-n6 .n6-channel {
+    margin-top: 8px;
+    overflow-wrap: anywhere;
+  }
+  .vt-dash .vt-needs-n6 .n6-more {
+    margin-top: 26px;
+    padding-top: 12px;
+    border-top: 1px solid var(--vt-line);
+  }
+  .vt-dash .vt-needs-n6 .n6-link {
+    color: var(--vt-fg);
+    font-weight: 500;
+  }
+  .vt-dash .vt-needs-n6 .n6-empty-track {
+    margin-top: 18px;
+  }
+  .vt-dash .vt-needs-n6 .n6-empty-track > p + p {
+    margin-top: 6px;
+  }
+
+  /* ---- keys: one quiet line under the options; "? keys" opens the full legend in place */
+  .vt-dash .vt-needs-n6 .n6-keys {
+    margin-top: 8px;
+  }
+  .vt-dash .vt-needs-n6 .n6-keys-toggle {
+    color: var(--vt-grey);
+  }
+  .vt-dash .vt-needs-n6 .n6-legend {
+    display: grid;
+    grid-template-columns: 56px minmax(0, 1fr);
+    gap: 4px 12px;
+    margin-top: 8px;
+    padding: 10px 12px;
+    border-radius: 6px;
+    background: var(--vt-band);
+    color: var(--vt-grey);
+  }
+  .vt-dash .vt-needs-n6 .n6-legend dt {
+    color: var(--vt-fg);
+  }
+  .vt-dash .vt-needs-n6 .n6-legend dd {
+    margin: 0;
+  }
+  .vt-dash .vt-needs-n6 .n6-end .n6-keys {
+    margin-top: 14px;
+  }
+
+  /* ---- N6 additions: header counts, labels, markdown, end-screen lines */
+  /* Title and the home cell's two numbers on one line. */
+  .vt-dash .vt-needs-n6 .n6-head {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: baseline;
+    gap: 0 12px;
+    padding: 8px 32px 0;
+  }
+  .vt-dash .vt-needs-n6 .n6-head-title {
+    font-size: 15px;
+    font-weight: 600;
+  }
+  .vt-dash .vt-needs-n6 .n6-head-counts {
+    color: var(--vt-grey);
+  }
+  .vt-dash .vt-needs-n6 .n6-head-counts .vt-strong {
+    color: var(--vt-fg);
+  }
+  .vt-dash .vt-needs-n6 .n6-label {
+    font-size: 12.5px;
+    font-weight: 500;
+    color: var(--vt-faint);
+  }
+  .vt-dash .vt-needs-n6 .n6-label-inline {
+    color: var(--vt-faint);
+    font-weight: 500;
+  }
+  .vt-dash .vt-needs-n6 .n6-eyebrow {
+    line-height: 1.6;
+    overflow-wrap: anywhere;
+  }
+  .vt-dash .vt-needs-n6 .n6-md p + p,
+  .vt-dash .vt-needs-n6 .n6-md p + ul,
+  .vt-dash .vt-needs-n6 .n6-md ul + p {
+    margin-top: 6px;
+  }
+  .vt-dash .vt-needs-n6 .n6-md ul li {
+    position: relative;
+    padding-left: 14px;
+  }
+  .vt-dash .vt-needs-n6 .n6-md ul li::before {
+    content: '–';
+    position: absolute;
+    left: 0;
+    color: var(--vt-faint);
+  }
+  .vt-dash .vt-needs-n6 .n6-context-body .n6-prose {
+    font-size: 14px;
+  }
+  .vt-dash .vt-needs-n6 .n6-notcopy {
+    margin-top: 14px;
+  }
+  .vt-dash .vt-needs-n6 .n6-notcopy .n6-link {
+    font-weight: 500;
+  }
+  .vt-dash .vt-needs-n6 .n6-unreported {
+    margin-top: 24px;
+  }
+  .vt-dash .vt-needs-n6 .n6-unreported-track + .n6-unreported-track {
+    margin-top: 16px;
+  }
+  .vt-dash .vt-needs-n6 .n6-unreported p + p,
+  .vt-dash .vt-needs-n6 .n6-unreported-track p + p {
+    margin-top: 4px;
+  }
+}

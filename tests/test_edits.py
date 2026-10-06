@@ -17,6 +17,30 @@ from vibetracks.notes import parse_frontmatter
 
 
 class FrontmatterSpliceTests(unittest.TestCase):
+    def test_bom_crlf_and_delimiter_spaces_survive_byte_for_byte(self) -> None:
+        # WHY (audit 2026-10-04, finding 8): the splicer rebuilt "---\\n" + yaml + "\\n---\\n", dropping all three.
+        original = ("\ufeff---\r\ntitle: Keep  me\r\nvibe-status: ready\r\nlist:\r\n  - a\r\n\r\n  - b\r\n"
+                    "---\t \r\n\r\nBody\r\nline two\u2028same line\r\n")
+        updated = replace_frontmatter_entry(original, "vibe-status", "done")
+        self.assertEqual(updated, original.replace("vibe-status: ready\r\n", "vibe-status: done\r\n"))
+        self.assertEqual(replace_frontmatter_entry(updated, "vibe-status", "ready"), original)
+        last = replace_frontmatter_entry(original, "list", ["c"])
+        self.assertEqual(last, original.replace("list:\r\n  - a\r\n\r\n  - b\r\n", "list:\r\n- c\r\n"))
+
+    def test_the_last_key_before_the_closing_delimiter_keeps_the_delimiter_line(self) -> None:
+        original = "---\r\na: 1\r\nvibe-title: Old\r\n--- \r\nBody\r\n"
+        updated = replace_frontmatter_entry(original, "vibe-title", "New")
+        self.assertEqual(updated, "---\r\na: 1\r\nvibe-title: New\r\n--- \r\nBody\r\n")
+
+    def test_a_missing_key_is_appended_with_the_notes_own_line_ending(self) -> None:
+        original = "---\r\na: 1\r\n---\r\nBody\r\n"
+        self.assertEqual(replace_frontmatter_entry(original, "b", "x"), "---\r\na: 1\r\nb: x\r\n---\r\nBody\r\n")
+
+    def test_lf_notes_are_unchanged_outside_the_value(self) -> None:
+        original = "---\ntitle: T\nvibe-status: ready\n---\n\n\n  Body kept with its blank lines.\n"
+        self.assertEqual(replace_frontmatter_entry(original, "vibe-status", "done"),
+                         original.replace("ready", "done"))
+
     def test_scalar_replacement_preserves_other_keys_verbatim(self) -> None:
         original = "---\ntitle: Keep  me\nvibe-status: ready\nweird:   spacing\n---\n\nBody.\n"
         updated = replace_frontmatter_entry(original, "vibe-status", "done")

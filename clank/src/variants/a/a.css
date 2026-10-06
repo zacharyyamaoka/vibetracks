@@ -1,0 +1,876 @@
+/* Variant A · Drill-down pages. Rooted in .vt-dash .vt-a, inside @layer base (clank-workbench CLAUDE.md §1.5).
+   The calm language of "The Table": one sans-serif, near-black and greys, hairlines only, colour only for exceptions
+   (.vt-tone-warn/-risk/-stale from calm.css). Data ink, the latest column's wash and the selected row read in greys
+   (audit 2026-10-04 #13); the accent blue is left for the keyboard focus ring. */
+
+@layer base {
+  .vt-dash .vt-a {
+    --vt-a-wash: rgba(55, 53, 47, 0.035);
+  }
+  .dark .vt-dash .vt-a {
+    --vt-a-wash: rgba(255, 255, 255, 0.04);
+  }
+  /* WHY only 48px of bottom room: the review pills live in the frame's review bar under the scroller
+     (Dashboard.tsx), so nothing floats over the page's end any more; this is breathing room, not clearance. */
+  .vt-dash .vt-a .vt-a-page {
+    max-width: 1240px;
+    padding-bottom: 48px;
+  }
+  .vt-dash .vt-a .vt-a-link {
+    color: var(--vt-grey);
+    text-decoration: underline;
+    text-decoration-color: var(--vt-line);
+    text-underline-offset: 2px;
+    border-radius: 3px;
+  }
+  .vt-dash .vt-a .vt-a-link:hover {
+    color: var(--vt-fg);
+    text-decoration-color: var(--vt-grey);
+  }
+  /* Inline code and paths: the page's own sans, told apart only by a faint background (Zach's one-font rule; audit
+     2026-10-04 #13 caught a second, monospace face here). */
+  .vt-dash .vt-a .vt-a-code {
+    font-family: var(--vt-font);
+    font-size: 12.5px;
+    color: var(--vt-grey);
+    background: var(--vt-hover);
+    border-radius: 3px;
+    padding: 0 4px;
+    /* WHY anywhere and not break-all: break-all split tokens anywhere ("loo|p-status.json" in a purpose line), while
+       `anywhere` still prefers the natural breaks (a space, a hyphen, a slash after the line fills) and breaks inside a
+       token only when it is wider than the line. WHY anywhere and not break-word: break-word does not lower the
+       element's min-content, so a long path in a flex row pushed the page wider than a 390 px phone (kinsim's Links
+       line, scrollWidth 453 > 390). No character is clipped.
+       WHY the default box-decoration-break (slice), not clone: Chrome breaks an `anywhere` line without counting a
+       cloned fragment's end padding, so each wrapped line stuck out 3 px past its box (measured on an item's links). */
+    overflow-wrap: anywhere;
+    word-break: normal;
+  }
+  .vt-dash .vt-a .vt-a-section {
+    margin-top: 36px;
+  }
+  .vt-dash .vt-a .vt-a-section > .vt-h3 {
+    margin-bottom: 10px;
+  }
+  .vt-dash .vt-a .vt-a-h-note {
+    font-size: 12.5px;
+    font-weight: 400;
+    color: var(--vt-faint);
+    margin-left: 6px;
+  }
+  .vt-dash .vt-a .vt-a-two {
+    display: inline-flex;
+    flex-direction: column;
+    line-height: 1.35;
+  }
+  .vt-dash .vt-a .vt-a-two small {
+    font-size: 12.5px;
+    color: var(--vt-faint);
+  }
+  /* One line with Chrome's own "…" (every user carries the whole text in a title). The column flex box is capped at
+     its cell so the ellipsis has a width to cut at. */
+  .vt-dash .vt-a .vt-a-movedcell {
+    display: flex;
+    max-width: 100%;
+    min-width: 0;
+  }
+  .vt-dash .vt-a .vt-a-oneline {
+    display: block;
+    max-width: 100%;
+    overflow: hidden;
+    white-space: nowrap;
+    text-overflow: ellipsis;
+  }
+  /* Left-aligned clamps: Chrome draws the "…" itself (it cannot for right-aligned text; see clamp.tsx). Every user of
+     these classes also carries the whole string in a title or a "more" toggle. */
+  .vt-dash .vt-a .vt-a-clamp-2,
+  .vt-dash .vt-a .vt-a-clamp-3 {
+    display: -webkit-box;
+    -webkit-box-orient: vertical;
+    overflow: hidden;
+    text-align: left;
+    overflow-wrap: anywhere;
+  }
+  .vt-dash .vt-a .vt-a-clamp-2 {
+    -webkit-line-clamp: 2;
+  }
+  .vt-dash .vt-a .vt-a-clamp-3 {
+    -webkit-line-clamp: 3;
+  }
+  .vt-dash .vt-a .vt-a-foot {
+    margin-top: 14px;
+  }
+
+  /* ---- wide tables at phone width
+     WHY a horizontal scroller of its own below 600 px of dashboard width: these fixed-layout tables (Work tracks,
+     KPI changes, Deployments) have 5-7 columns; squeezed into ~360 px their cells printed over each other ("Against
+     target" over "Evidence", the progress glyph over the next column, 2026-10-05 at 390 px). Each keeps a readable
+     minimum and scrolls sideways inside its own box, like the scorecard, so the page itself never scrolls sideways. */
+  .vt-dash .vt-a .vt-a-tablescroll {
+    max-width: 100%;
+    overflow-x: auto;
+  }
+  @container vt-scroll (max-width: 600px) {
+    .vt-dash .vt-a .vt-a-tablescroll > .vt-a-tracks {
+      min-width: 720px;
+    }
+    .vt-dash .vt-a .vt-a-tablescroll > .vt-a-deltas {
+      min-width: 600px;
+    }
+    .vt-dash .vt-a .vt-a-tablescroll > .vt-a-deploys {
+      min-width: 560px;
+    }
+    /* The scorecard's sticky KPI column took 210 of 358 px at a 390 px phone, leaving a sliver for the values that
+       scroll under it; a narrower column wraps the KPI's name instead. (One class deeper than the base rule further
+       down this file, which would otherwise win on order.) */
+    .vt-dash .vt-a .vt-a-score .vt-a-kpicol,
+    .vt-dash .vt-a .vt-a-score .vt-a-kpicell {
+      min-width: 128px;
+      max-width: 150px;
+    }
+  }
+
+  /* ---- L1: the Tracks table */
+  .vt-dash .vt-a .vt-a-tracks {
+    margin-top: 28px;
+    table-layout: fixed;
+  }
+  .vt-dash .vt-a .vt-a-tracks td {
+    padding-top: 13px;
+    padding-bottom: 13px;
+  }
+  .vt-dash .vt-a .vt-a-name {
+    font-weight: 600;
+    font-size: 14.5px;
+  }
+  /* WHY pre-wrap on a track's name: a rename stores the title exactly as typed (audit 2026-10-04 #8), so authored
+     leading, trailing or doubled spaces are part of the value and must not collapse away on screen. */
+  .vt-dash .vt-a .vt-a-name,
+  .vt-dash .vt-a .vt-a-title-text {
+    white-space: pre-wrap;
+    /* break-word, not anywhere: anywhere lowers the cell's min-content and a narrow table then broke "Kinematic" into
+       letters. */
+    overflow-wrap: break-word;
+  }
+  /* WHY max-width + a shrinkable text column: the cell is 19% of the table; a long detail line ("4 proven (not
+     current)") pushed the trend glyph out over the next column. The text wraps at its spaces, the glyph never shrinks. */
+  /* WHY flex-wrap (2026-10-05): when the number and the glyph do not fit side by side (a 522 px dashboard), the glyph
+     drops under the text instead of the text being squeezed until "bootstrap" printed over the glyph (or, with the
+     root wrap rule, broke into letters). */
+  .vt-dash .vt-a .vt-a-prog {
+    display: inline-flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 4px 14px;
+    max-width: 100%;
+  }
+  .vt-dash .vt-a .vt-a-prog > .vt-a-two {
+    min-width: 0;
+  }
+  .vt-dash .vt-a .vt-a-prog > :not(.vt-a-two) {
+    flex-shrink: 0;
+  }
+  .vt-dash .vt-a .vt-a-prog strong {
+    font-weight: 600;
+  }
+  .vt-dash .vt-a .vt-a-chev {
+    color: var(--vt-faint);
+    text-align: right;
+    font-size: 16px;
+  }
+  .vt-dash .vt-a tr.vt-row-link:hover .vt-a-chev {
+    color: var(--vt-fg);
+  }
+
+  /* ---- L2: the property list under the title (Notion page properties) */
+  /* WHY minmax(0, 1fr): a bare 1fr keeps its column at least as wide as its widest value. */
+  .vt-dash .vt-a .vt-a-props {
+    display: grid;
+    grid-template-columns: 132px minmax(0, 1fr);
+    gap: 6px 12px;
+    margin: 18px 0 0;
+    align-items: baseline;
+  }
+  .vt-dash .vt-a .vt-a-props dt {
+    color: var(--vt-faint);
+    font-size: 13.5px;
+  }
+  .vt-dash .vt-a .vt-a-props dt,
+  .vt-dash .vt-a .vt-a-props dd {
+    margin: 0;
+    min-width: 0;
+  }
+  /* WHY the label stacks over its value below 420 px of dashboard width: a 132 px label column left a 152 px dashboard
+     (Clank's left panel open at a 390 px window) 8 px for the value. Each value then gets the whole line. */
+  @container vt-scroll (max-width: 420px) {
+    .vt-dash .vt-a .vt-a-props:not(.vt-a-metrics) {
+      grid-template-columns: minmax(0, 1fr);
+      row-gap: 0;
+    }
+    .vt-dash .vt-a .vt-a-props:not(.vt-a-metrics) dd + dt {
+      margin-top: 8px;
+    }
+  }
+  .vt-dash .vt-a .vt-a-caret {
+    display: inline-block;
+    width: 14px;
+    margin-left: 6px;
+    color: var(--vt-faint);
+  }
+  .vt-dash .vt-a .vt-a-links {
+    margin-top: 18px;
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px 18px;
+    align-items: baseline;
+  }
+  /* WHY min-width 0: a flex item's floor is its min-content; with it at 0 a long "label path" item wraps inside the
+     line instead of widening the page. */
+  .vt-dash .vt-a .vt-a-links > *,
+  .vt-dash .vt-a .vt-a-itemlinks > * {
+    min-width: 0;
+    max-width: 100%;
+  }
+  /* An item's links: one "label path" group per link, wrapping as groups (they used to run together inline). */
+  .vt-dash .vt-a .vt-a-itemlinks {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px 18px;
+    align-items: baseline;
+  }
+  .vt-dash .vt-a .vt-a-roadmap .vt-a-roadmap-body {
+    margin-top: 2px;
+    padding-top: 8px;
+    border-top: 1px solid var(--vt-line);
+  }
+
+  /* ---- L2: the scorecard */
+  /* WHY flex, snap and an end spacer: see Scorecard.tsx (every visible header stays whole beside the sticky column).
+     The table keeps its old sizing: at least the full width, shrinking to its columns' minimums before it scrolls. */
+  .vt-dash .vt-a .vt-a-scroller {
+    display: flex;
+    align-items: flex-start;
+    overflow-x: auto;
+    padding-bottom: 4px;
+    scroll-snap-type: x mandatory;
+  }
+  .vt-dash .vt-a .vt-a-scroller > .vt-a-score {
+    flex: 1 1 auto;
+  }
+  .vt-dash .vt-a .vt-a-scroller.vt-a-more-right {
+    -webkit-mask-image: linear-gradient(to right, #000 calc(100% - 48px), transparent);
+    mask-image: linear-gradient(to right, #000 calc(100% - 48px), transparent);
+  }
+  .vt-dash .vt-a .vt-a-scroll-end {
+    flex: 0 0 auto;
+    width: 0;
+    align-self: stretch;
+  }
+  .vt-dash .vt-a .vt-a-score thead th:not(.vt-a-sticky) {
+    scroll-snap-align: start;
+  }
+  /* WHY separate borders: with collapsed borders a sticky cell paints over its own hairline. */
+  .vt-dash .vt-a .vt-a-score {
+    width: auto;
+    min-width: 100%;
+    border-collapse: separate;
+    border-spacing: 0;
+  }
+  .vt-dash .vt-a .vt-a-score th,
+  .vt-dash .vt-a .vt-a-score td {
+    padding: 8px 10px 8px 6px;
+  }
+  .vt-dash .vt-a .vt-a-score thead th {
+    vertical-align: bottom;
+    padding-bottom: 8px;
+  }
+  .vt-dash .vt-a .vt-a-sticky {
+    position: sticky;
+    left: 0;
+    z-index: 1;
+    background: var(--vt-bg);
+    box-shadow: 1px 0 0 var(--vt-line);
+  }
+  .vt-dash .vt-a .vt-a-kpicol,
+  .vt-dash .vt-a .vt-a-kpicell {
+    min-width: 210px;
+    max-width: 250px;
+  }
+  .vt-dash .vt-a .vt-a-kpicell {
+    line-height: 1.3;
+  }
+  .vt-dash .vt-a .vt-a-kpilabel {
+    display: block;
+    font-weight: 500;
+  }
+  .vt-dash .vt-a .vt-a-star .vt-a-kpilabel {
+    font-weight: 650;
+  }
+  .vt-dash .vt-a .vt-a-kpimeta {
+    display: block;
+    font-size: 12px;
+    color: var(--vt-faint);
+  }
+  .vt-dash .vt-a .vt-a-grouprow td {
+    padding: 18px 6px 4px;
+    font-size: 12.5px;
+    color: var(--vt-faint);
+  }
+  .vt-dash .vt-a .vt-a-colhead {
+    text-align: right;
+    white-space: normal;
+  }
+  .vt-dash .vt-a .vt-a-colbtn {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-end;
+    width: 100%;
+    text-align: right;
+    border-radius: 4px;
+    padding: 2px 2px 0;
+  }
+  .vt-dash .vt-a .vt-a-colbtn:hover .vt-a-collabel {
+    text-decoration: underline;
+    text-decoration-color: var(--vt-grey);
+    text-underline-offset: 2px;
+  }
+  /* WHY block + full width + no CSS clamp: ClampText (clamp.tsx) cuts these right-aligned lines itself with a visible
+     "…", measuring the box's width; a shrink-wrapped box would size itself from the text it is cutting. */
+  .vt-dash .vt-a .vt-a-collabel {
+    color: var(--vt-grey);
+    font-size: 13px;
+    font-weight: 500;
+    line-height: 1.25;
+    display: block;
+    width: 100%;
+    overflow-wrap: anywhere;
+  }
+  .vt-dash .vt-a .vt-a-latest .vt-a-collabel {
+    color: var(--vt-fg);
+    font-weight: 700;
+  }
+  .vt-dash .vt-a .vt-a-latesttag {
+    font-weight: 400;
+    font-size: 11.5px;
+    color: var(--vt-faint);
+  }
+  .vt-dash .vt-a .vt-a-colsub {
+    font-size: 11.5px;
+    color: var(--vt-faint);
+  }
+  .vt-dash .vt-a .vt-a-colmarker {
+    margin-top: 2px;
+    font-size: 11.5px;
+    line-height: 1.3;
+    color: var(--vt-faint);
+    display: block;
+    width: 100%;
+    overflow-wrap: anywhere;
+  }
+  .vt-dash .vt-a .vt-a-ruler {
+    color: var(--vt-grey);
+    font-weight: 600;
+  }
+  .vt-dash .vt-a .vt-a-score .vt-a-latest {
+    background: var(--vt-a-wash);
+  }
+  .vt-dash .vt-a .vt-a-cell {
+    text-align: right;
+    white-space: nowrap;
+  }
+  .vt-dash .vt-a .vt-a-cellbtn {
+    display: inline-flex;
+    flex-direction: column;
+    align-items: flex-end;
+    line-height: 1.25;
+    padding: 2px 4px;
+    margin: -2px -4px;
+    border-radius: 4px;
+  }
+  .vt-dash .vt-a .vt-a-cellbtn:hover {
+    background: var(--vt-press);
+  }
+  .vt-dash .vt-a .vt-a-latest .vt-a-val {
+    font-weight: 650;
+  }
+  .vt-dash .vt-a .vt-a-cellbtn.vt-tone-warn .vt-a-val {
+    color: var(--vt-warn);
+  }
+  .vt-dash .vt-a .vt-a-n {
+    font-size: 11px;
+    color: var(--vt-faint);
+    white-space: normal;
+    text-align: right;
+    max-width: 150px;
+  }
+  .vt-dash .vt-a .vt-a-never {
+    font-size: 12.5px;
+    font-style: italic;
+  }
+  .vt-dash .vt-a .vt-a-never-text {
+    position: sticky;
+    left: calc(var(--vt-a-stickyw, 0px) + 6px);
+    display: inline-block;
+    max-width: 360px;
+    white-space: normal;
+  }
+  .vt-dash .vt-a .vt-a-trendcol,
+  .vt-dash .vt-a .vt-a-trend {
+    padding-left: 14px;
+    min-width: 84px;
+  }
+  .vt-dash .vt-a .vt-a-targetcol,
+  .vt-dash .vt-a .vt-a-target {
+    min-width: 112px;
+    max-width: 160px;
+    white-space: normal;
+    line-height: 1.3;
+  }
+  .vt-dash .vt-a .vt-a-statuscol,
+  .vt-dash .vt-a .vt-a-status {
+    min-width: 170px;
+    max-width: 196px;
+    width: 196px;
+  }
+  .vt-dash .vt-a .vt-a-status .vt-status {
+    white-space: normal;
+  }
+  .vt-dash .vt-a .vt-a-status .vt-a-delta {
+    display: block;
+    font-size: 12px;
+    color: var(--vt-faint);
+    padding-left: 14px;
+    line-height: 1.3;
+    white-space: normal;
+  }
+  .vt-dash .vt-a .vt-a-kpirow:hover td {
+    background: var(--vt-hover);
+  }
+  .vt-dash .vt-a .vt-a-kpirow:hover td.vt-a-latest {
+    background: linear-gradient(var(--vt-a-wash), var(--vt-a-wash)), var(--vt-hover);
+  }
+  .vt-dash .vt-a .vt-a-selected td,
+  .vt-dash .vt-a .vt-a-selected td.vt-a-sticky {
+    background: var(--vt-hover);
+  }
+  .vt-dash .vt-a .vt-a-selected .vt-a-kpilabel {
+    text-decoration: underline;
+    text-decoration-color: var(--vt-grey);
+    text-underline-offset: 3px;
+  }
+
+  /* ---- L3: iteration page */
+  .vt-dash .vt-a .vt-a-titlerow {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: 24px;
+    flex-wrap: wrap;
+  }
+  .vt-dash .vt-a .vt-a-stepper {
+    display: inline-flex;
+    gap: 14px;
+    align-items: baseline;
+  }
+  .vt-dash .vt-a .vt-a-marker {
+    font-size: 15px;
+  }
+  .vt-dash .vt-a .vt-a-prov {
+    margin-top: 4px;
+    word-break: break-word;
+  }
+  .vt-dash .vt-a .vt-a-deltas td {
+    padding-top: 7px;
+    padding-bottom: 7px;
+  }
+  .vt-dash .vt-a .vt-a-deltas {
+    table-layout: fixed;
+  }
+  .vt-dash .vt-a .vt-a-deltas tr[data-kpi] {
+    scroll-margin-top: 16px;
+  }
+  .vt-dash .vt-a .vt-a-under {
+    display: block;
+    font-size: 12px;
+    color: var(--vt-faint);
+    line-height: 1.3;
+  }
+  .vt-dash .vt-a .vt-a-evcount {
+    text-align: right;
+    white-space: nowrap;
+  }
+  .vt-dash .vt-a .vt-a-inline > td {
+    padding: 4px 0 18px 18px;
+    background: var(--vt-bg);
+  }
+  .vt-dash .vt-a .vt-a-inline .vt-a-evgroup:first-child {
+    margin-top: 4px;
+  }
+  .vt-dash .vt-a .vt-a-unmeasured {
+    margin-top: 10px;
+    line-height: 1.6;
+  }
+  .vt-dash .vt-a .vt-a-evgroup {
+    margin-top: 16px;
+  }
+  .vt-dash .vt-a .vt-a-evgroup > .vt-label {
+    margin-bottom: 4px;
+  }
+
+  /* ---- L3: one item (run detail) */
+  .vt-dash .vt-a .vt-a-h1-item {
+    font-size: 28px;
+  }
+  .vt-dash .vt-a .vt-a-nline {
+    margin-top: 10px;
+  }
+  /* WHY min(220px, 100%): a 220 px minimum column was wider than a 152 px dashboard (236 > 152 on every run page). */
+  .vt-dash .vt-a .vt-a-metrics {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(min(220px, 100%), 1fr));
+    gap: 4px 28px;
+  }
+  /* One metric: label left, value right; when the two do not fit on one line the value wraps under its label
+     (flex-wrap; margin-left auto keeps it right-aligned there), and a value longer than the line wraps inside it. */
+  .vt-dash .vt-a .vt-a-prop {
+    display: flex;
+    flex-wrap: wrap;
+    justify-content: space-between;
+    gap: 0 12px;
+    padding: 4px 0;
+    border-bottom: 1px solid var(--vt-line);
+  }
+  .vt-dash .vt-a .vt-a-prop dd {
+    font-weight: 500;
+    margin-left: auto;
+    text-align: right;
+  }
+  .vt-dash .vt-a .vt-a-note {
+    margin-top: 12px;
+    color: var(--vt-grey);
+    max-width: 820px;
+  }
+  .vt-dash .vt-a .vt-a-pair {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 20px;
+  }
+  .vt-dash .vt-a .vt-a-pair figure {
+    margin: 0;
+    min-width: 0;
+  }
+  .vt-dash .vt-a .vt-a-pair figcaption {
+    margin-bottom: 6px;
+  }
+  .vt-dash .vt-a .vt-a-pair video {
+    display: block;
+    width: 100%;
+    aspect-ratio: 16 / 9;
+    background: #000;
+    border-radius: 4px;
+  }
+  .vt-dash .vt-a .vt-a-pairbar {
+    display: flex;
+    align-items: baseline;
+    gap: 10px;
+    margin-bottom: 10px;
+  }
+  .vt-dash .vt-a .vt-a-docbar[hidden] {
+    display: none;
+  }
+  .vt-dash .vt-a .vt-a-docbar {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+  }
+  .vt-dash .vt-a .vt-a-doc .vt-media-view {
+    margin-left: 0;
+  }
+  .vt-dash .vt-a .vt-a-doc .vt-media-view iframe {
+    height: 640px;
+  }
+  .vt-dash .vt-a .vt-a-feeds td {
+    padding-top: 8px;
+    padding-bottom: 8px;
+  }
+  /* WHY reflow below 600 px of dashboard width: five columns (KPI, value, where, trend, status) have a min-content of
+     ~500 px, so at a 390 px phone the table pushed the page sideways (scrollWidth 527-735 > 390, 2026-10-05). Each
+     row becomes one wrapped line group: the KPI's name on its own line, the rest flowing under it; nothing is hidden. */
+  @container vt-scroll (max-width: 600px) {
+    /* Reflowed, it is no longer a table, so the root wrap rule applies again (a KPI name such as "Held condition ·
+       slow_step_045deg_slow · ff_fb · gravity" held its button 155 px wide in a 120 px row). */
+    .vt-dash .vt-a .vt-a-feeds,
+    .vt-dash .vt-a .vt-a-feeds tbody {
+      display: block;
+      overflow-wrap: anywhere;
+    }
+    .vt-dash .vt-a .vt-a-feeds tr {
+      display: flex;
+      flex-wrap: wrap;
+      align-items: center;
+      gap: 2px 12px;
+      padding: 8px 0;
+      border-bottom: 1px solid var(--vt-line);
+    }
+    .vt-dash .vt-a .vt-a-feeds td {
+      padding: 0;
+      border-bottom: 0;
+      min-width: 0;
+    }
+    .vt-dash .vt-a .vt-a-feeds td:first-child {
+      flex-basis: 100%;
+    }
+  }
+
+  /* ---- L1: row end (⋯ menu + chevron), quiet rows, the needs cell, the rung cell */
+  .vt-dash .vt-a .vt-a-rowend {
+    text-align: right;
+    white-space: nowrap;
+  }
+  .vt-dash .vt-a .vt-a-rowend .vt-a-chev {
+    display: inline-block;
+    width: 14px;
+  }
+  .vt-dash .vt-a .vt-a-menu {
+    position: relative;
+    display: inline-block;
+  }
+  .vt-dash .vt-a .vt-a-menu-btn {
+    color: var(--vt-faint);
+    padding: 0 5px;
+    border-radius: 4px;
+    font-size: 15px;
+    line-height: 20px;
+    opacity: 0;
+  }
+  /* WHY hidden until hover or focus: one quiet ⋯ per row would be noise on a glance page; it is still reachable by Tab. */
+  .vt-dash .vt-a tr:hover .vt-a-menu-btn,
+  .vt-dash .vt-a .vt-a-menu-btn:focus-visible,
+  .vt-dash .vt-a .vt-a-menu-btn[aria-expanded='true'],
+  .vt-dash .vt-a .vt-a-titleline .vt-a-menu-btn {
+    opacity: 1;
+  }
+  .vt-dash .vt-a .vt-a-menu-btn:hover {
+    color: var(--vt-fg);
+    background: var(--vt-hover);
+  }
+  .vt-dash .vt-a .vt-a-menu-pop {
+    position: absolute;
+    right: 0;
+    top: calc(100% + 4px);
+    z-index: 20;
+    display: flex;
+    flex-direction: column;
+    min-width: 150px;
+    padding: 4px;
+    background: var(--vt-bg, Canvas);
+    border: 1px solid var(--vt-line);
+    border-radius: 6px;
+    box-shadow: 0 4px 14px rgba(0, 0, 0, 0.08);
+    text-align: left;
+  }
+  .vt-dash .vt-a .vt-a-menu-item {
+    padding: 5px 8px;
+    border-radius: 4px;
+    font-size: 13.5px;
+    font-weight: 400;
+    color: var(--vt-fg);
+    white-space: nowrap;
+  }
+  .vt-dash .vt-a .vt-a-menu-item:hover,
+  .vt-dash .vt-a .vt-a-menu-item:focus-visible {
+    background: var(--vt-hover);
+  }
+  /* WHY the status word may wrap inside its cell: `.vt-status` is nowrap everywhere else, and at 1280 the grasping
+     row's "Tier 2 · MuJoCo physics" ran out of its 17% column and printed over the Progress number ("physi6 / 10").
+     Wrapping keeps every character and stays inside the cell. */
+  .vt-dash .vt-a .vt-a-statuscell .vt-status-stack {
+    max-width: 100%;
+    min-width: 0;
+  }
+  .vt-dash .vt-a .vt-a-statuscell .vt-status {
+    white-space: normal;
+  }
+  .vt-dash .vt-a .vt-a-statuscell .vt-status-stack small {
+    text-align: left;
+    display: -webkit-box;
+    -webkit-line-clamp: 2;
+    -webkit-box-orient: vertical;
+    overflow: hidden;
+  }
+  .vt-dash .vt-a .vt-a-needs-cell {
+    text-align: left;
+    border-radius: 4px;
+  }
+  .vt-dash .vt-a .vt-a-needs-cell:hover {
+    text-decoration: underline;
+    text-decoration-color: var(--vt-line);
+    text-underline-offset: 2px;
+  }
+  .vt-dash .vt-a .vt-a-rungcell {
+    display: block;
+    font-size: 13px;
+  }
+  /* WHY the strip is hidden on the home row: the Progress column already carries the level; the cell answers only
+     "where is it, what's next". The full calm answer, strip included, is on the track page. */
+  .vt-dash .vt-a .vt-a-rungcell .vt-rm-strip {
+    display: none;
+  }
+  .vt-dash .vt-a .vt-a-rungcell p {
+    margin: 0;
+    text-align: left;
+    display: -webkit-box;
+    -webkit-line-clamp: 2;
+    -webkit-box-orient: vertical;
+    overflow: hidden;
+  }
+
+  /* ---- rename (home name and page title) */
+  .vt-dash .vt-a .vt-a-saving {
+    opacity: 0.6;
+  }
+  .vt-dash .vt-a .vt-a-rename {
+    display: inline-flex;
+    flex-direction: column;
+    gap: 2px;
+    max-width: 100%;
+  }
+  .vt-dash .vt-a .vt-a-rename-input {
+    font: inherit;
+    color: var(--vt-fg);
+    background: transparent;
+    border: 1px solid var(--vt-line);
+    border-radius: 4px;
+    padding: 1px 5px;
+    margin-left: -6px;
+    max-width: 100%;
+    outline: none;
+  }
+  .vt-dash .vt-a .vt-a-rename-input:focus {
+    border-color: var(--vt-grey);
+  }
+  .vt-dash .vt-a .vt-a-rename-hint,
+  .vt-dash .vt-a .vt-a-rename-notice,
+  .vt-dash .vt-a .vt-a-rename-conflict {
+    font-weight: 400;
+    font-size: 12px;
+    line-height: 1.3;
+  }
+  .vt-dash .vt-a .vt-a-rename-notice,
+  .vt-dash .vt-a .vt-a-rename-conflict {
+    display: block;
+    overflow-wrap: anywhere;
+  }
+  .vt-dash .vt-a .vt-a-title-text {
+    border-radius: 4px;
+    cursor: text;
+  }
+  .vt-dash .vt-a .vt-a-title-text:focus-visible {
+    outline: 1px solid var(--vt-line);
+  }
+
+  /* ---- L2: title line, state, needs, sections */
+  .vt-dash .vt-a .vt-a-titleline {
+    display: flex;
+    align-items: baseline;
+    gap: 8px;
+    flex-wrap: wrap;
+  }
+  .vt-dash .vt-a .vt-a-titleline .vt-a-rename-input {
+    font-size: inherit;
+    font-weight: inherit;
+  }
+  /* WHY anywhere and min-width 0 on the page title only (peer report 2026-10-05): with Clank's left panel open at a
+     390 px window the dashboard is 152 px wide, and "Kinematic" alone is 178 px at title size; break-word could not
+     split it and the flex item would not shrink below it, so the title was clipped. The home table keeps break-word
+     (anywhere there broke "Kinematic" into letters in a narrow cell); here the title wraps only where it must, and
+     every character stays on screen. The rename input shrinks with it instead of keeping its 12-character size. */
+  .vt-dash .vt-a .vt-a-titleline > * {
+    min-width: 0;
+    max-width: 100%;
+  }
+  .vt-dash .vt-a .vt-a-titleline .vt-a-title-text {
+    overflow-wrap: anywhere;
+  }
+  .vt-dash .vt-a .vt-a-titleline .vt-a-rename-input {
+    box-sizing: border-box;
+    min-width: 0;
+    width: 100%;
+  }
+  /* WHY the title's menu opens rightward from its ⋯, and on a narrow page under the title line from its left edge: the
+     ⋯ follows the title, so a menu right-aligned to it ran off the page's left edge whenever the ⋯ sat near the start
+     (a short title, or a wrapped one with Clank's left panel open at 390 px), and below 600 px a rightward menu ran
+     past the right edge ("Kinematic Sim ⋯" at 390 px). Anchored to the h1 there, it is always inside the page. */
+  .vt-dash .vt-a .vt-a-titleline .vt-a-menu-pop {
+    right: auto;
+    left: 0;
+  }
+  @container vt-scroll (max-width: 600px) {
+    .vt-dash .vt-a .vt-a-titleline {
+      position: relative;
+    }
+    .vt-dash .vt-a .vt-a-titleline .vt-a-menu {
+      position: static;
+    }
+    .vt-dash .vt-a .vt-a-titleline .vt-a-menu-pop {
+      top: 100%;
+      min-width: 0;
+      max-width: 100%;
+    }
+  }
+  .vt-dash .vt-a .vt-a-stateline {
+    margin: 6px 0 0;
+  }
+  /* WHY the state word may wrap on the track page: `.vt-status` is nowrap, and with Clank's left panel open at a 390 px
+     window (a 152 px dashboard) grasping's "Tier 2 · MuJoCo physics" ran 29 px past the page edge. It wraps at its
+     spaces; the dot stays beside the first line. */
+  .vt-dash .vt-a .vt-a-stateline .vt-status {
+    display: inline-flex;
+    max-width: 100%;
+    white-space: normal;
+  }
+  .vt-dash .vt-a .vt-a-stateline .vt-status .vt-word {
+    min-width: 0;
+    overflow-wrap: anywhere;
+  }
+  .vt-dash .vt-a .vt-a-needsline {
+    margin: 6px 0 0;
+  }
+  .vt-dash .vt-a .vt-a-needs-go {
+    border-radius: 4px;
+  }
+  .vt-dash .vt-a .vt-a-needs-go:hover > span:first-child {
+    text-decoration: underline;
+    text-decoration-color: var(--vt-grey);
+    text-underline-offset: 2px;
+  }
+  .vt-dash .vt-a .vt-a-arrow {
+    color: var(--vt-faint);
+  }
+  .vt-dash .vt-a .vt-a-purposebox {
+    margin-top: 14px;
+    max-width: 820px;
+  }
+  .vt-dash .vt-a .vt-a-purpose {
+    margin: 0;
+  }
+  .vt-dash .vt-a .vt-a-more {
+    margin-top: 2px;
+    font-size: 12.5px;
+  }
+  .vt-dash .vt-a .vt-a-section-head {
+    display: flex;
+    align-items: baseline;
+    gap: 14px;
+    margin-bottom: 8px;
+  }
+  .vt-dash .vt-a .vt-a-northstar {
+    margin: 0 0 10px;
+  }
+  .vt-dash .vt-a .vt-a-deploys {
+    table-layout: fixed;
+  }
+  .vt-dash .vt-a .vt-a-deploy-name {
+    font-weight: 500;
+  }
+}

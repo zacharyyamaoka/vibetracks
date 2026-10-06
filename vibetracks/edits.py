@@ -69,7 +69,8 @@ def _serialize_entry(key: str, value: object) -> list[str]:
         default_flow_style=False,
         width=4096,
     )
-    return dumped.rstrip("\n").splitlines()
+    # WHY split on "\n" only: the dumper's line break; splitlines would also cut at U+2028 inside a quoted value.
+    return dumped.rstrip("\n").split("\n")
 
 
 def _span_end(lines: list[str], start: int) -> int:
@@ -95,37 +96,72 @@ def _span_end(lines: list[str], start: int) -> int:
     return end
 
 
-def _splice_yaml_key(yaml_source: str, key: str, serialized: list[str]) -> str:
-    """Replace one top-level key's span, preserving every other line verbatim.
+_LINE = re.compile(r"[^\r\n]*(?:\r\n|\r|\n)|[^\r\n]+\Z")
+
+
+def _lines_keepends(text: str) -> list[str]:
+    """``text`` split after each CRLF, CR or LF, every line keeping its own ending, so ``"".join`` is ``text``.
+
+    WHY not ``str.splitlines``: it also splits on U+2028, form feed, \\x1c..., which are characters inside a value,
+    not line breaks of the note; and joining its lines back with "\\n" turned every CRLF note into LF.
+    """
+    return _LINE.findall(text)
+
+
+def _ending(line: str) -> str:
+    return line[len(line.rstrip("\r\n")):]
+
+
+def _splice_yaml_key(yaml_source: str, key: str, serialized: list[str], eol: str = "\n") -> str:
+    """Replace one top-level key's span, preserving every other byte verbatim (line endings included).
 
     Every span of the key is consumed (duplicate keys would otherwise leave a
     stale value that YAML's last-wins reading silently prefers); the
-    replacement is written once, at the first occurrence.
+    replacement is written once, at the first occurrence, with the line ending
+    the key's own line used (CRLF stays CRLF).
     """
-    lines = yaml_source.splitlines()
+    lines = _lines_keepends(yaml_source)
+    bare = [line.rstrip("\r\n") for line in lines]
+    default_eol = next((_ending(line) for line in lines if _ending(line)), eol)
     key_line = re.compile(rf"^{re.escape(key)}\s*:")
     output: list[str] = []
     index = 0
     replaced = False
     while index < len(lines):
-        line = lines[index]
-        if key_line.match(line):
+        if key_line.match(bare[index]):
+            end = _span_end(bare, index + 1)
             if not replaced:
-                output.extend(serialized)
+                eol = _ending(lines[index]) or default_eol
+                # The span's last line keeps its own ending ("" when it closes the YAML block before ``---``).
+                output.append(eol.join(serialized) + _ending(lines[end - 1]))
                 replaced = True
-            index = _span_end(lines, index + 1)
+            index = end
             continue
-        output.append(line)
+        output.append(lines[index])
         index += 1
     if not replaced:
-        while output and not output[-1].strip():
-            output.pop()
-        output.extend(serialized)
-    return "\n".join(output)
+        # Appended before any trailing blank lines, which stay where they were.
+        insert = len(output)
+        while insert > 0 and not output[insert - 1].strip():
+            insert -= 1
+        block = default_eol.join(serialized)
+        if insert == 0:
+            output.insert(0, block + (default_eol if output else ""))
+        else:
+            previous = output[insert - 1]
+            if not _ending(previous):
+                output[insert - 1] = previous + default_eol
+            output.insert(insert, block + (default_eol if insert < len(output) else ""))
+    return "".join(output)
 
 
 def replace_frontmatter_entry(markdown: str, key: str, value: object) -> str:
     """Set one frontmatter key (scalar or list), creating frontmatter if absent.
+
+    Only the key's span changes: a BOM, the ``---`` delimiters exactly as written (trailing spaces included), every
+    line ending and every byte of the body stay as they were. WHY (audit 2026-10-04, finding 8): the splicer rebuilt
+    the note as ``"---\\n" + yaml + "\\n---\\n" + body``, so a BOM/CRLF note lost its BOM, its frontmatter line
+    endings and the closing delimiter's spaces on a title rename that was only allowed to change ``vibe-title``.
 
     The result's frontmatter is re-parsed before being returned: an edit that
     would leave the note unreadable raises instead of corrupting the file.
@@ -133,11 +169,16 @@ def replace_frontmatter_entry(markdown: str, key: str, value: object) -> str:
     serialized = _serialize_entry(key, value)
     match = FRONTMATTER.match(markdown)
     if not match:
-        block = "\n".join(serialized)
-        updated = f"---\n{block}\n---\n\n{markdown.lstrip()}"
+        bom = "\ufeff" if markdown.startswith("\ufeff") else ""
+        body = markdown[len(bom):]
+        first = _lines_keepends(body)[:1]
+        eol = (_ending(first[0]) if first else "") or "\n"
+        block = eol.join(serialized)
+        updated = f"{bom}---{eol}{block}{eol}---{eol}{eol}{body}"
     else:
-        yaml_source = _splice_yaml_key(match.group("yaml"), key, serialized)
-        updated = f"---\n{yaml_source}\n---\n{markdown[match.end():]}"
+        opening = markdown[:match.start("yaml")]
+        yaml_source = _splice_yaml_key(match.group("yaml"), key, serialized, opening[len(opening.rstrip("\r\n")):])
+        updated = markdown[:match.start("yaml")] + yaml_source + markdown[match.end("yaml"):]
     try:
         parse_frontmatter(updated)
     except VibeTracksError as exc:
@@ -152,6 +193,16 @@ def append_body_block(markdown: str, block: str) -> str:
     return f"{markdown.rstrip()}\n\n{block.rstrip()}\n"
 
 
+def read_note_exact(path: Path) -> str:
+    """The note's text exactly as stored: no newline translation (CRLF stays CRLF) and a BOM kept as U+FEFF."""
+    return path.read_bytes().decode("utf-8")
+
+
+def _universal_newlines(text: str) -> str:
+    """What ``Path.read_text`` returns for ``text``: CRLF and CR read as LF."""
+    return text.replace("\r\n", "\n").replace("\r", "\n")
+
+
 def apply_note_edit(
     path: Path,
     expected_revision: str,
@@ -164,19 +215,23 @@ def apply_note_edit(
     """
     with _write_lock(path.parent):
         try:
-            original = path.read_text(encoding="utf-8")
+            original = read_note_exact(path)
         except FileNotFoundError as exc:
             raise UnknownFeature(f"Note no longer exists: {path}") from exc
-        if note_revision(original) != expected_revision:
+        # WHY two spellings of the same revision: the fence is the exact text now (registry.py reads it that way),
+        # while project.py still hashes Python's newline-translated read; a note with no CR has one revision anyway.
+        if expected_revision not in (note_revision(original), note_revision(_universal_newlines(original))):
             raise RevisionConflict(
                 f"Note changed since it was loaded (expected {expected_revision})"
             )
         updated = transform(original)
         if updated == original:
             return False
+        # WHY newline="": the transform returns the note's exact text; text-mode translation must not rewrite it.
         handle = tempfile.NamedTemporaryFile(
             "w",
             encoding="utf-8",
+            newline="",
             dir=path.parent,
             prefix=f".{path.name}.",
             suffix=".tmp",

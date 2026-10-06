@@ -1,0 +1,455 @@
+/* N4 · Decision cards. Rooted in .vt-dash .vt-needs-n4, in @layer base (clank-workbench CLAUDE.md §1.5).
+   WHY no colour except the blocking dot: calm is the container, the question is the content; colour only for
+   exceptions (calm.css research principle 11). The recommended tag is an ordinary state, so it is told apart by its word
+   and weight on a neutral wash, never the accent blue (Codex audit 2026-10-05 round 2 finding 7: a blue tag on every
+   card made colour mean nothing). The accent is left for the keyboard focus ring only. */
+@layer base {
+  .vt-dash .vt-needs-n4 {
+    max-width: 860px;
+    padding-top: 12px;
+    padding-bottom: 120px;
+  }
+  .vt-dash .vt-needs-n4 .n4-md {
+    white-space: pre-wrap;
+    overflow-wrap: anywhere;
+  }
+  .vt-dash .vt-needs-n4 .n4-md code,
+  .vt-dash .vt-needs-n4 .n4-paths code {
+    font-family: var(--vt-mono);
+    font-size: 0.88em;
+    background: var(--vt-band);
+    padding: 0 3px;
+    border-radius: 3px;
+  }
+  .vt-dash .vt-needs-n4 .n4-link {
+    color: var(--vt-grey);
+    text-decoration: underline;
+    text-decoration-color: var(--vt-line);
+    text-underline-offset: 3px;
+  }
+  .vt-dash .vt-needs-n4 .n4-link:hover {
+    color: var(--vt-fg);
+    text-decoration-color: var(--vt-grey);
+  }
+  .vt-dash .vt-needs-n4 .n4-section-label {
+    font-size: 12px;
+    color: var(--vt-faint);
+    margin: 14px 0 4px;
+    letter-spacing: 0.01em;
+  }
+
+  /* ---- the stack */
+  /* WHY pinned: the stack is the progress meter (answered vs skipped vs remaining); it must stay in view while a long
+     card or its context scrolls, so the reader always knows how far through the queue they are.
+     WHY pinned by the frame and not `position: sticky`: a sticky stack covers the card that scrolls under it (option 1
+     at max scroll). The page is framed (useFitToScroller): the stack sits above .n4-scroll, which scrolls on its own. */
+  .vt-dash .vt-needs-n4 .n4-stack {
+    background: var(--vt-bg);
+    display: flex;
+    flex-wrap: wrap;
+    align-items: flex-end;
+    gap: 10px 28px;
+    margin: 10px 0 12px;
+    padding: 8px 0 10px;
+    border-bottom: 1px solid transparent;
+  }
+  .vt-dash .vt-needs-n4 .n4-stack-seg {
+    display: flex;
+    flex-direction: column;
+    gap: 5px;
+  }
+  .vt-dash .vt-needs-n4 .n4-stack-label {
+    font-size: 12px;
+    color: var(--vt-faint);
+  }
+  .vt-dash .vt-needs-n4 .n4-stack-label .vt-num {
+    color: var(--vt-grey);
+  }
+  .vt-dash .vt-needs-n4 .n4-pills {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 4px;
+  }
+  .vt-dash .vt-needs-n4 .n4-pill {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    font-size: 12.5px;
+    font-variant-numeric: tabular-nums;
+    padding: 2px 8px;
+    border-radius: 4px;
+    border: 1px solid var(--vt-line);
+    color: var(--vt-grey);
+  }
+  .vt-dash .vt-needs-n4 .n4-pill:hover {
+    background: var(--vt-hover);
+    color: var(--vt-fg);
+  }
+  .vt-dash .vt-needs-n4 .n4-pill-answered {
+    background: var(--vt-press);
+    color: var(--vt-fg);
+    border-color: transparent;
+  }
+  .vt-dash .vt-needs-n4 .n4-pill-skipped {
+    border-style: dashed;
+    color: var(--vt-faint);
+  }
+  .vt-dash .vt-needs-n4 .n4-pill[aria-current] {
+    border-color: var(--vt-fg);
+    color: var(--vt-fg);
+  }
+  .vt-dash .vt-needs-n4 .n4-pill-mark {
+    font-size: 11px;
+  }
+  .vt-dash .vt-needs-n4 .n4-dot {
+    width: 6px;
+    height: 6px;
+    border-radius: 50%;
+    background: var(--vt-warn-dot);
+  }
+  .vt-dash .vt-needs-n4 .n4-stack-optional .n4-pill:not(.n4-pill-answered):not([aria-current]) {
+    color: var(--vt-faint);
+  }
+  .vt-dash .vt-needs-n4 .n4-pill-done {
+    border-style: dashed;
+  }
+
+  /* ---- the card */
+  .vt-dash .vt-needs-n4 .n4-card {
+    border: 1px solid var(--vt-line);
+    border-radius: 8px;
+    padding: 22px 26px 16px;
+    box-shadow: 0 1px 2px rgba(15, 15, 15, 0.04), 0 4px 14px rgba(15, 15, 15, 0.04);
+    outline: none;
+    scroll-margin-top: 96px; /* clears the sticky stack */
+  }
+  .vt-dash .vt-needs-n4 .n4-meta {
+    color: var(--vt-grey);
+  }
+  .vt-dash .vt-needs-n4 .n4-question {
+    font-size: 22px;
+    line-height: 1.3;
+    font-weight: 650;
+    margin-top: 6px;
+  }
+  .vt-dash .vt-needs-n4 .n4-why {
+    margin-top: 10px;
+    color: var(--vt-fg);
+    line-height: 1.55;
+  }
+  .vt-dash .vt-needs-n4 .n4-why-label {
+    display: block;
+    font-size: 12px;
+    color: var(--vt-faint);
+    margin-bottom: 2px;
+  }
+
+  .vt-dash .vt-needs-n4 .n4-options {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    margin-top: 18px;
+  }
+  .vt-dash .vt-needs-n4 .n4-option {
+    display: flex;
+    gap: 12px;
+    align-items: flex-start;
+    padding: 12px 14px;
+    border: 1px solid var(--vt-line);
+    border-radius: 7px;
+    line-height: 1.5;
+    transition: background 120ms ease, border-color 120ms ease;
+  }
+  .vt-dash .vt-needs-n4 .n4-option:hover {
+    background: var(--vt-hover);
+    border-color: var(--vt-faint);
+  }
+  .vt-dash .vt-needs-n4 .n4-option:focus-visible {
+    outline: 2px solid var(--vt-accent);
+    outline-offset: 1px;
+  }
+  .vt-dash .vt-needs-n4 .n4-option[aria-pressed='true'] {
+    border-color: var(--vt-fg);
+    background: var(--vt-hover);
+    box-shadow: inset 0 0 0 1px var(--vt-fg);
+  }
+  .vt-dash .vt-needs-n4 .n4-key {
+    flex: none;
+    width: 22px;
+    height: 22px;
+    margin-top: 1px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 12px;
+    color: var(--vt-grey);
+    border: 1px solid var(--vt-line);
+    border-radius: 5px;
+    font-variant-numeric: tabular-nums;
+  }
+  .vt-dash .vt-needs-n4 .n4-option[aria-pressed='true'] .n4-key {
+    background: var(--vt-fg);
+    border-color: var(--vt-fg);
+    color: var(--vt-bg);
+  }
+  .vt-dash .vt-needs-n4 .n4-option-body {
+    display: flex;
+    flex-direction: column;
+    gap: 3px;
+    min-width: 0;
+  }
+  .vt-dash .vt-needs-n4 .n4-option-label {
+    font-weight: 600;
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 4px 8px;
+  }
+  .vt-dash .vt-needs-n4 .n4-option-detail {
+    color: var(--vt-fg);
+    font-size: 13.5px;
+  }
+  .vt-dash .vt-needs-n4 .n4-option-when {
+    font-size: 12px;
+    color: var(--vt-faint);
+  }
+  .vt-dash .vt-needs-n4 .n4-tag {
+    font-size: 11.5px;
+    font-weight: 500;
+    color: var(--vt-grey);
+    background: var(--vt-band);
+    padding: 0 6px;
+    border-radius: 3px;
+  }
+  .vt-dash .vt-needs-n4 .n4-tag-rec {
+    color: var(--vt-fg);
+    background: var(--vt-press);
+    font-weight: 600;
+  }
+  .vt-dash .vt-needs-n4 .n4-chosen {
+    font-size: 12px;
+    font-weight: 500;
+    color: var(--vt-fg);
+  }
+
+  .vt-dash .vt-needs-n4 .n4-textarea {
+    display: block;
+    width: 100%;
+    box-sizing: border-box;
+    margin-top: 10px;
+    padding: 8px 10px;
+    border: 1px solid var(--vt-line);
+    border-radius: 6px;
+    background: transparent;
+    color: var(--vt-fg);
+    font: inherit;
+    font-size: 14px;
+    line-height: 1.5;
+    resize: vertical;
+  }
+  .vt-dash .vt-needs-n4 .n4-textarea:focus {
+    outline: none;
+    border-color: var(--vt-grey);
+  }
+  .vt-dash .vt-needs-n4 .n4-other-row {
+    display: flex;
+    align-items: center;
+    gap: 14px;
+    margin-top: 8px;
+  }
+  .vt-dash .vt-needs-n4 .n4-primary {
+    padding: 4px 12px;
+    border-radius: 5px;
+    background: var(--vt-fg);
+    color: var(--vt-bg);
+    font-weight: 500;
+  }
+  .vt-dash .vt-needs-n4 .n4-primary[disabled] {
+    background: var(--vt-press);
+    color: var(--vt-faint);
+    cursor: default;
+  }
+  .vt-dash .vt-needs-n4 .n4-after {
+    margin-top: 10px;
+  }
+
+  /* ---- the folded context */
+  .vt-dash .vt-needs-n4 .n4-context {
+    margin-top: 16px;
+    border-top: 1px solid var(--vt-line);
+    padding-top: 10px;
+  }
+  .vt-dash .vt-needs-n4 .n4-context summary {
+    cursor: pointer;
+    font-size: 13px;
+    list-style: none;
+  }
+  .vt-dash .vt-needs-n4 .n4-context summary::-webkit-details-marker {
+    display: none;
+  }
+  .vt-dash .vt-needs-n4 .n4-context summary::before {
+    content: '▸';
+    display: inline-block;
+    width: 14px;
+    color: var(--vt-faint);
+    transition: transform 120ms ease;
+  }
+  .vt-dash .vt-needs-n4 .n4-context[open] summary::before {
+    transform: rotate(90deg);
+  }
+  .vt-dash .vt-needs-n4 .n4-context-title {
+    font-weight: 500;
+  }
+  .vt-dash .vt-needs-n4 .n4-context-body {
+    padding: 4px 0 4px 14px;
+    font-size: 13.5px;
+    line-height: 1.6;
+  }
+  .vt-dash .vt-needs-n4 .n4-update {
+    border-left: 2px solid var(--vt-line);
+    padding-left: 10px;
+    margin-bottom: 6px;
+  }
+  .vt-dash .vt-needs-n4 .n4-update .n4-section-label {
+    margin-top: 6px;
+  }
+  .vt-dash .vt-needs-n4 .n4-evidence {
+    list-style: none;
+    padding: 0;
+    margin: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 3px;
+  }
+  .vt-dash .vt-needs-n4 .n4-provenance {
+    margin-top: 14px;
+  }
+
+  .vt-dash .vt-needs-n4 .n4-foot {
+    display: flex;
+    flex-wrap: wrap;
+    justify-content: space-between;
+    gap: 6px 18px;
+    margin-top: 14px;
+    padding-top: 10px;
+    border-top: 1px solid var(--vt-line);
+  }
+  .vt-dash .vt-needs-n4 kbd {
+    font-family: var(--vt-font);
+    font-size: 11px;
+    padding: 0 4px;
+    border: 1px solid var(--vt-line);
+    border-radius: 3px;
+    color: var(--vt-grey);
+  }
+
+  /* ---- the tray of drafted answers + Copy out */
+  .vt-dash .vt-needs-n4 .n4-tray {
+    margin-top: 28px;
+  }
+  .vt-dash .vt-needs-n4 .n4-tray-list ul {
+    list-style: none;
+    padding: 0;
+    margin: 0;
+  }
+  .vt-dash .vt-needs-n4 .n4-tray-row {
+    display: block;
+    width: 100%;
+    padding: 4px 6px;
+    margin-left: -6px;
+    border-radius: 4px;
+    font-size: 13px;
+    overflow-wrap: anywhere;
+  }
+  .vt-dash .vt-needs-n4 .n4-tray-row:hover,
+  .vt-dash .vt-needs-n4 .n4-tray-row[aria-current] {
+    background: var(--vt-hover);
+  }
+  .vt-dash .vt-needs-n4 .vt-needs-copyout {
+    margin-top: 14px;
+  }
+  .vt-dash .vt-needs-n4 .n4-done .vt-needs-copy-btn {
+    background: var(--vt-fg);
+    color: var(--vt-bg);
+    box-shadow: none;
+    padding: 6px 14px;
+  }
+  .vt-dash .vt-needs-n4 .n4-done .vt-needs-copy-btn[disabled] {
+    background: var(--vt-press);
+    color: var(--vt-faint);
+  }
+  .vt-dash .vt-needs-n4 .n4-done .n4-tray-list {
+    margin-top: 18px;
+  }
+
+  /* ---- empty tracks and the settled list */
+  .vt-dash .vt-needs-n4 .n4-empty {
+    margin-top: 28px;
+  }
+  .vt-dash .vt-needs-n4 .n4-empty-track {
+    margin-top: 12px;
+    line-height: 1.55;
+  }
+  .vt-dash .vt-needs-n4 .n4-empty-track p + p {
+    margin-top: 4px;
+  }
+  .vt-dash .vt-needs-n4 .n4-paths {
+    list-style: none;
+    padding: 0;
+    margin: 6px 0 0;
+  }
+  .vt-dash .vt-needs-n4 .n4-decided {
+    margin-top: 28px;
+  }
+  .vt-dash .vt-needs-n4 .n4-decided summary {
+    cursor: pointer;
+  }
+  .vt-dash .vt-needs-n4 .n4-decided ul {
+    list-style: none;
+    padding: 6px 0 0;
+    margin: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    line-height: 1.5;
+  }
+
+  /* ---- framed: the page fits the dashboard's scroll area; the stack is the top row, the rest scrolls under it in its
+     own pane (never under it). The 860px reading width moves to the rows so the pane's scrollbar sits at the edge. */
+  .vt-dash .vt-needs-n4.n4-framed {
+    max-width: none;
+    padding: 0;
+    display: flex;
+    flex-direction: column;
+    min-height: 0;
+  }
+  .vt-dash .vt-needs-n4.n4-framed .n4-top {
+    flex: none;
+    padding: 8px 48px 0;
+    border-bottom: 1px solid var(--vt-line);
+  }
+  .vt-dash .vt-needs-n4.n4-framed .n4-top .n4-stack {
+    max-width: 860px;
+    margin: 0;
+  }
+  .vt-dash .vt-needs-n4.n4-framed .n4-scroll {
+    flex: 1;
+    min-height: 0;
+    overflow: auto;
+    padding: 0 48px 48px;
+  }
+  .vt-dash .vt-needs-n4.n4-framed .n4-body {
+    max-width: 860px;
+    padding-top: 16px;
+  }
+  .vt-dash .vt-needs-n4.n4-framed .n4-head {
+    margin-bottom: 16px;
+  }
+  .vt-dash .vt-needs-n4.n4-framed .n4-card {
+    scroll-margin-top: 12px;
+  }
+  /* Zach's note as saved: its line breaks stay (never folded, never trimmed). */
+  .vt-dash .vt-needs-n4 .n4-tray-note {
+    white-space: pre-wrap;
+  }
+}

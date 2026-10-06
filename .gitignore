@@ -6,3 +6,10 @@ dist/
 build/
 *.egg-info/
 .vibetracks.lock
+# Vibe Tracks dashboard lane: Clank host state for workspace/, the lane's Vite cache, Vite's transient config bundle.
+workspace/.clank/
+.vite-cache/
+*.timestamp-*.mjs
+vibetracks.plugins.pinned.json
+# Proof captures show BAM loop data and bench video frames; they live in the main checkout reports/media (excluded), never in this public repo.
+docs/dashboard/proof/

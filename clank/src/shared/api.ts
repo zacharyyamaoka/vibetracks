@@ -1,0 +1,154 @@
+// The projection and its media, through Clank's plugin proxy (ctx.backend → /api/plugins/vibetracks/<path>).
+// WHY fetch-on-open with an explicit reload, and no live stream: the source is a snapshot for now (projection.source.live
+// is false); a live adapter can add an event stream later without changing the variants.
+
+import { useCallback, useEffect, useRef, useState } from 'react'
+import type { PluginBackend } from '@clank/api'
+import { PROJECTION_SCHEMA, type Projection } from './model'
+import { sharedRequests, type SharedRequests } from '../needs/share'
+
+export class ApiError extends Error {
+  readonly status: number
+  constructor(message: string, status: number) {
+    super(message)
+    this.status = status
+  }
+}
+
+/** GET /projection (`rebuild: true` reruns the adapter first). Throws on a non-2xx answer or a foreign schema. */
+export async function fetchProjection(backend: PluginBackend, options: { rebuild?: boolean; signal?: AbortSignal } = {}): Promise<Projection> {
+  const response = await backend.fetch(options.rebuild ? '/projection?rebuild=1' : '/projection', { signal: options.signal })
+  const text = await response.text()
+  let body: unknown = null
+  try {
+    body = text ? JSON.parse(text) : null
+  } catch {
+    body = text
+  }
+  if (!response.ok) {
+    const message = body && typeof body === 'object' && 'error' in body ? String((body as { error: unknown }).error) : `HTTP ${response.status}`
+    throw new ApiError(message, response.status)
+  }
+  const projection = body as Projection
+  if (!projection || projection.schema !== PROJECTION_SCHEMA) {
+    throw new ApiError(`unexpected projection schema ${JSON.stringify((projection as { schema?: unknown } | null)?.schema)}`, 500)
+  }
+  return projection
+}
+
+// The media URL builders live in mediaBinding.ts (bound to a projection, never to a backend); re-exported here so the
+// variants keep one import.
+export { bindMediaUrl, mediaRevision, mediaUrl } from './mediaBinding'
+
+/** Ask the backend whether a media URL still opens, reading only its status (HEAD): 'ok', 'changed' (409: the
+ * projection it came from is no longer held, or its file changed since it was shown), or `HTTP <status>`. */
+export async function checkMedia(url: string): Promise<'ok' | 'changed' | string> {
+  const response = await fetch(url, { method: 'HEAD' })
+  if (response.ok) return 'ok'
+  if (response.status === 409) return 'changed'
+  return `HTTP ${response.status}`
+}
+
+// WHY a module-level signal (as needs/api.ts does for /needs): a media view that the backend refuses with 409 offers
+// "reload", and that reload must re-read the projection the page shows, which only the mounted useProjection owns.
+const reloadListeners = new Set<() => void>()
+const loadedListeners = new Set<() => void>()
+let projectionsLoaded = 0
+
+/** Ask every mounted useProjection to re-read /projection (a media view's "reload" after a 409). Never automatic. */
+export function requestProjectionReload(): void {
+  for (const listener of [...reloadListeners]) listener()
+}
+
+/** A number that grows each time a projection answer is accepted for display; a refused media view re-checks on it. */
+export function useProjectionsLoaded(): number {
+  const [count, setCount] = useState(projectionsLoaded)
+  useEffect(() => {
+    const listener = () => setCount(projectionsLoaded)
+    loadedListeners.add(listener)
+    listener()
+    return () => {
+      loadedListeners.delete(listener)
+    }
+  }, [])
+  return count
+}
+
+export interface ProjectionState {
+  projection: Projection | null
+  error: string | null
+  loading: boolean
+  /** Re-read projection.json; `rebuild: true` reruns the adapter (python3 -m vibetracks.dashboard.build) first. */
+  reload(options?: { rebuild?: boolean }): void
+}
+
+/** Every useProjection of one backend shares one in-flight /projection read per kind (a read, or a rebuild). */
+const sharedByBackend = new WeakMap<PluginBackend, SharedRequests<Projection>>()
+function projectionRequests(backend: PluginBackend): SharedRequests<Projection> {
+  let shared = sharedByBackend.get(backend)
+  if (!shared) {
+    shared = sharedRequests<Projection>()
+    sharedByBackend.set(backend, shared)
+  }
+  return shared
+}
+
+export function useProjection(backend: PluginBackend): ProjectionState {
+  const [state, setState] = useState<{ projection: Projection | null; error: string | null; loading: boolean }>({
+    projection: null,
+    error: null,
+    loading: true,
+  })
+  // `notBefore` is the share point the reload was asked at (-1 on first load): a reload joins only a read that STARTED
+  // after it, so "reload" is never answered by a read that began before Zach asked (share.ts).
+  const [request, setRequest] = useState<{ n: number; rebuild: boolean; notBefore: number }>({ n: 0, rebuild: false, notBefore: -1 })
+  const ticket = useRef(0)
+
+  useEffect(() => {
+    const mine = ++ticket.current
+    let live = true
+    setState((previous) => ({ ...previous, loading: true }))
+    // WHY shared and not one fetch per hook (verifier, 2026-10-05): one first load started four /projection reads
+    // (React's development double effect times the second viewer Clank keeps in a hidden tab); two were aborted and
+    // two completed, so the backend ran two full live builds for one page open. Every caller now joins one read.
+    // Leaving never cancels it for the others: it is aborted only when nobody waits any more (share.ts).
+    const shared = projectionRequests(backend).get(
+      request.rebuild ? 'rebuild' : 'read',
+      (signal) => fetchProjection(backend, { rebuild: request.rebuild, signal }),
+      request.notBefore,
+    )
+    shared.promise.then(
+      (projection) => {
+        if (!live || mine !== ticket.current) return
+        setState({ projection, error: null, loading: false })
+        projectionsLoaded += 1
+        for (const listener of [...loadedListeners]) listener()
+      },
+      (error: unknown) => {
+        if (!live || mine !== ticket.current) return
+        // WHY keep the last good projection on a failed reload: a transient backend restart should not blank the page.
+        setState((previous) => ({ projection: previous.projection, error: error instanceof Error ? error.message : String(error), loading: false }))
+      },
+    )
+    return () => {
+      live = false
+      shared.release()
+    }
+  }, [backend, request])
+
+  const reload = useCallback(
+    (options?: { rebuild?: boolean }) => {
+      const notBefore = projectionRequests(backend).mark()
+      setRequest((previous) => ({ n: previous.n + 1, rebuild: Boolean(options?.rebuild), notBefore }))
+    },
+    [backend],
+  )
+  useEffect(() => {
+    const listener = () => reload()
+    reloadListeners.add(listener)
+    return () => {
+      reloadListeners.delete(listener)
+    }
+  }, [reload])
+  return { ...state, reload }
+}

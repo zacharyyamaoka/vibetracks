@@ -1,0 +1,51 @@
+#!/usr/bin/env bash
+# Open the Vibe Tracks dashboard: start (or reuse) this checkout's Clank lane, then open "Agent work.vtdash" in it.
+#
+#   /home/bam/vibetracks-dashboard/scripts/open-dashboard          # start or reuse, then open in the browser
+#   /home/bam/vibetracks-dashboard/scripts/open-dashboard --no-open  # start or reuse, print the URL only
+#
+# Constructive and idempotent: pressing it twice reuses the running lane (sps keeps one lane per checkout on its
+# reserved port) and opens one more tab. It never stops anything; stop the lane yourself with
+# `/home/bam/.local/bin/sps --root /home/bam/vibetracks-dashboard dev --stop`.
+#
+# WHY sps and not a launcher of our own: Clank's channels come from /home/bam/stable_preview_switcher (one shared
+# package, stable-preview.json is the only config). In a worktree this is `sps dev` on the lane port 4390 (Vite with
+# HMR, so edits to clank/src show at once); in the main checkout `sps dev` refuses, so it is `sps open --preview`
+# (4396) there.
+# WHY the ?vtdash= parameter: Clank has no open-this-file URL; the plugin reads it once at startup and opens the file
+# through ctx.workbench.open (clank/src/plugin.tsx startupPath).
+# WHY /home/bam/.local/bin/open: xdg-open and gio open are blocked by the no-focus-steal hook, and the shim detaches
+# the browser so this script returns at once.
+set -euo pipefail
+
+ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+SPS="${SPS:-/home/bam/.local/bin/sps}"
+OPENER="${OPENER:-/home/bam/.local/bin/open}"
+FILE_QUERY="vtdash=Agent%20work.vtdash"
+LANE_PORT="${VIBETRACKS_LANE_PORT:-4390}"
+
+open_url=1
+if [[ "${1:-}" == "--no-open" ]]; then open_url=0; fi
+
+# Seed the projection once so the first page load has data (the backend also serves ?rebuild=1).
+if [[ ! -f "${VIBETRACKS_DASHBOARD_HOME:-$HOME/.local/share/vibetracks/dashboard}/projection.json" ]]; then
+  (cd "$ROOT" && python3 -m vibetracks.dashboard.build >/dev/null)
+fi
+
+git_dir="$(git -C "$ROOT" rev-parse --git-dir)"
+common_dir="$(git -C "$ROOT" rev-parse --git-common-dir)"
+if [[ "$(cd "$ROOT" && realpath "$git_dir")" != "$(cd "$ROOT" && realpath "$common_dir")" ]]; then
+  base="$("$SPS" --root "$ROOT" dev --port "$LANE_PORT" | grep -Eo 'http://127\.0\.0\.1:[0-9]+/' | tail -n 1)"
+else
+  base="$("$SPS" --root "$ROOT" open --preview --no-open 2>/dev/null | grep -Eo 'http://127\.0\.0\.1:[0-9]+/' | tail -n 1 || true)"
+  base="${base:-http://127.0.0.1:4396/}"
+fi
+if [[ -z "$base" ]]; then
+  echo "open-dashboard: sps did not print a URL" >&2
+  exit 1
+fi
+url="${base}?${FILE_QUERY}"
+echo "$url"
+if [[ "$open_url" == 1 ]]; then
+  "$OPENER" "$url"
+fi

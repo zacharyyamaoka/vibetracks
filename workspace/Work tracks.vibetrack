@@ -1,0 +1,37 @@
+# The work-track registry: one Markdown note per agent work track in tracks/, read by
+# vibetracks/dashboard/registry.py and drawn as the dashboard's home rows (docs/dashboard/ADAPTERS.md).
+# "Work track", not "track": in Vibe Tracks a track is an area lane inside one project (tracks.py).
+filters:
+  and:
+    - 'note["vibe-track"] == "worktrack"'
+    - 'file.inFolder("tracks")'
+
+views:
+  - type: table
+    name: Work tracks
+    order:
+      - vibe-priority
+      - vibe-id
+      - vibe-title
+      - vibe-status
+      - vibe-adapter
+      - vibe-owner
+
+vibetracks:
+  version: 1
+  id: work-tracks
+  title: Work tracks
+  description: "The agent loops Zach runs, one note each; the dashboard's home page has one row per running or paused note."
+  vaultRoot: .
+  source: tracks
+  statuses: [running, paused, archived]
+  # Keys beyond the stock vibe- set (registry.py WORKTRACK_PROPERTIES); renaming one here renames it for the registry.
+  properties:
+    title: vibe-title
+    owner: vibe-owner
+    adapter: vibe-adapter
+    sources: vibe-sources
+    heartbeat: vibe-heartbeat
+    stallHours: vibe-stall-hours
+    roadmap: vibe-roadmap
+    children: vibe-children

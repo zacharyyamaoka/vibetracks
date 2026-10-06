@@ -1,0 +1,177 @@
+/* The "Needs you" kit's own few rules, rooted in .vt-dash .vt-needs, in @layer base (clank-workbench CLAUDE.md §1.5).
+   Proposals root their CSS in .vt-dash .vt-needs-n<k> inside their own folder. */
+@layer base {
+  /* The chooser is one pill that opens its list upward. Docked (below), it sits in the review bar; floating (no bar),
+     it takes the bottom-right corner (the retired A · B · C switcher's), so the corner it covers stays small. */
+  .vt-dash .vt-switcher.vt-needs-switcher {
+    bottom: 14px;
+    flex-direction: column;
+    align-items: stretch;
+    gap: 2px;
+  }
+  .vt-dash .vt-needs-switcher .vt-needs-switch-menu {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    padding-bottom: 3px;
+    border-bottom: 1px solid var(--vt-line);
+  }
+  .vt-dash .vt-needs-switcher .vt-needs-switch-menu .vt-btn {
+    text-align: left;
+  }
+  .vt-dash .vt-needs-switcher .vt-needs-switch-pill {
+    display: inline-flex;
+    align-items: center;
+  }
+  .vt-dash .vt-needs-switcher .vt-needs-switch-pill .vt-switch-label {
+    padding: 0 6px 0 0;
+  }
+  .vt-dash .vt-needs-switcher .vt-needs-switch-caret {
+    margin-left: 6px;
+    color: var(--vt-faint);
+  }
+  /* Docked in Dashboard.tsx's review bar (#vt-review-bar), the bar's own rules in calm.css place the pill: static,
+     hairline only, its list growing upward out of the fixed-height bar. Nothing here overrides them. */
+  /* WHY 80px of bottom padding, only while the pill floats (no review bar): it then sits over the bottom-right corner
+     (bottom 14px, ~31px tall, so its top edge is ~45px up). At max scroll the last answer control must sit above it,
+     never under it (measured with elementFromPoint, every proposal × kinsim and rig). Docked, nothing covers the page
+     and a normal end margin is enough. */
+  .vt-dash .vt-needs {
+    padding-bottom: 32px;
+  }
+  .vt-dash .vt-needs[data-chooser='floating'] {
+    padding-bottom: 80px;
+  }
+  /* A framed proposal (useFitToScroller in kit.ts) already ends CHOOSER_RESERVE above the frame's bottom and scrolls
+     inside itself; the shell's own clearance would make the dashboard scroll too and clip the Back row. */
+  .vt-dash .vt-needs[data-chooser]:has(> .vt-needs-framed) {
+    padding-bottom: 0;
+  }
+  .vt-dash .vt-needs-back-row {
+    padding: 10px 48px 0;
+  }
+  .vt-dash .vt-needs-back-row .vt-btn:hover {
+    color: var(--vt-fg);
+  }
+  .vt-dash .vt-needs-placeholder .vt-needs-track {
+    margin-top: 28px;
+  }
+  .vt-dash .vt-needs-placeholder .vt-needs-group {
+    margin-top: 16px;
+  }
+  .vt-dash .vt-needs-placeholder .vt-needs-item {
+    padding: 10px 0;
+    border-bottom: 1px solid var(--vt-line);
+  }
+  .vt-dash .vt-needs-pre {
+    white-space: pre-wrap;
+    margin-top: 6px;
+  }
+  .vt-dash .vt-needs-evidence-row {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 4px 14px;
+    margin-top: 4px;
+  }
+  .vt-dash .vt-needs-evidence-path code {
+    font-family: var(--vt-mono);
+    font-size: 12px;
+    color: var(--vt-grey);
+    word-break: break-all;
+  }
+  .vt-dash .vt-needs-evidence-path .vt-btn {
+    margin-left: 6px;
+  }
+  .vt-dash .vt-needs-choices {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+    margin-top: 6px;
+  }
+  .vt-dash .vt-needs-choices .vt-chip-btn[aria-pressed='true'] {
+    background: var(--vt-press);
+    color: var(--vt-fg);
+    font-weight: 600;
+  }
+  .vt-dash .vt-needs-note,
+  .vt-dash .vt-needs-copy-area {
+    display: block;
+    width: 100%;
+    margin-top: 6px;
+    padding: 6px 8px;
+    border: 1px solid var(--vt-line);
+    border-radius: 5px;
+    background: transparent;
+    color: var(--vt-fg);
+    font: inherit;
+    font-size: 13px;
+    resize: vertical;
+  }
+  .vt-dash .vt-needs-copy-area {
+    font-family: var(--vt-mono);
+    font-size: 12px;
+  }
+  .vt-dash .vt-needs-copyout {
+    margin-top: 24px;
+  }
+  .vt-dash .vt-needs-copy-btn {
+    padding: 5px 12px;
+    border-radius: 5px;
+    box-shadow: 0 0 0 1px var(--vt-line);
+    font-weight: 500;
+  }
+  .vt-dash .vt-needs-copy-btn:hover {
+    background: var(--vt-hover);
+  }
+  .vt-dash .vt-needs-copy-btn[disabled] {
+    color: var(--vt-faint);
+    cursor: default;
+  }
+  .vt-dash .vt-needs-copy-result {
+    margin-top: 10px;
+  }
+
+  /* A stale draft (StaleDraftNotice.tsx): a hairline box in the page's own greys, no colour fill. WHY no warn colour on
+     the box: a changed question is a quiet "read this again", not an alarm; the bold reason carries it. */
+  .vt-dash .vt-needs-stale {
+    margin: 10px 0;
+    padding: 8px 12px;
+    border: 1px solid var(--vt-line);
+    border-radius: 6px;
+  }
+  .vt-dash .vt-needs-stale p + p {
+    margin-top: 4px;
+  }
+  /* Zach's note exactly as saved: its line breaks and edge whitespace stay visible. */
+  .vt-dash .vt-needs-stale-note {
+    display: block;
+    white-space: pre-wrap;
+    margin-top: 2px;
+    color: var(--vt-fg);
+  }
+  .vt-dash .vt-needs-stale-actions {
+    display: flex;
+    gap: 12px;
+  }
+  /* WHY `.vt-needs` in the selector: calm.css's `.vt-dash button.vt-btn { all: unset }` outranks two classes and would
+     strip the underline, leaving Reconfirm / Discard looking like plain words. */
+  .vt-dash .vt-needs .vt-needs-stale-btn {
+    padding: 2px 0;
+    color: var(--vt-fg);
+    font-weight: 500;
+    text-decoration: underline;
+    text-decoration-color: var(--vt-faint);
+    text-underline-offset: 3px;
+  }
+  .vt-dash .vt-needs-not-in-copy {
+    margin-top: 8px;
+  }
+  .vt-dash .vt-needs .vt-needs-settings-link {
+    padding: 0;
+    color: var(--vt-fg);
+    font-weight: 500;
+    text-decoration: underline;
+    text-decoration-color: var(--vt-faint);
+    text-underline-offset: 3px;
+  }
+}

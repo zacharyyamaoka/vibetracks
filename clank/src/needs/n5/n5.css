@@ -1,0 +1,489 @@
+/* N5 · Agent conversation. Rooted in .vt-dash .vt-needs-n5, in @layer base (clank-workbench CLAUDE.md §1.5).
+   WHY three quiet columns (threads · conversation · outbox) and no bubbles-everywhere chat chrome: calm is the
+   container and the agent's words are the content, so the agent message is plain text on the page (Slack/Linear
+   comment style) and only Zach's own replies get a tinted bubble, which is what he scans for. */
+@layer base {
+  .vt-dash .vt-needs-n5 {
+    display: grid;
+    grid-template-columns: 264px minmax(0, 1fr) 312px;
+    min-height: 420px;
+    height: calc(100vh - 220px);
+    border-top: 1px solid var(--vt-line);
+    border-bottom: 1px solid var(--vt-line);
+    margin-top: 8px;
+  }
+  .vt-dash .vt-needs-n5 code {
+    font-family: var(--vt-mono);
+    font-size: 0.88em;
+    padding: 0 3px;
+    border-radius: 3px;
+    background: var(--vt-band);
+    word-break: break-word;
+  }
+  .vt-dash .vt-needs-n5 kbd {
+    font-family: var(--vt-mono);
+    font-size: 10.5px;
+    color: var(--vt-faint);
+    border: 1px solid var(--vt-line);
+    border-radius: 3px;
+    padding: 0 4px;
+    margin-left: 6px;
+  }
+  .vt-dash .vt-needs-n5 .n5-pad {
+    padding: 8px 16px;
+  }
+  .vt-dash .vt-needs-n5 .n5-link {
+    color: var(--vt-grey);
+    text-decoration: underline;
+    text-decoration-color: var(--vt-line);
+    text-underline-offset: 2px;
+  }
+  .vt-dash .vt-needs-n5 .n5-link:hover {
+    color: var(--vt-fg);
+    text-decoration-color: var(--vt-grey);
+  }
+  .vt-dash .vt-needs-n5 .n5-pre {
+    white-space: pre-wrap;
+    overflow-wrap: anywhere;
+  }
+
+  /* ---- rail: threads, grouped by track, blocking first */
+  .vt-dash .vt-needs-n5 .n5-rail {
+    overflow: auto;
+    border-right: 1px solid var(--vt-line);
+    padding: 14px 0 24px;
+  }
+  .vt-dash .vt-needs-n5 .n5-rail-head {
+    padding: 0 16px 6px;
+  }
+  .vt-dash .vt-needs-n5 .n5-rail-track {
+    margin-top: 14px;
+  }
+  .vt-dash .vt-needs-n5 .n5-rail-title {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: 8px;
+    padding: 4px 16px;
+    font-size: 13px;
+    font-weight: 600;
+  }
+  .vt-dash .vt-needs-n5 .n5-rail-count {
+    font-size: 12px;
+    font-weight: 500;
+  }
+  .vt-dash .vt-needs-n5 .n5-rail-empty {
+    padding: 0 16px;
+  }
+  .vt-dash .vt-needs-n5 .n5-rail-group {
+    margin-top: 6px;
+  }
+  .vt-dash .vt-needs-n5 .n5-rail-group-label {
+    display: block;
+    padding: 4px 16px 2px;
+    font-size: 11.5px;
+    color: var(--vt-faint);
+  }
+  .vt-dash .vt-needs-n5 .n5-rail-fold:hover {
+    color: var(--vt-fg);
+  }
+  .vt-dash .vt-needs-n5 .n5-rail-row {
+    display: flex;
+    align-items: baseline;
+    gap: 7px;
+    width: 100%;
+    padding: 4px 16px;
+    font-size: 13px;
+    line-height: 1.4;
+  }
+  .vt-dash .vt-needs-n5 .n5-rail-row:hover {
+    background: var(--vt-hover);
+  }
+  .vt-dash .vt-needs-n5 .n5-rail-row.is-current {
+    background: var(--vt-press);
+  }
+  .vt-dash .vt-needs-n5 .n5-rail-row.is-replied .n5-rail-text {
+    color: var(--vt-grey);
+  }
+  .vt-dash .vt-needs-n5 .n5-rail-id {
+    flex: none;
+    font-family: var(--vt-mono);
+    font-size: 11.5px;
+    color: var(--vt-faint);
+    min-width: 26px;
+  }
+  /* The rail abbreviates with an explicit ellipsis; the full title is the row's tooltip and the thread's heading. */
+  .vt-dash .vt-needs-n5 .n5-rail-text {
+    flex: 1;
+    min-width: 0;
+    overflow: hidden;
+    white-space: nowrap;
+    text-overflow: ellipsis;
+  }
+  .vt-dash .vt-needs-n5 .n5-rail-state {
+    flex: none;
+    font-size: 11.5px;
+    color: var(--vt-faint);
+  }
+  .vt-dash .vt-needs-n5 .n5-dot {
+    flex: none;
+    width: 7px;
+    height: 7px;
+    border-radius: 50%;
+    background: var(--vt-ok-dot);
+    transform: translateY(-1px);
+  }
+  .vt-dash .vt-needs-n5 .n5-dot-warn {
+    background: var(--vt-warn-dot);
+  }
+  .vt-dash .vt-needs-n5 .n5-dot-stale {
+    background: var(--vt-stale-dot);
+  }
+
+  /* ---- the conversation */
+  .vt-dash .vt-needs-n5 .n5-main {
+    min-width: 0;
+    min-height: 0;
+    display: flex;
+    flex-direction: column;
+  }
+  .vt-dash .vt-needs-n5 .n5-thread {
+    display: flex;
+    flex-direction: column;
+    min-height: 0;
+    height: 100%;
+  }
+  .vt-dash .vt-needs-n5 .n5-thread-head {
+    padding: 16px 32px 12px;
+    border-bottom: 1px solid var(--vt-line);
+    outline: none;
+  }
+  .vt-dash .vt-needs-n5 .n5-thread-title {
+    margin-top: 2px;
+    font-size: 18px;
+    line-height: 1.35;
+    font-weight: 650;
+  }
+  .vt-dash .vt-needs-n5 .n5-thread-id {
+    font-family: var(--vt-mono);
+    font-size: 14px;
+    font-weight: 500;
+    color: var(--vt-faint);
+  }
+  .vt-dash .vt-needs-n5 .n5-stream {
+    flex: 1;
+    min-height: 0;
+    overflow: auto;
+    padding: 18px 32px 24px;
+  }
+  .vt-dash .vt-needs-n5 .n5-stream > * {
+    max-width: 760px;
+  }
+  .vt-dash .vt-needs-n5 .n5-msg {
+    display: flex;
+    gap: 12px;
+    margin-bottom: 18px;
+  }
+  .vt-dash .vt-needs-n5 .n5-avatar {
+    flex: none;
+    width: 28px;
+    height: 28px;
+    border-radius: 50%;
+    background: var(--vt-press);
+    color: var(--vt-grey);
+    font-size: 11.5px;
+    font-weight: 600;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+  }
+  .vt-dash .vt-needs-n5 .n5-msg.is-follow .n5-avatar {
+    background: transparent;
+    color: var(--vt-faint);
+    box-shadow: inset 0 0 0 1px var(--vt-line);
+  }
+  .vt-dash .vt-needs-n5 .n5-msg-main {
+    min-width: 0;
+    flex: 1;
+  }
+  .vt-dash .vt-needs-n5 .n5-msg-meta {
+    font-size: 12.5px;
+    margin-bottom: 3px;
+  }
+  .vt-dash .vt-needs-n5 .n5-msg-body > * + * {
+    margin-top: 12px;
+  }
+  .vt-dash .vt-needs-n5 .n5-body > * + * {
+    margin-top: 4px;
+  }
+  .vt-dash .vt-needs-n5 .n5-ask {
+    font-weight: 600;
+  }
+  .vt-dash .vt-needs-n5 .n5-key {
+    display: block;
+    font-size: 11.5px;
+    font-weight: 600;
+    color: var(--vt-grey);
+    margin-bottom: 2px;
+  }
+  .vt-dash .vt-needs-n5 .n5-line {
+    display: flex;
+    gap: 10px;
+    align-items: baseline;
+    flex-wrap: wrap;
+  }
+  .vt-dash .vt-needs-n5 .n5-line .n5-key {
+    display: inline;
+    margin: 0;
+  }
+  .vt-dash .vt-needs-n5 .n5-rec,
+  .vt-dash .vt-needs-n5 .n5-default {
+    padding-left: 12px;
+    border-left: 2px solid var(--vt-line);
+  }
+  /* WHY grey and not the accent on every ordinary state here (the recommendation's rule, the draft bubble, a picked
+     chip, its "recommended" tag, the progress meter): colour only for exceptions (Codex audit 2026-10-05 round 2
+     finding 7); the accent is left for the keyboard focus ring only. Weight and the words tell these apart. */
+  .vt-dash .vt-needs-n5 .n5-rec {
+    border-left-color: var(--vt-grey);
+  }
+  .vt-dash .vt-needs-n5 .n5-attachments {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+  }
+  .vt-dash .vt-needs-n5 .n5-attachment {
+    display: inline-flex;
+    align-items: baseline;
+    gap: 6px;
+    max-width: 100%;
+    padding: 4px 9px;
+    border: 1px solid var(--vt-line);
+    border-radius: 6px;
+    font-size: 12.5px;
+  }
+  .vt-dash .vt-needs-n5 .n5-attachment-kind {
+    font-size: 11px;
+    color: var(--vt-faint);
+  }
+  .vt-dash .vt-needs-n5 .n5-attachment .vt-needs-evidence {
+    min-width: 0;
+    overflow-wrap: anywhere;
+  }
+  .vt-dash .vt-needs-n5 .n5-prov {
+    margin-top: 10px;
+  }
+  .vt-dash .vt-needs-n5 .n5-earlier {
+    display: block;
+    margin: -6px 0 16px 40px;
+  }
+  .vt-dash .vt-needs-n5 .n5-reply {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-end;
+    margin: 4px 0 18px auto;
+    max-width: 560px;
+  }
+  .vt-dash .vt-needs-n5 .n5-reply-bubble {
+    padding: 8px 12px;
+    border-radius: 10px 10px 2px 10px;
+    background: var(--vt-press);
+    max-width: 100%;
+  }
+  .vt-dash .vt-needs-n5 .n5-reply.is-draft .n5-reply-bubble {
+    background: var(--vt-bg);
+    box-shadow: inset 0 0 0 1px var(--vt-line);
+  }
+  .vt-dash .vt-needs-n5 .n5-reply-bubble > * + * {
+    margin-top: 3px;
+  }
+  .vt-dash .vt-needs-n5 .n5-reply-actions {
+    display: flex;
+    gap: 12px;
+    justify-content: flex-end;
+  }
+  .vt-dash .vt-needs-n5 .n5-skipped-note {
+    text-align: right;
+  }
+
+  /* ---- composer, pinned at the bottom of the thread */
+  .vt-dash .vt-needs-n5 .n5-composer {
+    flex: none;
+    padding: 10px 32px 10px;
+    border-top: 1px solid var(--vt-line);
+    background: var(--vt-bg);
+  }
+  .vt-dash .vt-needs-n5 .n5-composer > * {
+    max-width: 760px;
+  }
+  .vt-dash .vt-needs-n5 .n5-quick {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 6px 8px;
+  }
+  .vt-dash .vt-needs-n5 .n5-chip {
+    display: inline-flex;
+    align-items: center;
+    padding: 4px 10px;
+    border-radius: 14px;
+    box-shadow: 0 0 0 1px var(--vt-line);
+    font-size: 13px;
+  }
+  .vt-dash .vt-needs-n5 .n5-chip:hover {
+    background: var(--vt-hover);
+  }
+  .vt-dash .vt-needs-n5 .n5-chip[aria-pressed='true'] {
+    background: var(--vt-press);
+    box-shadow: 0 0 0 1px var(--vt-grey);
+    font-weight: 500;
+  }
+  .vt-dash .vt-needs-n5 .n5-chip-tag {
+    margin-left: 6px;
+    font-size: 11px;
+    color: var(--vt-grey);
+  }
+  .vt-dash .vt-needs-n5 .n5-skip {
+    align-self: center;
+    margin-left: 4px;
+    white-space: nowrap;
+  }
+  .vt-dash .vt-needs-n5 .n5-input-row {
+    display: flex;
+    gap: 8px;
+    align-items: flex-end;
+    margin-top: 8px;
+  }
+  .vt-dash .vt-needs-n5 .n5-input {
+    flex: 1;
+    min-width: 0;
+    padding: 7px 10px;
+    border: 1px solid var(--vt-line);
+    border-radius: 8px;
+    background: transparent;
+    color: var(--vt-fg);
+    font: inherit;
+    font-size: 13.5px;
+    min-height: 36px;
+    resize: vertical;
+  }
+  .vt-dash .vt-needs-n5 .n5-input:focus {
+    outline: none;
+    border-color: var(--vt-grey);
+  }
+  .vt-dash .vt-needs-n5 .n5-send {
+    padding: 6px 14px;
+    border-radius: 8px;
+    box-shadow: 0 0 0 1px var(--vt-line);
+    font-weight: 500;
+  }
+  .vt-dash .vt-needs-n5 .n5-send:hover:not([disabled]) {
+    background: var(--vt-hover);
+  }
+  .vt-dash .vt-needs-n5 .n5-send[disabled] {
+    color: var(--vt-faint);
+    cursor: default;
+  }
+  .vt-dash .vt-needs-n5 .n5-hint {
+    margin-top: 6px;
+  }
+
+  /* ---- empty and done states */
+  .vt-dash .vt-needs-n5 .n5-empty,
+  .vt-dash .vt-needs-n5 .n5-done {
+    padding: 40px 32px;
+    max-width: 680px;
+  }
+  .vt-dash .vt-needs-n5 .n5-empty > * + *,
+  .vt-dash .vt-needs-n5 .n5-done > * + * {
+    margin-top: 10px;
+  }
+  .vt-dash .vt-needs-n5 .n5-empty-track {
+    margin-top: 22px;
+  }
+  .vt-dash .vt-needs-n5 .n5-empty-track > * + * {
+    margin-top: 6px;
+  }
+  .vt-dash .vt-needs-n5 .n5-empty-note {
+    padding-left: 12px;
+    border-left: 2px solid var(--vt-line);
+  }
+
+  /* ---- outbox: the one outgoing message. Bottom padding clears the two switchers in the corner. */
+  .vt-dash .vt-needs-n5 .n5-outbox {
+    overflow: auto;
+    border-left: 1px solid var(--vt-line);
+    padding: 14px 18px 24px;
+  }
+  .vt-dash .vt-needs-n5 .n5-outbox > * + * {
+    margin-top: 6px;
+  }
+  .vt-dash .vt-needs-n5 .n5-meter {
+    height: 3px;
+    border-radius: 2px;
+    background: var(--vt-line);
+    overflow: hidden;
+    margin-top: 12px;
+  }
+  .vt-dash .vt-needs-n5 .n5-meter > span {
+    display: block;
+    height: 100%;
+    background: var(--vt-grey);
+    transition: width 0.25s ease;
+  }
+  .vt-dash .vt-needs-n5 .n5-out-track {
+    margin-top: 16px;
+    padding-top: 10px;
+    border-top: 1px solid var(--vt-line);
+  }
+  .vt-dash .vt-needs-n5 .n5-out-lines {
+    margin-top: 6px;
+  }
+  .vt-dash .vt-needs-n5 .n5-out-line {
+    display: flex;
+    gap: 8px;
+    align-items: baseline;
+    width: 100%;
+    padding: 4px 6px;
+    margin: 0 -6px;
+    border-radius: 4px;
+    font-size: 13px;
+    line-height: 1.4;
+  }
+  .vt-dash .vt-needs-n5 .n5-out-line:hover {
+    background: var(--vt-hover);
+  }
+  .vt-dash .vt-needs-n5 .vt-needs-copyout {
+    margin-top: 18px;
+  }
+  .vt-dash .vt-needs-n5 .n5-outbox .vt-needs-copy-btn,
+  .vt-dash .vt-needs-n5 .n5-done .vt-needs-copy-btn {
+    padding: 7px 14px;
+    border-radius: 8px;
+    box-shadow: 0 0 0 1px var(--vt-grey);
+    text-align: center;
+  }
+  .vt-dash .vt-needs-n5 .n5-outbox .vt-needs-copy-btn {
+    width: 100%;
+  }
+  .vt-dash .vt-needs-n5 .vt-needs-copy-btn[disabled] {
+    box-shadow: 0 0 0 1px var(--vt-line);
+  }
+  .vt-dash .vt-needs-n5 .n5-outbox .vt-needs-copyout .vt-tone-warn {
+    display: block;
+    margin: 6px 0 0 !important;
+  }
+}
+@layer base {
+  /* WHY no ring on the page root: it holds keyboard focus so J/K/A/D/S work (Clank eats letters on <body>); it is not
+     a control, and a ring around the whole page reads as a selection. Controls inside keep their own rings. */
+  .vt-dash .vt-needs-n5.vt-needs-n5:focus,
+  .vt-dash .vt-needs-n5.vt-needs-n5:focus-visible {
+    outline: none;
+  }
+  /* The stale-draft notice sits between the thread and the composer, never scrolled away with the stream. */
+  .vt-dash .vt-needs-n5 .vt-needs-stale.n5-stale {
+    flex: none;
+    margin: 8px 32px;
+  }
+}

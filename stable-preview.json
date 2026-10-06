@@ -1,0 +1,49 @@
+{
+  "app": "vibetracks-dashboard",
+  "name": "Vibe Tracks dashboard",
+  "mainBranch": "main",
+  "chip": {"position": "bottom-right", "avoid": ["[data-testid=\"shadcn-status-bar\"]"]},
+  "stable": {
+    "port": 4394,
+    "build": [
+      ["python3", "/home/bam/clank-workbench/scripts/pin_plugin_list.py", "{source}/vibetracks.plugins.json", "{source}/vibetracks.plugins.pinned.json"],
+      ["node", "{assets}/vite/build.mjs", "--root", "/home/bam/clank-workbench", "--out-dir", "{source}/dist"]
+    ],
+    "output": "dist",
+    "env": {
+      "CLANK_PLUGINS_FILE": "{source}/vibetracks.plugins.pinned.json"
+    },
+    "processes": [
+      {
+        "name": "host",
+        "port": 4395,
+        "command": ["python3", "/home/bam/clank-workbench/host/clank_host.py", "{source}/workspace", "--port", "{port}", "--plugins", "{source}/vibetracks.plugins.pinned.json", "--state-dir", "{stateDir}/host"],
+        "health": "/api/health"
+      }
+    ],
+    "proxy": {"/api/": "host"}
+  },
+  "preview": {
+    "port": 4396,
+    "command": ["node", "/home/bam/clank-workbench/node_modules/vite/bin/vite.js", "/home/bam/clank-workbench", "--config", "{checkout}/vite.vibetracks.config.mjs", "--port", "{port}", "--strictPort", "--host", "127.0.0.1"],
+    "health": "/",
+    "env": {
+      "CLANK_API_PORT": "{ports.host}",
+      "CLANK_PLUGINS_FILE": "{checkout}/vibetracks.plugins.json"
+    },
+    "restartWhen": ["vibetracks.plugins.json"],
+    "processes": [
+      {
+        "name": "host",
+        "port": 4397,
+        "command": ["python3", "/home/bam/clank-workbench/host/clank_host.py", "{checkout}/workspace", "--port", "{port}", "--plugins", "{checkout}/vibetracks.plugins.json", "--state-dir", "{stateDir}/host"],
+        "health": "/api/health",
+        "restartWhen": ["vibetracks.plugins.json"]
+      }
+    ]
+  },
+  "snapshot": {"exclude": ["tests/", "reports/"]},
+  "lanes": {
+    "portRange": [4390, 4393]
+  }
+}

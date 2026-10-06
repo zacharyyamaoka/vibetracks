@@ -17,7 +17,9 @@ Repository = "https://github.com/zacharyyamaoka/vibetracks"
 vibetracks = "vibetracks.cli:main"
 
 [tool.setuptools]
-packages = ["vibetracks"]
+packages = {find = {include = ["vibetracks*"]}}
 
 [tool.setuptools.package-data]
 vibetracks = ["static/*", "AGENT.md"]
+"vibetracks.roadmap" = ["*.json"]
+"vibetracks.roadmap.projector" = ["schemas/*.json", "README.md"]
