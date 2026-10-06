@@ -20,6 +20,8 @@ import { openNeeds } from '../../needs'
 import { TrackMenu, TrackName, type Renamer } from './rename'
 import { useRegisteredRoadmap } from './roadmapReload'
 import { Scorecard } from './Scorecard'
+import { KpiTableSection, PlaybacksSection } from './RobotSections'
+import { kpiGroupsOf, kpiTableOf, playbacksOf } from './robotKpis'
 import { ProgressCell, ProvenNote } from './TracksPage'
 import { provenOf } from './proven'
 
@@ -33,6 +35,8 @@ interface TrackPageProps {
   backend: PluginBackend
   roadmapSettings: RoadmapSettings
   renamer: Renamer
+  /** The media URL for one allowlisted id, bound to the projection shown (an mp4, the KPI doc, a report). */
+  mediaUrl: (id: string) => string
 }
 
 /** A loop loads its roadmap once here, shared by the north-star line ("· N proven") and the Roadmap section.
@@ -47,8 +51,23 @@ function LoopTrackPage(props: TrackPageProps) {
   return <TrackPageBody {...props} roadmap={roadmap} />
 }
 
-function TrackPageBody({ projection, track, title, nav, xAxis, showDeltas, roadmapSettings, renamer, roadmap }: TrackPageProps & { roadmap: RoadmapDocState | null }) {
+function TrackPageBody({ projection, track, title, nav, xAxis, showDeltas, roadmapSettings, renamer, roadmap, mediaUrl }: TrackPageProps & { roadmap: RoadmapDocState | null }) {
   const route = nav.route
+  const kpiTable = kpiTableOf(track)
+  const playbacks = playbacksOf(track)
+  const openGroups = (route.kg ?? '').split(',').filter(Boolean)
+  const toggleGroup = (id: string) => {
+    const next = openGroups.includes(id) ? openGroups.filter((open) => open !== id) : [...openGroups, id]
+    nav.go({ ...route, kg: next.length ? next.join(',') : undefined }, 'replace')
+  }
+  const docRef = kpiTable?.doc ?? null
+  const docs = docRef && typeof docRef.path === 'string'
+    ? {
+        label: typeof docRef.media === 'string' ? 'How and why we track these (KPIS.md)' : 'KPIS.md (not written yet)',
+        href: typeof docRef.media === 'string' ? mediaUrl(docRef.media) : null,
+        path: docRef.path,
+      }
+    : null
   const parent = track.parent ? trackById(projection, track.parent) : null
   const children = childrenOf(projection, track.id)
   const moved = lastMoved(projection, track)
@@ -118,6 +137,8 @@ function TrackPageBody({ projection, track, title, nav, xAxis, showDeltas, roadm
               selectedKpi={route.kpi ?? null}
               onOpenColumn={(column) => nav.iteration(track.id, column.opens)}
               onOpenCell={(kpi, column) => nav.iteration(track.id, column.opens, { kpi: kpi.id })}
+              openGroups={openGroups}
+              onToggleGroup={toggleGroup}
             />
           </>
         ) : (
@@ -126,6 +147,10 @@ function TrackPageBody({ projection, track, title, nav, xAxis, showDeltas, roadm
           </p>
         )}
       </section>
+
+      {/* (b2) the KPI table and (b3) the Rerun playbacks, for a track that carries them (the rig) */}
+      {kpiTable ? <KpiTableSection track={track} table={kpiTable} docs={docs} /> : null}
+      {playbacks ? <PlaybacksSection playbacks={playbacks} mediaUrl={mediaUrl} /> : null}
 
       {/* (c) the roadmap: a loop's, never a deployment's (a deployment is evidence inside its loop's roadmap) */}
       {roadmap ? <RoadmapSection track={track} nav={nav} roadmap={roadmap} settings={roadmapSettings} /> : null}
@@ -193,8 +218,17 @@ function TrackPageBody({ projection, track, title, nav, xAxis, showDeltas, roadm
                 </button>
               )
             }
+            if (link.kind === 'media' && link.media) {
+              // WHY an anchor: a media link no evidence item owns (the KPI doc, the living report) still opens, through
+              // the allowlist and this projection's revision, instead of printing a label with no path.
+              return (
+                <a key={link.label} className="vt-a-link" data-testid="vt-a-media-link" href={mediaUrl(link.media)} target="_blank" rel="noreferrer">
+                  {link.label}
+                </a>
+              )
+            }
             return (
-              <span key={link.label} className="vt-muted" title={link.value}>
+              <span key={link.label} className="vt-muted" title={link.value} data-testid="vt-a-path-link">
                 {link.label} <code className="vt-a-code">{link.value}</code>
               </span>
             )
@@ -395,6 +429,8 @@ function NorthStarLine({ track }: { track: Track }) {
       </span>
     )
   }
+  // A track that groups its KPIs (the rig) leads with a robot KPI whose one reading has a date: say it beside the value.
+  const when = kpiGroupsOf(track) && star.status?.word ? star.status.word : null
   // Progress = level + rate: the level against scope, and the move since the pinned baseline.
   const base = star.baseline
   const baseValue = base ? valueAt(star, base.iteration) : null
@@ -403,6 +439,7 @@ function NorthStarLine({ track }: { track: Track }) {
   return (
     <span>
       <b className="vt-num">{formatKpiValue(star, latest)}</b> {star.label}
+      {when ? <span className={star.status.tone === 'stale' || star.status.tone === 'warn' ? `vt-tone-${star.status.tone}` : 'vt-faint'}> · {when}</span> : null}
       {moved !== null && base && steps > 0 ? (
         <span className="vt-faint">
           {' '}· {moved >= 0 ? '+' : '−'}

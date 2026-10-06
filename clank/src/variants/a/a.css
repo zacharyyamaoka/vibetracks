@@ -873,4 +873,188 @@
   .vt-dash .vt-a .vt-a-deploy-name {
     font-weight: 500;
   }
+
+  /* ---- L2: KPI groups (a track's own kpi_groups: the rig's Robot KPIs, then a folded Loop health) */
+  .vt-dash .vt-a .vt-a-grouptoggle {
+    font-size: 12.5px;
+    color: var(--vt-grey);
+    border-radius: 4px;
+    padding: 1px 4px 1px 0;
+    cursor: pointer;
+  }
+  .vt-dash .vt-a .vt-a-grouptoggle:hover {
+    color: var(--vt-fg);
+  }
+  .vt-dash .vt-a .vt-a-groupnote {
+    font-size: 12px;
+    color: var(--vt-faint);
+  }
+
+  /* ---- L2: the KPI table (deployment × backend × settings). It scrolls inside its own box with the row's identity
+     sticky (the page never scrolls sideways); KPI columns are narrow and right-aligned, gaps read "not measured". */
+  .vt-dash .vt-a .vt-a-kt-scroll {
+    overflow-x: auto;
+    padding-bottom: 4px;
+  }
+  .vt-dash .vt-a .vt-a-kt {
+    width: auto;
+    min-width: 100%;
+    border-collapse: separate;
+    border-spacing: 0;
+    font-size: 13px;
+  }
+  .vt-dash .vt-a .vt-a-kt th,
+  .vt-dash .vt-a .vt-a-kt td {
+    padding: 7px 10px 7px 6px;
+    vertical-align: top;
+  }
+  .vt-dash .vt-a .vt-a-kt th {
+    vertical-align: bottom;
+    white-space: normal;
+  }
+  .vt-dash .vt-a .vt-a-kt .vt-a-kt-id {
+    min-width: 190px;
+    max-width: 230px;
+  }
+  .vt-dash .vt-a .vt-a-kt .vt-a-kt-runs {
+    min-width: 128px;
+    white-space: nowrap;
+  }
+  .vt-dash .vt-a .vt-a-kt .vt-a-kt-num {
+    min-width: 66px;
+    max-width: 92px;
+    text-align: right;
+    white-space: nowrap;
+  }
+  .vt-dash .vt-a .vt-a-kt th.vt-a-kt-num {
+    white-space: normal;
+  }
+  .vt-dash .vt-a .vt-a-kt-head {
+    display: block;
+    line-height: 1.25;
+  }
+  .vt-dash .vt-a .vt-a-kt th small {
+    display: block;
+    color: var(--vt-faint);
+  }
+  .vt-dash .vt-a .vt-a-kt-gap {
+    font-size: 11.5px;
+    color: var(--vt-faint);
+  }
+  .vt-dash .vt-a .vt-a-kt .vt-a-kt-settings {
+    min-width: 380px;
+    max-width: 460px;
+    white-space: normal;
+  }
+  .vt-dash .vt-a .vt-a-kt-name {
+    display: block;
+    line-height: 1.3;
+  }
+  .vt-dash .vt-a .vt-a-kt-name b {
+    font-weight: 600;
+  }
+  .vt-dash .vt-a .vt-a-kt-sub,
+  .vt-dash .vt-a .vt-a-kt-na {
+    display: block;
+    font-size: 12px;
+    line-height: 1.3;
+    color: var(--vt-faint);
+  }
+  /* WHY no display here: .vt-a-clamp-2 sets -webkit-box (the two-line clamp with Chrome's own "…"); the full plant
+     text is the element's title. */
+  .vt-dash .vt-a .vt-a-kt-plant {
+    font-size: 12px;
+    line-height: 1.3;
+    color: var(--vt-faint);
+  }
+  .vt-dash .vt-a .vt-a-kt-na {
+    color: var(--vt-grey);
+  }
+  .vt-dash .vt-a .vt-a-kt-words {
+    display: block;
+    font-size: 12.5px;
+    color: var(--vt-grey);
+    line-height: 1.35;
+  }
+  .vt-dash .vt-a .vt-a-kt-headline td {
+    background: var(--vt-a-wash);
+  }
+  .vt-dash .vt-a .vt-a-kt-headline td.vt-a-sticky {
+    background: linear-gradient(var(--vt-a-wash), var(--vt-a-wash)), var(--vt-bg);
+  }
+  .vt-dash .vt-a .vt-a-kt-tag {
+    color: var(--vt-grey);
+  }
+  .vt-dash .vt-a .vt-a-kt-stamp {
+    margin: 0 0 8px;
+  }
+
+  /* ---- L2: Rerun playbacks, grouped by session (each group a <details>, closed by default) */
+  .vt-dash .vt-a .vt-a-pb-intro {
+    margin: 0 0 8px;
+  }
+  .vt-dash .vt-a .vt-a-pb-group {
+    border-top: 1px solid var(--vt-line);
+  }
+  .vt-dash .vt-a .vt-a-pb-group:last-child {
+    border-bottom: 1px solid var(--vt-line);
+  }
+  .vt-dash .vt-a .vt-a-pb-summary {
+    cursor: pointer;
+    padding: 8px 4px;
+    list-style-position: inside;
+  }
+  .vt-dash .vt-a .vt-a-pb-summary:hover {
+    background: var(--vt-hover);
+  }
+  .vt-dash .vt-a .vt-a-pb-label {
+    font-weight: 500;
+  }
+  /* One entry: what it is (trajectory, time, mode), the twin gaps, the mp4, then the command on its own full-width
+     line (it is two absolute paths; squeezed into a column it wrapped to four lines). */
+  .vt-dash .vt-a .vt-a-pb-list {
+    margin: 0 0 8px 18px;
+  }
+  .vt-dash .vt-a .vt-a-pb-entry {
+    display: grid;
+    grid-template-columns: minmax(150px, 1fr) minmax(200px, 1.6fr) auto;
+    grid-template-areas: "traj twins video" "cmd cmd cmd";
+    gap: 2px 14px;
+    padding: 7px 4px 8px;
+    border-top: 1px solid var(--vt-line);
+  }
+  .vt-dash .vt-a .vt-a-pb-traj {
+    grid-area: traj;
+    min-width: 0;
+  }
+  .vt-dash .vt-a .vt-a-pb-twins {
+    grid-area: twins;
+    min-width: 0;
+  }
+  .vt-dash .vt-a .vt-a-pb-video {
+    grid-area: video;
+    text-align: right;
+  }
+  .vt-dash .vt-a .vt-a-pb-cmd {
+    grid-area: cmd;
+    min-width: 0;
+  }
+  .vt-dash .vt-a .vt-a-pb-cmd .vt-a-code {
+    font-size: 12px;
+  }
+  .vt-dash .vt-a .vt-a-copyline {
+    display: inline;
+  }
+  .vt-dash .vt-a .vt-a-copybtn {
+    margin-left: 6px;
+    font-size: 12px;
+    cursor: pointer;
+  }
+  .vt-dash .vt-a .vt-a-missingbox {
+    border-top: 1px solid var(--vt-line);
+    padding-top: 8px;
+  }
+  .vt-dash .vt-a .vt-a-missingbox p {
+    margin: 0 0 6px;
+  }
 }

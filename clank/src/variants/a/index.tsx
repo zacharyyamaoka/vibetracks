@@ -87,6 +87,7 @@ export default function VariantA(props: VariantProps) {
         backend={backend}
         roadmapSettings={settings.roadmap}
         renamer={renamer}
+        mediaUrl={mediaUrl}
       />
     )
   }

@@ -31,6 +31,7 @@ import { useRegisteredRoadmap } from './roadmapReload'
 import { provenOf, provenTitle } from './proven'
 import { openNeeds } from '../../needs'
 import { formatLocal } from '../../shared/time'
+import { kpiGroupsOf } from './robotKpis'
 
 export function TracksPage({ projection, title, nav, showDeltas, reload, backend, renamer }: {
   projection: Projection
@@ -185,9 +186,13 @@ export function ProgressCell({ track, showDeltas, roadmapDoc = null }: { track: 
   // WHY the aggregate for a deployment: its last session is one condition mix of many; the day summary ("day 07-29
   // median", n 57) is the honest headline, and the session series stays in the sparkline.
   const headline = aggregate ? formatValue(aggregate.value, star.unit) : formatKpiValue(star, latest)
+  // WHY the label for a grouped track (the rig): its north star is a robot KPI read once from the KPI table, so "n = 26"
+  // alone would not say what 2.63° is.
   const detail = aggregate
     ? `${aggregate.label}${aggregate.n !== null ? ` · n ${aggregate.n}` : ''}`
-    : showDeltas && delta
+    : kpiGroupsOf(track)
+      ? star.label
+      : showDeltas && delta
       ? describeDelta(star, delta)
       : latest
         ? formatN(latest)

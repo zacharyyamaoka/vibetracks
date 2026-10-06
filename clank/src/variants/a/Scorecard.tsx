@@ -26,6 +26,7 @@ import {
 } from '../../shared'
 import { buildColumns, cellFor, isRulerChange, missesTarget, trendDomain, unitWord, type Cell, type Column } from './columns'
 import { ClampText } from './clamp'
+import { groupOf, kpiGroupsOf } from './robotKpis'
 
 export interface ScorecardProps {
   track: Track
@@ -35,6 +36,36 @@ export interface ScorecardProps {
   selectedKpi?: string | null
   onOpenColumn: (column: Column) => void
   onOpenCell: (kpi: Kpi, column: Column) => void
+  /** Collapsed-by-default KPI groups the reader opened (route key `kg`); only tracks with `kpi_groups` have any. */
+  openGroups?: string[]
+  onToggleGroup?: (id: string) => void
+}
+
+interface RowGroup {
+  key: string
+  name: string
+  kpis: Kpi[]
+  /** null: always open (a slot group, or a group not collapsed by default). */
+  collapsible: boolean
+  note: string | null
+}
+
+/** The scorecard's row groups: the track's own `kpi_groups` in their order (rows in projection order), or, for a track
+ * that declares none, the seven slots as before. WHY declared groups win: the rig's robot KPIs span slots S1-S5 and
+ * must read in Zach's order (RMS, p95, feedback torque, twin gap, floor, days since), with the loop's own numbers
+ * folded into one "Loop health" group under them (2026-10-06). */
+export function rowGroups(track: Track): RowGroup[] {
+  const declared = kpiGroupsOf(track)
+  if (!declared) {
+    return kpisBySlot(track).map((group) => ({ key: group.slot, name: group.slot === 'S1' ? `${SLOT_NAMES.S1}` : group.name, kpis: group.kpis, collapsible: false, note: null }))
+  }
+  const known = new Set(declared.map((group) => group.id))
+  const groups: RowGroup[] = declared
+    .map((group) => ({ key: group.id, name: group.label, kpis: track.kpis.filter((kpi) => groupOf(kpi) === group.id), collapsible: group.collapsed, note: group.note }))
+    .filter((group) => group.kpis.length > 0)
+  const rest = track.kpis.filter((kpi) => !known.has(groupOf(kpi) ?? ''))
+  if (rest.length) groups.push({ key: 'other', name: 'Other', kpis: rest, collapsible: false, note: null })
+  return groups
 }
 
 const WIDE = 108
@@ -42,9 +73,9 @@ const NARROW = 92
 /** Set per scorecard by the fit in Scorecard's effect; WIDE until it runs. */
 const COLUMN_WIDTH = `var(--vt-a-colw, ${WIDE}px)`
 
-export function Scorecard({ track, xAxis, showDeltas, selectedKpi, onOpenColumn, onOpenCell }: ScorecardProps) {
+export function Scorecard({ track, xAxis, showDeltas, selectedKpi, onOpenColumn, onOpenCell, openGroups = [], onToggleGroup }: ScorecardProps) {
   const columns = useMemo(() => buildColumns(track, xAxis), [track, xAxis])
-  const groups = kpisBySlot(track)
+  const groups = rowGroups(track)
   const star = northStar(track)
   const scroller = useRef<HTMLDivElement>(null)
   const endSpacer = useRef<HTMLDivElement>(null)
@@ -173,8 +204,10 @@ export function Scorecard({ track, xAxis, showDeltas, selectedKpi, onOpenColumn,
         <tbody>
           {groups.map((group) => (
             <GroupRows
-              key={group.slot}
-              name={group.slot === 'S1' ? `${SLOT_NAMES.S1}` : group.name}
+              key={group.key}
+              group={group}
+              open={!group.collapsible || openGroups.includes(group.key) || group.kpis.some((kpi) => kpi.id === selectedKpi)}
+              onToggle={group.collapsible && onToggleGroup ? () => onToggleGroup(group.key) : null}
               kpis={group.kpis}
               track={track}
               columns={columns}
@@ -199,8 +232,10 @@ function markMore(element: HTMLElement): void {
   element.classList.toggle('vt-a-more-right', element.scrollLeft + element.clientWidth < element.scrollWidth - 1)
 }
 
-function GroupRows({ name, kpis, track, columns, latestIndex, star, showDeltas, selectedKpi, onOpenCell, span }: {
-  name: string
+function GroupRows({ group, open, onToggle, kpis, track, columns, latestIndex, star, showDeltas, selectedKpi, onOpenCell, span }: {
+  group: RowGroup
+  open: boolean
+  onToggle: (() => void) | null
   kpis: Kpi[]
   track: Track
   columns: Column[]
@@ -211,13 +246,33 @@ function GroupRows({ name, kpis, track, columns, latestIndex, star, showDeltas, 
   onOpenCell: (kpi: Kpi, column: Column) => void
   span: number
 }) {
+  // WHY robot KPIs first and the loop's folded (KPI-VIEW brief, src/dev/bam_rig_loop/briefs/KPI-VIEW.md): 6 of the 8 old
+  // headline KPIs measured the agent loop, not the robot.
+  // WHY a collapsed group still shows its header row with a count: the loop's numbers are folded, not hidden; one click
+  // (or a selected KPI inside it) opens them, and the route keeps it open across Back and reload.
   return (
     <>
-      <tr className="vt-group vt-a-grouprow">
-        <td className="vt-a-sticky">{name}</td>
-        <td colSpan={span} />
+      <tr className="vt-group vt-a-grouprow" data-testid="vt-a-kpi-group" data-group={group.key} data-open={open}>
+        <td className="vt-a-sticky">
+          {group.collapsible ? (
+            <button
+              type="button"
+              className="vt-btn vt-a-grouptoggle"
+              aria-expanded={open}
+              data-testid="vt-a-kpi-group-toggle"
+              onClick={onToggle ?? undefined}
+            >
+              <span aria-hidden="true">{open ? '▾' : '▸'} </span>
+              {group.name}
+              <span className="vt-faint"> · {kpis.length} KPIs</span>
+            </button>
+          ) : (
+            group.name
+          )}
+        </td>
+        <td colSpan={span}>{group.note ? <span className="vt-a-groupnote">{group.note}</span> : null}</td>
       </tr>
-      {kpis.map((kpi) => (
+      {(open ? kpis : []).map((kpi) => (
         <KpiRow
           key={kpi.id}
           kpi={kpi}

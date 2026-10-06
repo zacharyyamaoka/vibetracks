@@ -58,6 +58,9 @@ One JSON document is everything the dashboard shows. The backend builds it **liv
 | `registry` | object | live, top-level only: the note's `{status, priority, owner, adapter, sources, heartbeat, stall_hours, roadmap, children, note_path, revision}`; `revision` fences a rename. `heartbeat` is the effective list: the note's `vibe-heartbeat`, else the sources the adapter's `READS` marks `heartbeat` (ADAPTERS.md) |
 | `purpose` | string | live, top-level only: the whole first paragraph of the track's registry note, never cut and with every `*`, `_` and backtick kept (`first_paragraph(body, limit=None, raw=True)`: `pll_filter_hz` stays `pll_filter_hz`); it is inline markdown, which the page renders, and the page clamps it with an explicit ellipsis and a "more" toggle |
 | `children` | string[] | live, top-level only: the `vibe-children` ids drawn inside this track |
+| `kpi_groups` | `{id, label, collapsed, note}[]` | optional: the scorecard's row groups in order, replacing the slot groups; a KPI joins one through its `group`; a `collapsed` group shows one header row with its count and opens on a click (route key `kg`). The rig: `robot`, then `loop_health` (collapsed) |
+| `kpi_table` | object | optional (the rig): the bam_deployments KPI-table export, rows and `kpi_defs` verbatim, with `state` (`ok`, `missing`, `unreadable`), `message`, `command`, the cache stamp and `generated_label` (ADAPTERS.md, rig). Drawn as "KPIs by deployment, backend and settings": one row per export row, one column per KPI in `kpi_defs` order (value × `scale`, "not measured" for a null, "n/a" on a row with an `na_reason`) |
+| `playbacks` | object | optional (the rig): the Rerun recordings of `bam_runtime.playback`, `{state, dir, viewer, viewer_exists, message, command, count, group_by, groups: [{id, label, count, twin_runs, runs: [entry]}]}`; each entry's `command` is `<viewer> <rrd>` on one line and `video` a media id when the mp4 exists. Drawn as "Playbacks (Rerun)", one closed group per session |
 
 ### `Rung`
 
@@ -104,6 +107,7 @@ One JSON document is everything the dashboard shows. The backend builds it **liv
 | `note` | string \| null | context a reader needs (what counts, what is excluded) |
 | `aggregate` | `{label, value, n, period}` \| null | a period summary beside the series. Deployments: the latest day's median ("day 07-29 median" 3.49°, n 57); counts: "all days" totals. Loops: null. |
 | `provenance` | `Provenance` | |
+| `group` | string | optional: the `kpi_groups` id this row renders under (rig: `robot`, `loop_health`) |
 
 ### `Target`
 

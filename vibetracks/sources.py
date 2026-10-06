@@ -78,6 +78,17 @@ WORKTRACK_SOURCES: dict[str, str] = {
     # Appended 2026-10-05 (audit finding 2): the verdict depends on modules no fixed list names (gallery.py imports
     # registry.py), so the whole bench package is a source and any module change reruns the adapter.
     "grasping_bench_src": "{grasping_bench_dir}/src/grasp_bench",
+    # Appended 2026-10-06 (KPI-VIEW brief: the rig page leads with Zach's robot KPIs): the bam_deployments contract v2.5
+    # KPI-table export (``python -m bam_deployments export <dir>``), the bam_runtime.playback batch of Rerun recordings
+    # (gitignored, under bam_ws reports/media), the viewer that opens them, the KPI doc and the loop's living report.
+    # The two that live in the rig loop's worktree resolve through git like kinsim, so a moved worktree is one line.
+    "rig_kpi_table": "/archive/datasets/bam_rig/api-export",
+    "rig_playbacks": "{reports_media_dir}/rig-playbacks-2026-10-06",
+    "rig_kpi_docs": "@worktree:/home/bam/bam_ws:claude/rig-loop-work-continue-cb3c52:src/dev/bam_deployments/KPIS.md"
+                    "|/home/bam/bam_ws/.claude/worktrees/rig-loop-work-continue-cb3c52/src/dev/bam_deployments/KPIS.md",
+    "rig_rerun_viewer": "@worktree:/home/bam/bam_ws:claude/rig-loop-work-continue-cb3c52:src/core/mdp/bam_runtime/.venv/bin/rerun"
+                        "|/home/bam/bam_ws/.claude/worktrees/rig-loop-work-continue-cb3c52/src/core/mdp/bam_runtime/.venv/bin/rerun",
+    "rig_living_report": "/home/bam/bam_ws/reports/rig-loop-2026-10-04.html",
 }
 _REFERENCE = re.compile(r"^\{(?P<key>[a-z0-9_]+)\}")
 
@@ -89,7 +100,10 @@ DEFAULT_SOURCES: dict[str, str] = {
     # roadmap lane, whose history lacks the loop's newest readings, so every live kinsim status read wrong-stale.
     "kinsim_curriculum_dir": "@worktree:/home/bam/bam_ws:claude/kinematic-simulator-waste-sorting-cc14d6:src/dev/bam_curriculum"
                              "|/home/bam/bam_ws/.claude/worktrees/wave-3-handoff-af2b9b/src/dev/bam_curriculum",
-    "rig_loop_dir": "/home/bam/bam_ws/.claude/worktrees/rig-loop-work-continue-cb3c52/src/dev/bam_rig_loop",
+    # WHY resolved from git like kinsim (2026-10-06): the rig loop's checkout is whichever worktree holds its branch; a
+    # hard-coded worktree path goes dark the day that worktree moves or is swept.
+    "rig_loop_dir": "@worktree:/home/bam/bam_ws:claude/rig-loop-work-continue-cb3c52:src/dev/bam_rig_loop"
+                    "|/home/bam/bam_ws/.claude/worktrees/rig-loop-work-continue-cb3c52/src/dev/bam_rig_loop",
     "deployments_fixtures_dir": "/home/bam/bam_ws/.claude/worktrees/rig-loop-work-continue-cb3c52/src/dev/bam_deployments/fixtures/api-real",
     "run_media_root": "/home/bam/bam_ws/src/core/mdp/agent/actor/trajectory_generation/traj_integration_tests/out",
     "reports_media_dir": "/home/bam/bam_ws/reports/media",

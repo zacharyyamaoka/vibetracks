@@ -19,6 +19,14 @@ Inputs, declared in workspace/tracks/rig.md ``vibe-sources`` (the build watches 
 - ``rig_deployments_cache``: the bam_deployments run cache ``/archive/datasets/bam_rig/cache/runs``, one record per
   run, for the run evidence, the held conditions and the twin sessions the frozen fixture predates.
 - ``rig_audits_dir``: bam_ws ``reports/media/audits``, listed only to link each package's audit write-ups.
+- ``rig_kpi_table``: the bam_deployments contract v2.5 export folder (``kpi_table.json`` + ``kpi_table.csv``, written
+  by ``python -m bam_deployments export <dir>``): one row per deployment x backend x settings. It is the ORACLE for
+  the robot KPIs: the headline values and the "KPIs by deployment, backend and settings" table are its numbers, never
+  re-derived here (only multiplied by its own ``kpi_defs`` display scale).
+- ``rig_playbacks``: a ``bam_runtime.playback`` batch folder (``index.json`` + one ``.rrd`` per real run).
+- ``rig_rerun_viewer``: the Rerun viewer binary that opens those ``.rrd`` files (stat only; named in each command).
+- ``rig_kpi_docs`` / ``rig_living_report``: the KPI doc (bam_deployments ``KPIS.md``) and the loop's living report,
+  stat only, linked.
 
 Nothing else is opened (``READS``; tests/test_dashboard_adapters_live.py records every open under an audit hook). A
 key the note does not declare is read as missing, never looked up elsewhere: the build would not notice that file
@@ -45,10 +53,19 @@ from .base import local_day, local_time, not_reporting, rung, skeleton
 #: The bam_deployments run cache: one ``<bundle>/<run>.json`` per run, written by ``bam_deployments scan``
 #: (sources.py ``rig_deployments_cache``).
 CACHE_KEY = "rig_deployments_cache"
+#: The robot-KPI inputs (appended 2026-10-06, KPI-VIEW brief): the KPI-table export folder, the Rerun playback batch
+#: folder, the viewer that opens it, the KPI doc and the living report.
+KPI_TABLE_KEY = "rig_kpi_table"
+PLAYBACKS_KEY = "rig_playbacks"
+VIEWER_KEY = "rig_rerun_viewer"
+KPI_DOCS_KEY = "rig_kpi_docs"
+REPORT_KEY = "rig_living_report"
 #: Every sources.py key this adapter opens, and what it is to the loop (base.py READ_ROLES).
 READS = {"rig_loop_status": "heartbeat", "rig_events": "heartbeat", "rig_ladder": "heartbeat",
          "rig_triage": "heartbeat", "rig_roadmap": "heartbeat", "deployments_fixtures_dir": "input",
-         CACHE_KEY: "input", "rig_audits_dir": "evidence"}
+         CACHE_KEY: "input", "rig_audits_dir": "evidence",
+         KPI_TABLE_KEY: "input", PLAYBACKS_KEY: "input", VIEWER_KEY: "input", KPI_DOCS_KEY: "evidence",
+         REPORT_KEY: "evidence"}
 #: The run cache's records sit in bundle folders (``runs/<bundle>/<run>.json``): the build stamps it two levels deep,
 #: so a rewritten record reruns the adapter, not only a new bundle.
 DEPTH = {CACHE_KEY: 2}
@@ -475,6 +492,411 @@ def _needs_you(status: dict[str, Any], triage: dict[str, Any] | None) -> tuple[l
     return out, {"open": None, "blocking": None}, "loop-status.json (triage.json unreadable)"
 
 
+# --------------------------------------------------------------------------------------------- robot KPIs (KPI table)
+
+KPI_TABLE_SCHEMA = "bam-deployments/kpi-table/1"
+PLAYBACK_SCHEMA = "bam-playback-index/1"
+TWIN_BACKEND = "mujoco_twin_replay"
+REAL_BACKEND = "real"
+#: Zach's robot KPIs, in his order (KPI-VIEW brief, 2026-10-06; DP - Reality as Oracle l.162-164): net tracking error
+#: (RMS, p95), the feedback term (its proxy), the sim-to-real gap (twin fidelity, with its gate), the repeatability
+#: floor, and how long since reality was last asked. The first five are export keys; the last is computed from the
+#: export's real rows' dates.
+ROBOT_KPIS = ("real_tracking_rms", "real_tracking_p95", "feedback_torque_proxy", "twin_fidelity_gap",
+              "floor_real_vs_real", "days_since_real_run")
+ROBOT_SLOTS = {"real_tracking_rms": "S1", "real_tracking_p95": "S3", "feedback_torque_proxy": "S3",
+               "twin_fidelity_gap": "S2", "floor_real_vs_real": "S5", "days_since_real_run": "S3"}
+#: The loop's own numbers (rungs green, packages landed, audits, elapsed hours, disk, open questions) stay, in a
+#: collapsed "Loop health" group under the robot KPIs.
+KPI_GROUPS = (
+    {"id": "robot", "label": "Robot KPIs", "collapsed": False,
+     "note": "What the rig is for: tracking error, the feedback term, the twin's gap to reality, the floor."},
+    {"id": "loop_health", "label": "Loop health", "collapsed": True,
+     "note": "The agent loop's own numbers: rungs, packages, audits, hours, disk, open questions."},
+)
+#: A KPI the export does not carry is still listed (truth rule 2); this is its label then.
+ROBOT_FALLBACK_LABELS = {"real_tracking_rms": "Real tracking error (RMS)", "real_tracking_p95": "Real tracking error (p95)",
+                         "feedback_torque_proxy": "Feedback torque (proxy)",
+                         "twin_fidelity_gap": "Twin fidelity gap (held-out)", "floor_real_vs_real": "Floor (relative repeat)"}
+
+
+def _number(value: Any) -> float | None:
+    return float(value) if isinstance(value, (int, float)) and not isinstance(value, bool) else None
+
+
+def _deployment_label(child: str) -> str:
+    """``can12`` -> ``CAN 12`` (the rig's servo naming); any other id verbatim."""
+
+    match = re.fullmatch(r"can(\d+)", child)
+    return f"CAN {match.group(1)}" if match else child
+
+
+def _belongs(deployment_id: Any, child: str) -> bool:
+    return isinstance(deployment_id, str) and (deployment_id == child or deployment_id.startswith(child + "-"))
+
+
+def _export_command(folder: str, docs: str | None) -> str:
+    """The one line that (re)writes the export: bam_deployments lives beside its KPIS.md (``rig_kpi_docs``)."""
+
+    if docs:
+        return (f"env -u VIRTUAL_ENV uv run --directory {os.path.dirname(docs)} python -m bam_deployments export "
+                f"{folder}")
+    return f"python -m bam_deployments export {folder}"
+
+
+def _playback_command(folder: str, viewer: str | None, deployment_id: str) -> str:
+    """The one line that (re)writes the batch: bam_runtime is the project whose venv holds the viewer."""
+
+    if viewer:
+        runtime = Path(viewer).parents[2]
+        return (f"env -u VIRTUAL_ENV uv run --directory {runtime} --extra viz python -m bam_runtime.playback "
+                f"{deployment_id} --out {folder}")
+    return f"python -m bam_runtime.playback {deployment_id} --out {folder}"
+
+
+def _kpi_table(sources: dict[str, str], children: list[str]) -> dict[str, Any]:
+    """The projection's ``kpi_table`` block: the export's rows and defs VERBATIM, plus where they came from.
+
+    ``state`` is ``ok``, ``missing`` (not declared, or no ``kpi_table.json`` yet) or ``unreadable`` (not JSON, not the
+    kpi-table schema, no rows/kpi_defs list); a block that is not ``ok`` has no rows and its ``message`` says why,
+    with ``command`` the line that writes the export.
+    """
+
+    folder = sources.get(KPI_TABLE_KEY)
+    block: dict[str, Any] = {
+        "state": "missing", "dir": folder, "json": None, "csv": None, "message": None, "command": None,
+        "schema": None, "contract": None, "granularity": None, "generated_at": None, "generated_label": None,
+        "cache": None, "kpi_defs": [], "settings_keys": [], "rows": [], "deployments": {}, "headline": None, "doc": None,
+    }
+    if not folder:
+        block["message"] = f"{KPI_TABLE_KEY} is not declared in vibe-sources, so no KPI table is read."
+        return block
+    block["command"] = _export_command(folder, sources.get(KPI_DOCS_KEY))
+    path = os.path.join(folder, "kpi_table.json")
+    block["json"] = path
+    doc, error = _read_json(path)
+    if error == "missing":
+        block["message"] = f"No KPI table export at {folder} yet."
+        return block
+    if error:
+        reason = error
+    elif not isinstance(doc, dict):
+        reason = "is not a JSON object"
+    elif doc.get("schema") != KPI_TABLE_SCHEMA:
+        reason = f"has schema {doc.get('schema')!r}, not {KPI_TABLE_SCHEMA!r}"
+    elif not isinstance(doc.get("rows"), list) or not isinstance(doc.get("kpi_defs"), list):
+        reason = "has no rows or kpi_defs list"
+    else:
+        reason = None
+    if reason:
+        block.update(state="unreadable", message=f"kpi_table.json {reason}.")
+        return block
+    rows = doc["rows"]
+    settings_keys: list[str] = []
+    for row in rows:
+        settings = row.get("settings") if isinstance(row, dict) else None
+        for key in settings if isinstance(settings, dict) else ():
+            if key not in settings_keys:
+                settings_keys.append(key)
+    deployments: dict[str, str] = {}
+    for row in rows:
+        dep = row.get("deployment_id") if isinstance(row, dict) else None
+        if isinstance(dep, str) and dep not in deployments:
+            deployments[dep] = next((child for child in children if _belongs(dep, child)), dep)
+    csv = os.path.join(folder, "kpi_table.csv")
+    generated = doc.get("generated_at")
+    block.update(
+        state="ok", csv=csv if os.path.isfile(csv) else None, schema=doc.get("schema"), contract=doc.get("contract"),
+        granularity=doc.get("granularity"), generated_at=generated,
+        generated_label=local_time(generated) if isinstance(generated, str) else None, cache=doc.get("cache"),
+        kpi_defs=doc["kpi_defs"], settings_keys=settings_keys, rows=rows, deployments=deployments,
+    )
+    return block
+
+
+def _headline_rows(rows: list[Any], child: str) -> dict[str, Any]:
+    """The rows the headline reads, by index: the newest twin replay, the oldest one, and the real row.
+
+    The real row is the one at the newest twin's own setting (same control mode, settings equal): the setting the twin
+    is held to, so tracking error, feedback term, floor and twin gap are like for like. Without such a row (or without
+    a twin row), the real row with the most real runs (ties: the newest end, then the later row).
+    """
+
+    mine = [(index, row) for index, row in enumerate(rows) if isinstance(row, dict) and _belongs(row.get("deployment_id"), child)]
+    twins = [(index, row) for index, row in mine if row.get("backend") == TWIN_BACKEND]
+    reals = [(index, row) for index, row in mine
+             if row.get("backend") == REAL_BACKEND and (_number((row.get("counts") or {}).get("real")) or 0) > 0]
+    newest = max(twins, key=lambda pair: (str(pair[1].get("end") or ""), pair[0])) if twins else None
+    oldest = min(twins, key=lambda pair: (str(pair[1].get("start") or ""), pair[0])) if twins else None
+
+    def most(pairs: list[tuple[int, dict[str, Any]]]) -> tuple[int, dict[str, Any]]:
+        return max(pairs, key=lambda pair: (_number((pair[1].get("counts") or {}).get("real")) or 0,
+                                            str(pair[1].get("end") or ""), pair[0]))
+
+    real, rule = None, None
+    if newest is not None:
+        same = [pair for pair in reals if pair[1].get("control_mode") == newest[1].get("control_mode")
+                and pair[1].get("settings") == newest[1].get("settings")]
+        if same:
+            real, rule = most(same), "twin setting"
+    if real is None and reals:
+        real, rule = most(reals), "most real runs"
+    return {"real": real[0] if real else None, "rule": rule, "twin": newest[0] if newest else None,
+            "twin_baseline": oldest[0] if oldest and newest and oldest[0] != newest[0] else None}
+
+
+def _settings_words(row: dict[str, Any]) -> str:
+    """'ff_fb · gravity · torque cap 6.3754 N·m · kp 43.3253 · kd 10.8313 · friction FF on (Coulomb 0.65 N·m)'."""
+
+    settings = row.get("settings") if isinstance(row.get("settings"), dict) else {}
+    parts = [str(row.get("control_mode"))] if row.get("control_mode") else []
+    if settings.get("mounting") is not None:
+        parts.append(str(settings["mounting"]))
+    if settings.get("torque_cap_nm") is not None:
+        parts.append(f"torque cap {settings['torque_cap_nm']} N·m")
+    for gain in ("kp", "kd"):
+        if settings.get(gain) is not None:
+            parts.append(f"{gain} {settings[gain]}")
+    if settings.get("friction_ff") is not None:
+        parts.append("friction FF " + ("on" if settings["friction_ff"] else "off")
+                     + (f" (Coulomb {settings['coulomb_friction_nm']} N·m)" if settings.get("coulomb_friction_nm") is not None else ""))
+    return " · ".join(parts)
+
+
+def _days_between(day_text: str | None, today: date) -> int | None:
+    try:
+        return (today - date.fromisoformat(str(day_text)[:10])).days
+    except ValueError:
+        return None
+
+
+def _robot_kpis(table: dict[str, Any], child: str, ids: list[str], ticks: "Ticks", now: datetime,
+                gate: float | None, tw2_status: str | None) -> tuple[list[dict[str, Any]], dict[str, Any] | None]:
+    """The six robot KPIs (group ``robot``), and the headline block for ``kpi_table.headline``.
+
+    Each export KPI holds ONE reading, the export's current value, at the latest iteration (the column the page
+    emphasises); every earlier tick is null with a note, because the export keeps no per-tick history (the history of
+    settings and twin versions is the table itself). Days since a real run has a per-tick series: each tick's last
+    event day (the current tick: today) minus the newest real row's end day at or before it.
+    """
+
+    latest = ids[-1]
+    who = _deployment_label(child)
+    rows = table["rows"]
+    ok = table["state"] == "ok"
+    defs = {d["key"]: d for d in table["kpi_defs"] if isinstance(d, dict) and isinstance(d.get("key"), str)}
+    pick = _headline_rows(rows, child) if ok else {"real": None, "rule": None, "twin": None, "twin_baseline": None}
+    real = rows[pick["real"]] if pick["real"] is not None else None
+    twin = rows[pick["twin"]] if pick["twin"] is not None else None
+    base_twin = rows[pick["twin_baseline"]] if pick["twin_baseline"] is not None else None
+    computed = table.get("generated_label") or "time not recorded"
+    missing_note = f"not measured: {table['message'] or 'no KPI table'}"
+    earlier_note = "the KPI table holds today's reading only (no per-tick history); its rows are the history"
+    kpis: list[dict[str, Any]] = []
+    for key in ROBOT_KPIS[:5]:
+        spec = defs.get(key) or {}
+        label = f"{spec.get('label') or ROBOT_FALLBACK_LABELS[key]} · {who}"
+        unit = BamLoopsAdapter._unit(str(spec.get("unit") or ("N·m" if key == "feedback_torque_proxy" else "deg")))
+        scale = _number(spec.get("scale")) or 1.0
+        source_row = twin if key == "twin_fidelity_gap" else real
+        row_index = pick["twin"] if key == "twin_fidelity_gap" else pick["real"]
+        raw = _number((source_row or {}).get("kpis", {}).get(key)) if isinstance((source_row or {}).get("kpis"), dict) else None
+        value = raw * scale if raw is not None else None
+        values = [_value(it, None, note=(missing_note if not ok else earlier_note)) for it in ids[:-1]]
+        n = None
+        if source_row is None:
+            note = missing_note if not ok else (f"not measured: the KPI table has no {'twin replay' if key == 'twin_fidelity_gap' else 'real'} row for {who}")
+            values.append(_value(latest, None, note=note))
+        elif value is None:
+            values.append(_value(latest, None, note=f"not measured: the KPI table's {source_row.get('period')} row has no {key}"))
+        else:
+            if key in ("real_tracking_rms", "real_tracking_p95", "feedback_torque_proxy"):
+                n = _number((source_row.get("counts") or {}).get("real"))
+                n = int(n) if n is not None else None
+            when = local_time(source_row.get("start")) + " – " + local_time(source_row.get("end"))
+            values.append(_value(latest, value, n=n, note=(
+                f"current reading: {who} {source_row.get('backend')}"
+                + (f" {source_row.get('twin_version')}" if source_row.get("twin_version") else "")
+                + f" · {_settings_words(source_row)} · runs {when} · KPI table computed {computed}")))
+        today = now.date()
+        age = _days_between(source_row.get("end"), today) if source_row and value is not None else None
+        day = str(source_row.get("end"))[5:10] if source_row and isinstance(source_row.get("end"), str) else None
+        target, baseline = None, None
+        if value is None:
+            status = {"word": "not measured" + ("" if ok else " · no KPI table export" if table["state"] == "missing"
+                                                 else " · KPI table unreadable"), "tone": "muted"}
+        elif key == "twin_fidelity_gap":
+            under = gate is not None and value <= gate
+            status = {"word": ("under gate" if under else "above gate" if gate is not None else "no gate parsed")
+                      + (" · TW2 green" if tw2_status == "green" else "") + f" · twin {source_row.get('twin_version')} · {day}",
+                      "tone": "muted" if under or gate is None else "warn"}
+            if gate is not None:
+                target = {"value": gate, "kind": "gate", "label": f"TW2 gate ≤ {gate:g}°"}
+            base_raw = _number((base_twin or {}).get("kpis", {}).get(key)) if base_twin and isinstance(base_twin.get("kpis"), dict) else None
+            if base_raw is not None:
+                placed = ticks.place(_ts(base_twin["start"]))[0] if isinstance(base_twin.get("start"), str) else 0
+                baseline = {"iteration": ids[min(placed, len(ids) - 1)], "label": f"twin {base_twin.get('twin_version')}",
+                            "value": base_raw * scale}
+        elif key == "floor_real_vs_real":
+            status = {"word": f"descriptive · measured {day}", "tone": "muted"}
+            target = {"band": [0, value], "kind": "descriptive", "label": "descriptive band, never a verdict"}
+        else:
+            status = {"word": f"measured {day} · {age} days ago", "tone": "stale" if age is not None and age > 14 else "muted"}
+        direction = "info" if key == "floor_real_vs_real" else "lower"
+        if not ok:
+            kpi_note = missing_note
+        elif source_row is None:
+            kpi_note = None
+        else:
+            why_row = ("the newest twin replay" if key == "twin_fidelity_gap" else
+                       "the real row at the newest twin's own setting, so it is like for like with the twin gap"
+                       if pick["rule"] == "twin setting" else "the real row with the most real runs")
+            kpi_note = (f"From the KPI table (bam_deployments contract {table.get('contract')}, one row per deployment × "
+                        f"backend × settings), row {source_row.get('period')}: {why_row}. Every other setting and backend "
+                        "is in the table below.")
+        kpi = _kpi(
+            key, label, ROBOT_SLOTS[key], unit, direction, values, target=target, baseline=baseline, status=status,
+            note=kpi_note,
+            provenance=_prov(table.get("json"), f"/rows/{row_index}/kpis/{key}" if row_index is not None else None,
+                             (f"kpi_defs scale {scale:g} × the export's value; headline row rule: "
+                              + ("newest mujoco_twin_replay row by end" if key == "twin_fidelity_gap" else str(pick["rule"])))
+                             if source_row is not None else "no KPI table row read" if ok else missing_note),
+        )
+        kpi["group"] = "robot"
+        kpis.append(kpi)
+
+    # days since a real run, per tick, from the export's real rows
+    real_ends = sorted(str(row["end"])[:10] for row in rows if isinstance(row, dict) and row.get("backend") == REAL_BACKEND
+                       and isinstance(row.get("end"), str) and (_number((row.get("counts") or {}).get("real")) or 0) > 0) if ok else []
+    days_values = []
+    for n_tick, it in enumerate(ids):
+        tick = ticks.ticks[n_tick]
+        if not ok:
+            days_values.append(_value(it, None, note=missing_note))
+            continue
+        if it == latest:
+            day = now.date()
+            how = "today"
+        elif tick.events:
+            day = tick.last.date()
+            how = f"the tick's last event ({day.isoformat()[5:]})"
+        else:
+            days_values.append(_value(it, None, note="no event recorded for this tick"))
+            continue
+        before = [end for end in real_ends if end <= day.isoformat()]
+        if not before:
+            days_values.append(_value(it, None, note="no real run in the KPI table at or before this tick"))
+            continue
+        days_values.append(_value(it, (day - date.fromisoformat(before[-1])).days,
+                                  note=f"{how} − the newest real row's end ({before[-1][5:]})"))
+    last_days = days_values[-1]["value"]
+    kpi = _kpi(
+        "days_since_real_run", "Days since a real run", ROBOT_SLOTS["days_since_real_run"], "days", "lower", days_values,
+        status={"word": f"{last_days} days · last real run {real_ends[-1][5:]}" if last_days is not None and real_ends else "not measured",
+                "tone": "warn" if last_days is not None and last_days > 14 else "muted"},
+        note="Days since reality was last asked: the newest end of any real row in the KPI table (every deployment). "
+             "Only a bench window moves the real KPIs above." if ok else missing_note,
+        provenance=_prov(table.get("json"), "/rows/*/end", "tick day minus the newest real row's end day (rows with real runs)"),
+    )
+    kpi["group"] = "robot"
+    kpis.append(kpi)
+    headline = None
+    if ok:
+        headline = {"deployment": child, "label": who, "real_row": pick["real"], "twin_row": pick["twin"],
+                    "twin_baseline_row": pick["twin_baseline"], "rule": pick["rule"]}
+    return kpis, headline
+
+
+def _playbacks(sources: dict[str, str], media: MediaIndex, deployment_id: str) -> dict[str, Any]:
+    """The projection's ``playbacks`` block: one entry per ``index.json`` run, grouped by session (first-appearance
+    order; runs in index order), each with the one-line command that opens its ``.rrd`` in the Rerun viewer."""
+
+    folder = sources.get(PLAYBACKS_KEY)
+    viewer = sources.get(VIEWER_KEY)
+    block: dict[str, Any] = {
+        "state": "missing", "dir": folder, "index": None, "viewer": viewer,
+        "viewer_exists": bool(viewer) and os.path.isfile(viewer), "message": None, "command": None,
+        "schema": None, "deployment_id": None, "count": 0, "group_by": "session", "groups": [],
+    }
+    if not folder:
+        block["message"] = f"{PLAYBACKS_KEY} is not declared in vibe-sources, so no playbacks are read."
+        return block
+    path = os.path.join(folder, "index.json")
+    block["index"] = path
+    doc, error = _read_json(path)
+    dep = doc.get("deployment_id") if isinstance(doc, dict) and isinstance(doc.get("deployment_id"), str) else deployment_id
+    block["command"] = _playback_command(folder, viewer, dep)
+    if error == "missing":
+        block["message"] = f"No Rerun playbacks at {folder} yet."
+        return block
+    if error:
+        reason = error
+    elif not isinstance(doc, dict):
+        reason = "is not a JSON object"
+    elif doc.get("schema") != PLAYBACK_SCHEMA:
+        reason = f"has schema {doc.get('schema')!r}, not {PLAYBACK_SCHEMA!r}"
+    elif not isinstance(doc.get("runs"), list):
+        reason = "has no runs list"
+    else:
+        reason = None
+    if reason:
+        block.update(state="unreadable", message=f"index.json {reason}.")
+        return block
+    groups: dict[str, dict[str, Any]] = {}
+    count = 0
+    for run in doc["runs"]:
+        if not isinstance(run, dict) or not isinstance(run.get("run_id"), str):
+            continue
+        session = str(run.get("session") or run["run_id"].split("/")[0])
+        file = run.get("file")
+        rrd = os.path.join(folder, file) if isinstance(file, str) and file else None
+        video_path = run.get("video_path") if isinstance(run.get("video_path"), str) else None
+        video = media.add(video_path, "video", f"Real · {run.get('trajectory')}",
+                          media_id=f"rig.playback.{run['run_id'].replace('/', '.')}") if video_path else None
+        entry = {
+            "run_id": run["run_id"], "trajectory": run.get("trajectory"), "session": run.get("session"),
+            "started_at": run.get("started_at"),
+            "started_label": local_time(run.get("started_at")) if isinstance(run.get("started_at"), str) else None,
+            "control_mode": (run.get("settings") or {}).get("control_mode") if isinstance(run.get("settings"), dict) else None,
+            "twin_versions": run.get("twin_versions") if isinstance(run.get("twin_versions"), list) else [],
+            "twin_vs_real_rms_rad": run.get("twin_vs_real_rms_rad") if isinstance(run.get("twin_vs_real_rms_rad"), dict) else {},
+            "file": file, "rrd": rrd, "rrd_exists": bool(rrd) and os.path.isfile(rrd), "size_bytes": run.get("size_bytes"),
+            "command": f"{viewer} {rrd}" if viewer and rrd else None,
+            "video_path": video_path, "video": video,
+        }
+        group = groups.setdefault(session, {"id": session, "label": BamLoopsAdapter._session_label(session, ""),
+                                            "count": 0, "twin_runs": 0, "runs": []})
+        group["runs"].append(entry)
+        group["count"] += 1
+        group["twin_runs"] += 1 if entry["twin_versions"] else 0
+        count += 1
+    block.update(state="ok", schema=doc.get("schema"), deployment_id=doc.get("deployment_id"), count=count,
+                 groups=list(groups.values()))
+    if not block["viewer_exists"]:
+        block["message"] = (f"The Rerun viewer is not at {viewer}; the commands name it anyway." if viewer
+                            else f"{VIEWER_KEY} is not declared in vibe-sources, so no command names a viewer.")
+    return block
+
+
+def _doc_links(sources: dict[str, str], table: dict[str, Any], media: MediaIndex) -> list[dict[str, Any]]:
+    """The KPI doc, the KPI table CSV and the living report, in that order (a file that is not there says so)."""
+
+    links: list[dict[str, Any]] = []
+    docs = sources.get(KPI_DOCS_KEY)
+    if docs:
+        doc_id = media.add(docs, "text", "KPI doc (KPIS.md)", media_id="rig.kpis-doc")
+        links.append({"label": "KPI doc (KPIS.md)", "kind": "media", "media": doc_id} if doc_id else
+                     {"label": "KPI doc (KPIS.md, not written yet)", "kind": "path", "value": docs})
+    if table.get("csv"):
+        links.append({"label": "KPI table CSV", "kind": "path", "value": table["csv"]})
+    report = sources.get(REPORT_KEY)
+    if report:
+        report_id = media.add(report, "html", "Living report", media_id="rig.living-report")
+        links.append({"label": "Living report", "kind": "media", "media": report_id} if report_id else
+                     {"label": "Living report (missing)", "kind": "path", "value": report})
+    return links
+
+
 def build_track(work_track: Any, sources: dict[str, str]) -> dict[str, Any]:
     now = _now()
     status_path = sources.get("rig_loop_status")
@@ -602,70 +1024,27 @@ def build_track(work_track: Any, sources: dict[str, str]) -> dict[str, Any]:
                          "by their packages' landing time; the current tick is ladder.json's count"),
     )]
 
-    # ---------------------------------------------------------------- frontier gate: TW2 twin fidelity gap
+    # ---------------------------------------------------------------- robot KPIs: the KPI-table export (the oracle)
+    # WHY these lead and the loop's numbers fold away (Zach, Daily Note - Oct 6 2026: "When I started this work we had
+    # set up some very clear KPIs ... right now at a glance I cannot see that at all"): the page used to lead with 6
+    # loop numbers (rungs, packages, audits, hours, disk, questions); his KPIs sat one click down per deployment.
     gate, tw2_status = _gate_from_ladder(ladder)
+    headline_child = work_track.children[0] if work_track.children else "can12"
+    table = _kpi_table(sources, list(work_track.children))
+    robot, headline = _robot_kpis(table, headline_child, ids, ticks, now, gate, tw2_status)
+    table["headline"] = headline
+    blockers = [str(b) for b in status.get("blockers") or []]
+    hardware_blocker = next((b for b in blockers if not b.startswith("Needs you")), None)
+    days_kpi = robot[-1]
+    days_kpi["note"] = "; ".join(filter(None, [days_kpi["note"], f"Blocker: {hardware_blocker}" if hardware_blocker else None,
+                                               _episode_line(ladder)])) or None
+    kpis = robot + kpis
+    # Twin readings stay evidence, placed in the tick they happened in (the robot twin KPI holds today's reading).
     readings = deployments.twin_readings()
     by_tick: dict[int, list[tuple[dict[str, Any], str | None]]] = defaultdict(list)
     for reading in readings:
         n, note = ticks.place(reading["start"])
         by_tick[n].append((reading, note))
-    twin_values = []
-    for n, it in enumerate(ids):
-        if by_tick.get(n):
-            reading, note = by_tick[n][-1]
-            earlier = [f"{r['version']} {r['gap']}°" for r, _ in by_tick[n][:-1]]
-            twin_values.append(_value(it, reading["gap"], note="; ".join(filter(None, [
-                f"twin {reading['version']} · replays started {_hm(reading['start'])} ({reading['from']})",
-                f"earlier in this tick: {', '.join(earlier)}" if earlier else None, note]))))
-        else:
-            twin_values.append(_value(it, None, note="no new twin version in this tick" if ticks.ticks[n].events or n == 0
-                                      else "no event recorded for this tick"))
-    if readings:
-        last = readings[-1]["gap"]
-        under = gate is not None and last <= gate
-        twin_status = {"word": ("under gate" if under else "above gate" if gate is not None else f"{last}° (no gate parsed)")
-                       + (" · TW2 green" if tw2_status == "green" else ""), "tone": "muted" if under or gate is None else "warn"}
-    else:
-        twin_status = {"word": "not measured", "tone": "muted"}
-    kpis.append(_kpi(
-        "twin_gap", "Twin fidelity gap (held-out)", "S2", "deg", "lower", twin_values,
-        target={"value": gate, "kind": "gate", "label": f"TW2 gate ≤ {gate}°"} if gate is not None else None,
-        baseline={"iteration": ids[ticks.place(readings[0]["start"])[0]], "label": f"twin {readings[0]['version']}",
-                  "value": readings[0]["gap"]} if readings else None,
-        status=twin_status,
-        note=("Median held-out replay gap of the CAN 12 twin (contract KPI twin_fidelity_gap, aligned basis). Sources: "
-              + deployments.freshness_note("kpis_session_can12-pendulum-10to1.json", "deployments.json", "run cache") + "."),
-        provenance=_prov(deployments.fixtures_dir, "/periods/*/kpis/twin_fidelity_gap",
-                         "twin sessions placed in ticks by their first replay's start; a session newer than the session "
-                         "fixture takes deployments.json's latest day value only when it is that day's only session"),
-    ))
-
-    # ---------------------------------------------------------------- guardrail: days since a real hardware row
-    last_real = (ladder or {}).get("last_real_run")
-    days_values = []
-    for n, it in enumerate(ids):
-        tick = ticks.ticks[n]
-        if n == ticks.loop_current and isinstance(rate.get("days_since_real_row"), int):
-            days_values.append(_value(it, rate["days_since_real_row"],
-                                      note=f"loop-status rate.days_since_real_row ({local_time(status.get('generated_at'))})"))
-        elif tick.events and last_real:
-            stamp = tick.last.date()
-            gap = (stamp - date.fromisoformat(last_real)).days
-            days_values.append(_value(it, gap, note=f"last event of the tick ({stamp}) − last real run ({last_real})")
-                               if gap >= 0 else _value(it, None, note="the last real run postdates this tick"))
-        else:
-            days_values.append(_value(it, None, note="no event recorded for this tick" if not tick.events else "ladder.json has no last_real_run"))
-    latest_days = next((v["value"] for v in reversed(days_values) if v["value"] is not None), None)
-    blockers = [str(b) for b in status.get("blockers") or []]
-    hardware_blocker = next((b for b in blockers if not b.startswith("Needs you")), None)
-    kpis.append(_kpi(
-        "days_since_real", "Days since a real hardware row", "S3", "days", "lower", days_values,
-        status={"word": f"{latest_days} days · last real run {last_real[5:] if last_real else '?'}" if latest_days is not None else "not measured",
-                "tone": "warn" if latest_days is not None and latest_days > 14 else "muted"},
-        note="; ".join(filter(None, [f"Blocker: {hardware_blocker}" if hardware_blocker else None,
-                                     _episode_line(ladder)])) or None,
-        provenance=_prov(ladder_src, "/last_real_run", "tick's last event date minus ladder.last_real_run; the current tick is loop-status's own count"),
-    ))
 
     # ---------------------------------------------------------------- delivery: packages landed per tick
     landed_by_tick: dict[int, list[tuple[str, str | None]]] = defaultdict(list)
@@ -857,11 +1236,25 @@ def build_track(work_track: Any, sources: dict[str, str]) -> dict[str, Any]:
                             "replays": reading["replays"]},
                    status=("under gate" if gate is not None and reading["gap"] <= gate else "above gate" if gate is not None else None),
                    note="; ".join(filter(None, [f"session {reading['session']} ({reading['dep']})", reading["note"], note])),
-                   kpis=["twin_gap"])
+                   kpis=["twin_fidelity_gap"])
     if ladder:
         ev.add(ids[-1], "note", "Ladder by axis", metrics={a.get("id"): f"{sum(1 for r in a.get('rungs') or [] if r.get('status') == 'green')}/{len(a.get('rungs') or [])}"
                                                            for a in ladder.get("axes") or []},
                note=where_line or None, kpis=["rungs_green"])
+    if table["state"] == "ok" and headline is not None:
+        # One evidence item at the latest tick: the KPI-table rows the headline reads (a click on a robot cell opens it).
+        rows = table["rows"]
+        used = [(role, headline[key]) for role, key in (("real", "real_row"), ("twin", "twin_row"), ("twin baseline", "twin_baseline_row"))
+                if headline[key] is not None]
+        ev.add(ids[-1], "note", f"KPI table · {headline['label']} headline rows", item_id="rig-kpi-table-headline",
+               when=table["generated_at"],
+               metrics={f"{role} row": str(rows[index].get("period")) for role, index in used},
+               links=[link for link in ([{"label": "KPI table CSV", "kind": "path", "value": table["csv"]}] if table["csv"] else [])
+                      + [{"label": "kpi_table.json", "kind": "path", "value": table["json"]}]],
+               note=f"Read from the export computed {table['generated_label'] or 'time not recorded'}; headline rule: {headline['rule']}.",
+               kpis=list(ROBOT_KPIS))
+    for kpi in kpis:
+        kpi.setdefault("group", "loop_health")
     evidence = ev.attach(kpis)
 
     # ---------------------------------------------------------------- iterations
@@ -921,6 +1314,13 @@ def build_track(work_track: Any, sources: dict[str, str]) -> dict[str, Any]:
         links.append({"label": "Deployments dashboard (Clank)", "kind": "command", "value": status_links["dashboard"]})
     if sources.get("rig_roadmap"):
         links.append({"label": "Roadmap (ROADMAP.md)", "kind": "path", "value": sources["rig_roadmap"]})
+    # The KPI doc, the KPI table CSV and the living report lead the links (KPI-VIEW brief, item 4).
+    links = _doc_links(sources, table, media) + links
+    docs = sources.get(KPI_DOCS_KEY)
+    table["doc"] = {"path": docs, "media": media.add(docs, "text", "KPI doc (KPIS.md)", media_id="rig.kpis-doc") if docs else None}
+    deployment_id = next((dep for dep, child in table["deployments"].items() if child == headline_child), None) or (
+        (deployments.deployment(headline_child) or {}).get("id") or headline_child)
+    playbacks = _playbacks(sources, media, deployment_id)
 
     track = skeleton(work_track, unit="tick")
     inputs = [{"key": key, **_stamp(sources.get(key), now)} for key in ("rig_loop_status", "rig_events", "rig_ladder",
@@ -932,8 +1332,11 @@ def build_track(work_track: Any, sources: dict[str, str]) -> dict[str, Any]:
         iteration={"unit": "tick", "label": f"tick {ticks.loop_current}" + (f" ({phase})" if phase else "")},
         rung=_rung(ladder),
         iterations=iterations,
-        north_star="rungs_green",
+        north_star="real_tracking_rms",
         kpis=kpis,
+        kpi_groups=[dict(group) for group in KPI_GROUPS],
+        kpi_table=table,
+        playbacks=playbacks,
         needs_you=needs_you,
         evidence=evidence,
         links=links,
