@@ -1,0 +1,454 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Vibe Tracks Home Shells</title>
+<style>
+:root { --bg: #fbfbfa; --paper: #fff; --fg: #37352f; --grey: #787774; --faint: #9b9a97; --line: #e9e9e7; --hover: #f3f3f1;
+  --warn: #b35c00; --warn-soft: rgba(217,115,13,.09); --is: #eef4f8; --ought: #f6f1fb; --accent: #2383e2;
+  --font: system-ui, -apple-system, "Segoe UI", Inter, sans-serif; }
+* { box-sizing: border-box; }
+html, body { margin: 0; background: var(--bg); color: var(--fg); font: 15px/1.55 var(--font); -webkit-font-smoothing: antialiased; }
+.wrap { max-width: 1240px; margin: 0 auto; padding: 32px 24px 120px; }
+h1 { font-size: 30px; margin: 4px 0 6px; letter-spacing: -.01em; }
+h2 { font-size: 21px; margin: 56px 0 6px; letter-spacing: -.005em; }
+h3 { font-size: 16px; margin: 0; }
+.kicker { color: var(--faint); font-size: 13px; }
+.lead { color: var(--grey); margin: 0 0 14px; max-width: 860px; }
+.vbox { background: var(--paper); border: 1px solid var(--line); border-radius: 12px; padding: 18px 22px; margin: 18px 0 8px; }
+.vbox .v { font-size: 18px; font-weight: 700; margin: 0 0 6px; }
+.vbox ul { margin: 8px 0 0; padding-left: 20px; } .vbox li { margin: 3px 0; }
+.toc { display: flex; gap: 14px; flex-wrap: wrap; font-size: 13.5px; margin-top: 12px; }
+.toc a { color: var(--grey); } a { color: var(--accent); }
+.frame { height: 800px; border: 1px solid var(--line); border-radius: 12px; overflow: hidden; background: #fff; box-shadow: 0 2px 6px rgba(15,15,15,.04), 0 18px 40px rgba(15,15,15,.06); }
+.walk { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; background: var(--paper); border: 1px solid var(--line); border-radius: 10px; padding: 10px 12px; margin: 10px 0 12px; }
+.walk button, .btnr { font: inherit; font-size: 13.5px; border: 1px solid var(--line); background: var(--paper); border-radius: 7px; padding: 4px 10px; cursor: pointer; color: var(--fg); }
+.walk button:hover, .btnr:hover { background: var(--hover); }
+.walk .stepc { border-radius: 999px; padding: 2px 10px; color: var(--grey); }
+.walk .stepc.on { background: var(--fg); color: #fff; border-color: var(--fg); }
+.walk .cap { flex-basis: 100%; color: var(--grey); font-size: 13.5px; padding: 2px 2px 0; }
+.walk .cap b { color: var(--fg); }
+.vtp .story-target { outline: 2.5px solid #d9730d !important; outline-offset: 2px; border-radius: 6px; }
+.vswitchbox { position: fixed; right: 16px; bottom: 16px; z-index: 50; background: var(--fg); color: #fff; border-radius: 10px; padding: 8px 10px; display: flex; align-items: center; gap: 8px; box-shadow: 0 8px 28px rgba(15,15,15,.25); font-size: 13px; }
+.vswitchbox select { font: inherit; font-size: 13.5px; border-radius: 6px; border: 0; padding: 4px 6px; max-width: 62vw; }
+table.c { width: 100%; border-collapse: collapse; background: var(--paper); border: 1px solid var(--line); border-radius: 10px; overflow: hidden; font-size: 14px; }
+table.c th { text-align: left; font-weight: 500; color: var(--faint); font-size: 12.5px; padding: 8px 10px; border-bottom: 1px solid var(--line); }
+table.c td { padding: 9px 10px; border-bottom: 1px solid var(--line); vertical-align: top; }
+table.c tr:last-child td { border-bottom: 0; }
+.scroll { overflow-x: auto; max-width: 100%; }
+.w { font-variant-numeric: tabular-nums; font-weight: 700; }
+.vcard { background: var(--paper); border: 1px solid var(--line); border-radius: 12px; padding: 18px 20px; margin: 18px 0; }
+.vhead { display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap; }
+.vid { font-weight: 700; color: var(--faint); }
+.vname { font-size: 19px; font-weight: 700; }
+.thesis { margin: 4px 0 10px; color: var(--grey); max-width: 900px; }
+.axes { display: flex; flex-wrap: wrap; gap: 6px; margin: 0 0 12px; }
+.axes span { font-size: 12.5px; background: var(--hover); border-radius: 999px; padding: 2px 9px; color: var(--grey); }
+.axes b { color: var(--fg); font-weight: 600; }
+.shots { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
+figure { margin: 0; }
+figure img { width: 100%; display: block; border: 1px solid var(--line); border-radius: 8px; cursor: zoom-in; background: #fff; }
+figcaption { font-size: 12.5px; color: var(--faint); margin-top: 4px; }
+.vact { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; margin-top: 12px; }
+.vact .on { background: var(--fg); color: #fff; border-color: var(--fg); }
+details { margin-top: 10px; } summary { cursor: pointer; color: var(--grey); font-size: 14px; }
+details ul { margin: 6px 0; padding-left: 20px; } details li { margin: 2px 0; }
+.keep label { display: inline-flex; gap: 5px; align-items: center; margin-right: 12px; font-size: 13.5px; }
+.phones { display: grid; grid-template-columns: repeat(6, minmax(0, 1fr)); gap: 10px; }
+.isought { display: flex; gap: 8px; flex-wrap: wrap; font-size: 12.5px; margin: 6px 0 10px; }
+.isought span { padding: 2px 8px; border-radius: 6px; }
+.is { background: var(--is); } .ought { background: var(--ought); }
+.rank { display: flex; gap: 8px; flex-wrap: wrap; margin: 10px 0 14px; }
+.rank > div { background: var(--paper); border: 1px solid var(--line); border-radius: 10px; padding: 8px 12px; min-width: 150px; }
+.rank > div.top { border-color: var(--fg); }
+.rank .tot { font-size: 22px; font-weight: 800; }
+.cell { min-width: 150px; } .cell .s { font-weight: 700; } .cell small { display: block; color: var(--grey); font-size: 12.5px; line-height: 1.4; }
+.conf { font-size: 11px; color: var(--faint); text-transform: uppercase; letter-spacing: .03em; }
+.pass { color: #2c7a4b; font-weight: 600; } .fail { color: #a13232; font-weight: 600; }
+textarea { width: 100%; min-height: 120px; font: inherit; border: 1px solid var(--line); border-radius: 10px; padding: 12px; background: var(--paper); color: var(--fg); }
+.hero video, .hero img { width: 100%; border: 1px solid var(--line); border-radius: 10px; display: block; background: #fff; }
+.lightbox { position: fixed; inset: 0; background: rgba(15,15,15,.75); z-index: 60; display: none; place-items: center; padding: 20px; cursor: zoom-out; }
+.lightbox.on { display: grid; } .lightbox img { max-width: 100%; max-height: 100%; border-radius: 8px; }
+.note { font-size: 13px; color: var(--faint); }
+.tagreal { font-size: 12px; background: #eef7f0; color: #2c7a4b; border-radius: 4px; padding: 0 6px; }
+.tagill { font-size: 12px; border: 1px dashed var(--line); color: var(--grey); border-radius: 4px; padding: 0 6px; }
+details.r1 { margin-top: 56px; border-top: 1px solid var(--line); padding-top: 8px; }
+details.r1 > summary { cursor: pointer; list-style: revert; padding: 10px 0; }
+details.r1 > summary h2 { margin: 0; }
+kbd { font: 11.5px/1 ui-monospace, Menlo, monospace; border: 1px solid var(--line); border-bottom-width: 2px; border-radius: 4px; padding: 1px 5px; background: var(--paper); }
+pre.snip { background: var(--paper); border: 1px solid var(--line); border-radius: 8px; padding: 10px 12px; font: 13px/1.5 ui-monospace, Menlo, monospace; overflow-x: auto; }
+.two { display: grid; grid-template-columns: minmax(0, 1.4fr) minmax(0, 1fr); gap: 20px; align-items: start; }
+@media (max-width: 760px) {
+  .wrap { padding: 20px 16px 120px; } h1 { font-size: 24px; }
+  .frame { height: 680px; } .shots, .two { grid-template-columns: minmax(0, 1fr); }
+  .phones { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+/*PROTO_CSS*/
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div class="kicker">Vibe Tracks · home / project / track shell · round 3 (Review · Zen) over rounds 2 and 1 · 2026-10-06</div>
+  <h1>Vibe Tracks home shell</h1>
+
+  <div class="vbox">
+    <p class="v">Round 3: Review is Zen mode, media first — one decision at a time, triaged, options shaped like Claude’s questions, and comments pinned on the media.</p>
+    <div class="grey">Built from Zach’s “Feedback on review mode” (Daily Note, ~line 1257) on top of the round-2 shell; Zen’s structure and keys are ported from the Oct 4 “Needs you” N1/N6 lane. Still a clickable mock: answers leave through one Copy, nothing is sent.</div>
+    <ul>
+      <li><b>No inbox.</b> Review opens <i>on</i> the first decision; triaged order is blocking now → waiting for you (no default) → defaulting without you (optional).</li>
+      <li><b>Media leads every card</b> — a looping video, a before/after screenshot, a KPI chart or a diff — and the text supports it. Every figure is labelled <span class="tagreal">real · source</span> or <span class="tagill">illustrative</span>.</li>
+      <li><b>Options like Claude’s AskUserQuestion:</b> numbered, the recommended one first with “(Recommended)”, then “4. Other”. <kbd>↵</kbd> takes the recommendation, <kbd>1</kbd>–<kbd>3</kbd> pick, <kbd>N</kbd> adds a note, <kbd>M</kbd> pins a comment on a spot of the image / chart / diff or on the paused video frame (with its timestamp), <kbd>S</kbd> skips.</li>
+      <li><b>Richer top bar:</b> ids gone; each step shows its state — ✓ recommendation · ✎ different or commented · ↷ skipped (default applies, or still waiting when there is none) · ◌ defaulting unseen · ● current — with its title in the tooltip.</li>
+      <li><b>Entry points:</b> Review in the sidebar with a count badge, “Needs you” on a track row (opens at that track’s first decision), and the track page’s Review tab (filtered to that track). The end is a calm summary: decided · defaulting · still waiting · back to the agents.</li>
+      <li><b>Also fixed:</b> Board card sparklines now sit at one offset in every card, and the agent count never wraps (measured).</li>
+    </ul>
+    <div class="toc"><a href="#try">Try it live</a><a href="#r3hero">Hero video</a><a href="#r3bar">Top bar</a><a href="#r3media">Media cards</a><a href="#r3entry">Entry points + Board fix</a><a href="#r3phone">Phone</a><a href="#r3proof">Proof</a><a href="#round2">Round 2</a><a href="#round1">Round 1</a></div>
+  </div>
+
+  <h2 id="try">Try it live</h2>
+  <p class="lead">The consolidated prototype with Review built in. Click <b>Review</b> (badge) in the sidebar, the orange <b>Needs you · 1</b> on the rig row, <b>3 to review</b> on Kinematic Sim, or a track’s Review tab. With the pointer over the frame, Zen’s keys work: <kbd>↵</kbd> recommendation · <kbd>1</kbd>–<kbd>3</kbd> options · <kbd>4</kbd> other · <kbd>N</kbd> note · <kbd>M</kbd> comment on the media · <kbd>S</kbd> skip · <kbd>J</kbd>/<kbd>K</kbd> · <kbd>Esc</kbd>. The walkthrough drives the same state.</p>
+  <div class="walk" id="walk"></div>
+  <div class="frame"><div id="proto" style="height:100%"></div></div>
+  <p class="note">Full window: <a id="fullwin" href="app.html#r2/home/rows">app.html</a> (same prototype, sibling file) · the “10-project fixture” button swaps in 4 synthetic projects × 5 tracks to judge scale.</p>
+
+
+
+  <h2 id="r3hero">Hero: home → Review badge → Zen → summary</h2>
+  <p class="lead">Recorded from the real prototype with Playwright (Chromium, 1280 × 800): the Review badge opens Zen on the blocking belt-speed decision → ↵ takes the recommendation → a different option on CAN 12 → a comment pinned on the pixel-diff image, then its option → skip → the summary.</p>
+  <div class="hero"><video autoplay muted loop playsinline controls src="{{media:r3-hero.webm}}"><img src="media/r3-hero.gif" alt="Round 3 flow as a GIF"></video>
+  <p class="note">No video? <a href="media/r3-hero.gif">GIF fallback</a> (sibling file).</p></div>
+
+  <h2 id="r3bar">Top bar: what happened to each decision</h2>
+  <p class="lead">After answering five: ✓ recommendation (dark) · ✎ answered differently or with a comment (blue) · ↷ skipped with no default, still waiting (amber, dashed) · ↷ skipped, its default applies (grey, dashed) · ● current · ◌ defaulting, not opened (dotted). Hover any step for its title.</p>
+  <figure><img src="{{media:r3-topbar.webp}}" alt="Zen top bar with every step state" data-zoom></figure>
+
+  <h2 id="r3media">Every card leads with media</h2>
+  <p class="lead">Four of the eight decisions, one per media kind. Green labels are real media from the repos; dashed grey ones are illustrative.</p>
+  <div class="shots">
+    <figure><img src="{{media:r3-card-video.webp}}" alt="Video card" data-zoom><figcaption><b>Video</b> · “Pick at 1.0 m/s and above?” leads with the real BT1 belt replay (kinsim wave 4), a speed chart beside it</figcaption></figure>
+    <figure><img src="{{media:r3-card-image-pinned.webp}}" alt="Image card with a pinned comment" data-zoom><figcaption><b>Image + pinned comment</b> · the real pixel-KPI native | clone | diff for the mask decision, with comment 1 pinned on the diff</figcaption></figure>
+    <figure><img src="{{media:r3-card-chart.webp}}" alt="Chart card" data-zoom><figcaption><b>Chart</b> · disk by area against the 91 % stop line (89.7 % is the kinsim gate’s figure; the split is illustrative)</figcaption></figure>
+    <figure><img src="{{media:r3-card-diff.webp}}" alt="Diff card" data-zoom><figcaption><b>Diff</b> · “Land the integration branch?” leads with the real <code>git diff --stat main...</code> of the kinsim branch (76 commits, 351 files)</figcaption></figure>
+  </div>
+
+  <h2 id="r3entry">Entry points, and the Board fix</h2>
+  <div class="two">
+    <figure><img src="{{media:r3-entry-home.webp}}" alt="Home with Review badge and row entry points" data-zoom><figcaption>Sidebar <b>Review 5</b>; the rig row’s <b>Needs you · 1</b> and Kinematic Sim’s <b>3 to review</b> open Zen at that track’s first decision.</figcaption></figure>
+    <figure><img src="{{media:r3-board-fixed.webp}}" alt="Board cards with aligned sparklines" data-zoom><figcaption>Board cards: value · sparkline · agents in one fixed row; <span id="boardline">…</span></figcaption></figure>
+  </div>
+  <figure style="margin-top:12px"><img src="{{media:r3-summary.webp}}" alt="Review summary" data-zoom><figcaption>The calm end: what you decided (with comments), what is defaulting, what still waits for you, and what goes back to which agent. One Copy; nothing is sent.</figcaption></figure>
+
+  <h2 id="r3phone">Phone (390 px)</h2>
+  <div class="phones" style="grid-template-columns: repeat(3, minmax(0, 1fr))">
+    <figure><img src="{{media:r3-phone-card.webp}}" alt="Phone Zen card" data-zoom><figcaption>Zen card: steps as icons, media full width</figcaption></figure>
+    <figure><img src="{{media:r3-phone-image.webp}}" alt="Phone Zen image card" data-zoom><figcaption>Review filtered to one track</figcaption></figure>
+    <figure><img src="{{media:r3-phone-options.webp}}" alt="Phone options" data-zoom><figcaption>Options and the one big “Take recommendation”</figcaption></figure>
+  </div>
+
+  <h2 id="r3proof">Proof</h2>
+  <p class="lead">Playwright drove real keys, clicks and media pins and read the results back from the DOM (<code>shoot_r3.py</code>).</p>
+  <div class="scroll"><table class="c" id="r3checks"></table></div>
+
+  <details class="r1" id="round2"><summary><h2 style="display:inline">Round 2 · consolidated shell</h2> <span class="note">collapsed · always-on sidebar, four home views, aligned sparklines, account menu</span></summary>
+  <div class="vbox">
+    <p class="v">Round 2: one consolidated shell — V1 Calm Rows + an always-on sidebar + four home views over the same data.</p>
+    <div class="grey">Built from Zach's picks (Daily Note “Feedback on vibe tracks”, ~line 1170). Still a clickable mock over the fixture, <b>not built on the Dashboard lane</b>; Review is a reserved slot, not designed.</div>
+    <ul>
+      <li><b>Sparklines now share one x.</b> Rows use one fixed column grid for every track row <i>and</i> every project header (the V3 ledger's discipline). Measured: <span id="alignline">…</span></li>
+      <li><b>Sidebar always out</b> (a setting, default on), with <b>no sparklines</b> in it, a <b>Review</b> item reserved for what's next, and an <b>account button bottom-left</b> like Claude desktop → menu with Settings (Ctrl+,).</li>
+      <li><b>Home views: Rows · Table · Board · Cards</b> — a segmented control, keys <kbd>1</kbd>–<kbd>4</kbd>, last view remembered. Board is the V3 state × project swimlane grid (“respects each project”).</li>
+      <li><b>Track page:</b> soft KPIs toggle <b>Cards ↔ Rows</b> (a compact aligned table; key <kbd>K</kbd>), hard gates stay apart; a <b>Review</b> tab is the seam for the next round. Phone layout kept.</li>
+    </ul>
+    <div class="toc"><a href="#try">Try it live</a><a href="#r2hero">Hero video</a><a href="#r2align">Alignment</a><a href="#r2views">Four views</a><a href="#r2shell">Sidebar + Settings</a><a href="#r2kpi">KPI cards ↔ rows</a><a href="#r2phone">Phones</a><a href="#r2proof">Proof</a><a href="#round1">Round 1</a></div>
+  </div>
+
+  <h2 id="r2hero">Hero: Rows → Table → Board → Cards → project → track → KPI rows → account menu → Settings</h2>
+  <p class="lead">Recorded from the real prototype with Playwright (Chromium, 1280 × 800, 19 s).</p>
+  <div class="hero"><video autoplay muted loop playsinline controls src="{{file:r2-hero.webm}}"><img src="media/r2-hero.gif" alt="Round 2 flow as a GIF"></video>
+  <p class="note">No video? <a href="media/r2-hero.gif">GIF fallback</a> (sibling file, 560 px, 4 fps).</p></div>
+
+  <h2 id="r2align">Sparkline alignment, before → after</h2>
+  <p class="lead">Red ticks mark each sparkline's measured left edge (<code>getBoundingClientRect().left</code>). Before (round-1 V1), project headers and track rows used different grid templates with <code>fr</code> columns, so the two sets sat in different columns. After, one fixed template — <code>22px · 1fr · 132px · 200px · 124px · 224px</code> — is shared by every header and row.</p>
+  <div class="shots">
+    <figure><img src="{{file:r2-align-before.webp}}" alt="Before: sparklines in two columns" data-zoom><figcaption><b>Before</b> · round-1 V1 at 1440 px</figcaption></figure>
+    <figure><img src="{{file:r2-align-after.webp}}" alt="After: one sparkline column" data-zoom><figcaption><b>After</b> · round 2 at 1440 px (with the sidebar)</figcaption></figure>
+  </div>
+  <div class="scroll" style="margin-top:10px"><table class="c" id="aligntab"></table></div>
+
+  <h2 id="r2views">Four views of the same data on home</h2>
+  <p class="lead">One segmented control (<kbd>1</kbd> Rows · <kbd>2</kbd> Table · <kbd>3</kbd> Board · <kbd>4</kbd> Cards), remembered per viewer. Highlight / filter by project works in all four.</p>
+  <div class="shots">
+    <figure><img src="{{file:r2-rows.webp}}" alt="Rows view" data-zoom><figcaption><b>1 · Rows</b> — Calm Rows on the fixed grid: one sparkline column for headers and tracks</figcaption></figure>
+    <figure><img src="{{file:r2-table.webp}}" alt="Table view" data-zoom><figcaption><b>2 · Table</b> — the V3 ledger with Group by project / state / none and sortable columns</figcaption></figure>
+    <figure><img src="{{file:r2-board.webp}}" alt="Board view" data-zoom><figcaption><b>3 · Board</b> — state × project swimlanes: each project a row, each state a column; drag into Done / Archived</figcaption></figure>
+    <figure><img src="{{file:r2-cards.webp}}" alt="Cards view" data-zoom><figcaption><b>4 · Cards</b> — a card grid grouped by project, with the project's rollup and north star on its header</figcaption></figure>
+  </div>
+
+  <h2 id="r2shell">Sidebar, account menu and Settings</h2>
+  <div class="shots">
+    <figure><img src="{{file:r2-acctmenu.webp}}" alt="Account menu" data-zoom><figcaption><b>Account button bottom-left</b> (Claude desktop pattern) → Settings · Accounts · Keyboard shortcuts · Help · Changelog · Log out. The sidebar has no sparklines now, and a <b>Review</b> item is reserved.</figcaption></figure>
+    <figure><img src="{{file:r2-settings.webp}}" alt="Settings page" data-zoom><figcaption><b>Settings</b> (Ctrl+,): <i>Always show the sidebar</i> (default on — off brings back round-1 V1's full-width home), remember last view, default view, KPI view, linked accounts, shortcuts.</figcaption></figure>
+  </div>
+
+  <h2 id="r2kpi">Soft KPIs: cards ↔ rows</h2>
+  <p class="lead">Same dataset, two views, one toggle (or <kbd>K</kbd>); the choice is remembered. Rows use a fixed table layout, so the trend column is aligned too. Hard gates stay a separate pass / fail list underneath.</p>
+  <div class="shots">
+    <figure><img src="{{file:r2-kpi-cards.webp}}" alt="KPI cards" data-zoom><figcaption><b>Cards</b> — small multiples (Grasping)</figcaption></figure>
+    <figure><img src="{{file:r2-kpi-rows.webp}}" alt="KPI rows" data-zoom><figcaption><b>Rows</b> — KPI · now · target · trend · change since Sep 27</figcaption></figure>
+  </div>
+
+  <h2 id="r2phone">Phones (390 px), layout kept</h2>
+  <div class="phones" style="grid-template-columns: repeat(4, minmax(0, 1fr))">
+    <figure><img src="{{file:r2-phone-home.webp}}" alt="Phone home" data-zoom><figcaption>Home · Rows</figcaption></figure>
+    <figure><img src="{{file:r2-phone-drawer.webp}}" alt="Phone drawer" data-zoom><figcaption>☰ sidebar as a drawer, account button at its foot</figcaption></figure>
+    <figure><img src="{{file:r2-phone-board.webp}}" alt="Phone board" data-zoom><figcaption>Board scrolls inside its box</figcaption></figure>
+    <figure><img src="{{file:r2-phone-track.webp}}" alt="Phone track" data-zoom><figcaption>Track page</figcaption></figure>
+  </div>
+
+  <h2 id="r2proof">Proof</h2>
+  <p class="lead">Playwright drove real clicks and keys and read the results back from the DOM (<code>shoot_r2.py</code>).</p>
+  <div class="scroll"><table class="c" id="r2checks"></table></div>
+  <p class="note" style="margin-top:10px"><b>Next:</b> Review. The seam is a <i>Review</i> tab on every track and a <i>Review</i> item in the sidebar, both deliberately empty until Zach's review feedback (“media rich, really easy to give feedback, like zen mode”) lands.</p>
+
+  </details>
+
+  <details class="r1" id="round1"><summary><h2 style="display:inline">Round 1 · five proposals</h2> <span class="note">collapsed · Zach picked V1 plus V3's table / board and the always-on sidebar</span></summary>
+  <div class="vbox">
+    <p class="v">Recommend V1 · Calm Rows (<span id="v1total">88</span>/100), and splice in V5's “Needs you” band. Runner-up: V2 · Codex Shell (82).</p>
+    <div class="grey">Clickable mocks over a hand-written fixture of the real tracks — <b>not built on the Dashboard lane yet</b>; live sessions and “Answer in chat” are simulated links.</div>
+    <ul>
+      <li><b>Why V1:</b> it is the only variant that keeps the overview wide and calm (one summary sentence, needs-you and stalled as words, everything else grey) <i>and</i> gives you the Claude desktop tree the moment you drill in. Extends the Dashboard lane's Variant A table instead of replacing it.</li>
+      <li><b>Its weak spot, measured:</b> with 10 projects expanded the page is 3.1 screens and one of the two needs-you tracks falls below the fold. V5's band fixes exactly that, so the splice is V1 + the band (shown only when something needs you).</li>
+      <li><b>What flips it:</b> if you want the sidebar on <i>every</i> page, home included (raise “muscle memory” to 35 and drop “calm” to 15), V2 ties V1 at 85.</li>
+      <li><b>Your Oct 6 feedback is in all five</b> (it is shared, so it does not move the ranking): several KPIs per track with hard gates apart, Done / Archived on a drag-and-drop board, north star (lagging) over the tracks' KPIs (leading), an Auditor panel, an evo-style Experiments tree tied to roadmap rungs, and Discover vs Optimize. <a href="#feedback">See it</a>.</li>
+      <li><b>Shared by all five:</b> a project is the Codex model — a name plus 1..N folders in one <code>Project.vibetrack</code>; with one folder the name defaults to it.</li>
+    </ul>
+    <div class="toc"><a href="#try">Try them (live, above)</a><a href="#hero">Hero video</a><a href="#feedback">Oct 6 feedback</a><a href="#criteria">Criteria</a><a href="#atlas">The five</a><a href="#phones">Phones</a><a href="#model">Project model</a><a href="#prune">Scores</a><a href="#call">Your call</a></div>
+  </div>
+
+  <h2 id="hero">Hero: V1 home → project → track</h2>
+  <p class="lead">Recorded from the real prototype with Playwright (Chromium, 1280 × 800, 19 s): board → filter to beautiful-bt → drag its card to <b>Done</b> → rows → BAM Robotics (north star over its tracks) → Grasping from the left panel → Experiments, pick g07 → Auditor → the needs-you rig track → its chat link.</p>
+  <div class="hero"><video autoplay muted loop playsinline controls src="media/hero.webm"><img src="media/hero.gif" alt="V1 flow as a GIF"></video>
+  <p class="note">Round-1 video and its <a href="media/hero.gif">GIF fallback</a> are sibling files (not inlined, to keep the report small).</p></div>
+
+
+  <h2 id="feedback">Your Oct 6 feedback, built into all five</h2>
+  <p class="lead">These live in the shared track and project pages, so every variant has them; the variants still differ in shell, home, board and where things surface. Daily Note lines ~785-870.</p>
+  <div class="two">
+    <figure><img src="{{file:r1s-feat-experiments.webp}}" alt="Experiments tab" data-zoom><figcaption><b>Experiments (evo-style).</b> The frontier chain across the top, each kept node's discarded / failed children under it, a best-so-far staircase, and a detail panel: hypothesis, parent + children, model, tokens, latency, cost. Rung chips filter it — roadmap rungs break down into experiments. A solid sketch; the separate evo study goes deeper.</figcaption></figure>
+    <div>
+      <ul class="grey" style="font-size:14.5px;padding-left:18px;margin-top:0">
+        <li><b style="color:var(--fg)">Many KPIs, one summary.</b> The row sparkline is the track's summary statistic (its first KPI); the track page shows every soft KPI as small multiples side by side so a Goodhart trade-off is visible, and hard gates sit apart as pass / fail (evo: optimisation with hard and soft constraints). A failing gate is what stalls Hyperspectral (“data drive mounted: fail”).</li>
+        <li><b style="color:var(--fg)">Done and Archived.</b> Every board has both, and you can drag a card into them (or back to On track); Needs you / Stalled refuse a drop because they are computed. Rows hide archived behind “Show archived”.</li>
+        <li><b style="color:var(--fg)">North star = lagging, tracks = leading.</b> The project page draws the north star on top and each track's KPI under it on the same time axis, with a guide at every north-star step, so “tracks moved first” is visible.</li>
+        <li><b style="color:var(--fg)">Auditor.</b> A tab per track: each LLM-judge round with model, verdict, findings marked open / fixed, time to verdict and a link to its audit file; rows and cards carry a badge like “r3 pass·fix · 1 open”.</li>
+        <li><b style="color:var(--fg)">Discover vs Optimize.</b> A mode switch on every track; a track with no KPIs sits in Discover, where the agent's proposed KPIs and gates wait for Accept / Reject, and Optimize unlocks after the first accepted KPI.</li>
+        <li><b style="color:var(--fg)">Suggested skills (not built):</b> <code>/vibetracks</code>, <code>/vibetracks-loop</code> (creates KPIs first if there are none) and <code>/vibetracks-discover</code> as one-click actions on the track page; they show the session they would start.</li>
+      </ul>
+    </div>
+  </div>
+  <div class="shots" style="margin-top:12px">
+    <figure><img src="{{file:r1s-feat-auditor.webp}}" alt="Auditor tab" data-zoom><figcaption><b>Auditor</b> on the needs-you rig track: three rounds, findings struck through when fixed, one still open.</figcaption></figure>
+    <figure><img src="{{file:r1s-feat-discover.webp}}" alt="Discover mode" data-zoom><figcaption><b>Discover</b> on a track with no KPIs yet: the agent's proposals, Accept / Reject; Optimize stays locked until one is accepted.</figcaption></figure>
+  </div>
+
+  <h2 id="criteria">What good means (fixed before building)</h2>
+  <p class="lead">Weights and anchors were written before any variant existed and not changed afterwards. Hard gates are pass / fail and are never averaged in.</p>
+  <div class="scroll"><table class="c" id="crit"></table></div>
+  <div class="scroll" style="margin-top:12px"><table class="c" id="gates"></table></div>
+
+  <h2 id="atlas">The five</h2>
+  <p class="lead">Same fixture, same viewport (1440 × 900), same four states each: home, board, project page (BAM Robotics, 3 folders), track page (the needs-you rig track). Click a picture to enlarge; <i>Try live</i> flips the prototype above.</p>
+  <div id="variants"></div>
+
+  <h2 id="phones">Phones (390 px)</h2>
+  <p class="lead">Home of each variant at 390 × 844, plus V1's track page. The left panel becomes a drawer (☰); the project chips collapse into one picker; wide tables scroll inside their own box, never the page.</p>
+  <div class="phones" id="phonegrid"></div>
+
+  <h2 id="model">Shared by all five: project = name + 1..N folders</h2>
+  <div class="two">
+    <figure><img src="{{file:r1s-dialog.webp}}" alt="Create project dialog with three folders" data-zoom><figcaption>The Codex “Create project” dialog, cloned: name + source folders. With one folder the name defaults to the folder (try it); two or more need a name.</figcaption></figure>
+    <div>
+      <pre class="snip"># ~/bam_ws/Project.vibetrack
+vibetracks:
+  name: BAM Robotics
+  roots: [~/bam_ws, ~/clank-workbench, ~/viser-3d-viewer]</pre>
+      <ul class="grey" style="font-size:14px;padding-left:18px">
+        <li>The project <i>is</i> that file: git-able, agent-readable. Tracks are files inside any root.</li>
+        <li>“Which project is this chat?” = which project lists the chat's cwd as a root — the session → project join comes free; session → track is the <code>session_id</code> on KPI rows.</li>
+        <li>One folder in two projects is allowed (e.g. <code>~/vibetracks</code>); a chat there shows under both until a KPI row pins it.</li>
+      </ul>
+      <figure style="margin-top:10px"><img src="{{file:r1s-v1-scale-collapsed.webp}}" alt="V1 home with 10 projects collapsed" data-zoom><figcaption>V1 at 10 projects (4 synthetic), all collapsed: one screen, and the rollup words still say where the needs-you is.</figcaption></figure>
+    </div>
+  </div>
+
+  <h2 id="prune">Scores</h2>
+  <div class="isought"><span class="is">is · measured in the prototype</span><span class="ought">ought · AI judgment (weights, scores, recommendation)</span></div>
+  <div class="rank" id="rank"></div>
+  <div class="scroll"><table class="c" id="matrix"></table></div>
+  <h3 style="margin-top:22px">Hard gates <small class="note">· is, from Playwright</small></h3>
+  <div class="scroll" style="margin-top:8px"><table class="c" id="gateres"></table></div>
+  <h3 style="margin-top:22px">Scale probe <small class="note">· is · 10-project fixture, 1440 × 900, every project expanded</small></h3>
+  <div class="scroll" style="margin-top:8px"><table class="c" id="scale"></table></div>
+  <div class="vbox ought" style="margin-top:18px">
+    <b>Decision hinge.</b> V1 leads V2 by 6 points almost entirely on “calm first screen” and “cost on the Dashboard lane”. Move 15 points from calm to muscle memory and they tie at 85 — i.e. the real question is <i>do you want the left panel on home too?</i> If yes, take V2 and keep V1's summary strips. V5 is the best source of parts (the band, the who-moves-next board, chat leaves) but its core waits on the session ↔ track join.
+  </div>
+
+  <h2 id="call">Your call</h2>
+  <p class="lead">Pick, shortlist or reject on each card, tick parts to keep, or just type. Nothing here is pre-filled from the AI pick. <b>Default if you say nothing:</b> the Dashboard lane builds V1 + V5's needs-you band, Codex-model project files, drill-in sidebar.</p>
+  <textarea id="synth" placeholder="e.g. Pick: V1 · Keep: V5 needs-you band, V3 group-by switch · Avoid: sidebar on home · Why: …"></textarea>
+  <div class="vact"><button class="btnr" id="copymd">Copy prune brief (Markdown)</button><button class="btnr" id="dlmd">Download .md</button><span class="note" id="copied"></span></div>
+
+  <h2>Boundary</h2>
+  <p class="note">Prototype only: one HTML/JS file per variant set, a hand-written fixture modelled on <code>vibetracks-dashboard/workspace/tracks/*.md</code> and the Oct 4-6 loop state (numbers illustrative, not read live). Session chips, “Answer in chat”, “Start an agent”, audit-file links and the three suggested skills (<code>/vibetracks</code>, <code>/vibetracks-loop</code>, <code>/vibetracks-discover</code> — not built) show what they would open; drags and mode switches say which track-file field they would write; nothing writes files. Experiments, audits and KPI histories are hand-written fixtures modelled on the real loops. Not integrated into Clank or the Dashboard lane. Rebuild: <code>python3 build.py</code>; re-record: <code>uv run --no-project --with playwright==1.55.0 python shoot.py</code> (both beside this file).</p>
+  </details>
+</div>
+
+<div class="vswitchbox" aria-label="Variant switcher"><span>Variant</span><select id="vswitch"></select></div>
+<div class="lightbox" id="lb"><img alt=""></div>
+
+<script>
+/*PROTO_JS*/
+</script>
+<script>
+const SPEC = /*SPEC_JSON*/;
+const PROOF = /*PROOF_JSON*/;
+const SHOTS = {
+  v1: ['{{file:r1s-v1-home.webp}}', '{{file:r1s-v1-board.webp}}', '{{file:r1s-v1-project.webp}}', '{{file:r1s-v1-track.webp}}', '{{file:r1s-v1-phone.webp}}'],
+  v2: ['{{file:r1s-v2-home.webp}}', '{{file:r1s-v2-board.webp}}', '{{file:r1s-v2-project.webp}}', '{{file:r1s-v2-track.webp}}', '{{file:r1s-v2-phone.webp}}'],
+  v3: ['{{file:r1s-v3-home.webp}}', '{{file:r1s-v3-board.webp}}', '{{file:r1s-v3-project.webp}}', '{{file:r1s-v3-track.webp}}', '{{file:r1s-v3-phone.webp}}'],
+  v4: ['{{file:r1s-v4-home.webp}}', '{{file:r1s-v4-board.webp}}', '{{file:r1s-v4-project.webp}}', '{{file:r1s-v4-track.webp}}', '{{file:r1s-v4-phone.webp}}'],
+  v5: ['{{file:r1s-v5-home.webp}}', '{{file:r1s-v5-board.webp}}', '{{file:r1s-v5-project.webp}}', '{{file:r1s-v5-track.webp}}', '{{file:r1s-v5-phone.webp}}'],
+};
+const PHONE_TRACK = '{{file:r1s-v1-phone-track.webp}}';
+const esc = (s) => String(s == null ? '' : s).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+const $ = (id) => document.getElementById(id);
+const KEY = 'vt-home-proposals-2026-10-06';
+let store = {}; try { store = JSON.parse(localStorage.getItem(KEY) || '{}'); } catch (e) {}
+const save = () => { try { localStorage.setItem(KEY, JSON.stringify(store)); } catch (e) {} };
+store.verdicts = store.verdicts || {}; store.keep = store.keep || {};
+
+// ---- prototype + switcher + walkthrough (same state machine as the direct controls)
+const proto = $('proto');
+VTP.mount(proto, { standalone: false });
+const vs = $('vswitch');
+vs.innerHTML = '<option value="r2">R3 · Consolidated + Review (rounds 2–3)</option>' + SPEC.variants.map((v) => `<option value="${v.id}">Round 1 · ${v.id.toUpperCase()} · ${esc(v.name)}</option>`).join('');
+vs.onchange = () => { VTP.set({ v: vs.value, page: 'home', id: null }); $('fullwin').href = 'app.html#' + vs.value + '/home'; };
+const STEPS = [
+  { label: 'Home', cap: '<b>Home.</b> Always-on sidebar with <b>Review 5</b>; the rig row says <b>Needs you · 1</b>, Kinematic Sim <b>3 to review</b>.', run: () => VTP.set({ v: 'r2', page: 'home', id: null, homeView: 'rows', acctMenu: false }), target: '.side2 [data-act=review]' },
+  { label: 'Video', cap: '<b>Blocking now · video first.</b> The real BT1 belt replay leads; ↵ takes “(Recommended)”.', run: () => VTP.zen(null, 0), target: '.zfig.lead' },
+  { label: 'Diff', cap: '<b>Blocking now · diff.</b> The config change you would sign for CAN 12 (target values from the item; “before” illustrative).', run: () => VTP.zen(null, 1), target: '.zfig.lead' },
+  { label: 'Image', cap: '<b>Waiting for you · image.</b> Real native | clone | diff; press M (or the button) and click to pin a comment.', run: () => VTP.zen(null, 2), target: '[data-act=zpinmode]' },
+  { label: 'Chart', cap: '<b>Waiting for you · chart.</b> Disk against the stop line; S skips (no default: it keeps waiting).', run: () => VTP.zen(null, 4), target: '.zfig.lead' },
+  { label: 'Defaulting', cap: '<b>Defaulting without you · optional.</b> The real Clank kinsim dashboard; the default is already in effect.', run: () => VTP.zen(null, 5), target: '.aopt .adef' },
+  { label: 'Summary', cap: '<b>Summary.</b> Decided · defaulting · still waiting · back to the agents; one Copy.', run: () => VTP.zen(null, 0, true), target: '[data-act=zcopy]' },
+  { label: 'Track filter', cap: '<b>One track only.</b> The Review tab (or a row’s Needs you) opens Zen filtered to that track.', run: () => VTP.zen('rig', 0), target: '.zbar' },
+];
+let step = 0;
+function drawWalk() {
+  $('walk').innerHTML = `<button id="wb">← Back</button>${STEPS.map((s, i) => `<button class="stepc ${i === step ? 'on' : ''}" data-step="${i}">${i + 1} · ${s.label}</button>`).join('')}<button id="wn">Next →</button><div class="cap">${STEPS[step].cap}</div>`;
+  $('wb').onclick = () => go(Math.max(0, step - 1)); $('wn').onclick = () => go(Math.min(STEPS.length - 1, step + 1));
+  document.querySelectorAll('[data-step]').forEach((b) => (b.onclick = () => go(+b.dataset.step)));
+}
+function mark() { proto.querySelectorAll('.story-target').forEach((e) => e.classList.remove('story-target')); const t = proto.querySelector(STEPS[step].target); if (t) t.classList.add('story-target'); }
+let driving = false;
+function go(i) { step = i; driving = true; STEPS[i].run(); driving = false; drawWalk(); mark(); }
+VTP.onChange((s) => {
+  // Direct clicks resync the walkthrough to the matching step.
+  const match = s.page !== 'review' ? 0 : s.zend ? 6 : ({ 'kinsim-T47': 1, 'rig-T2': 2, 'mag-masks': 3, 'kinsim-T33': 4, 'kinsim-T11': 5 })[s.zitem] ?? step;
+  if (!driving && match !== step) { step = match; drawWalk(); }
+  requestAnimationFrame(mark);
+  if (vs.value !== s.v) vs.value = s.v;
+});
+drawWalk(); mark();
+
+// ---- criteria + gates
+$('crit').innerHTML = `<tr><th>Criterion</th><th>Weight</th><th>Why it matters here</th><th>1 · 3 · 5</th></tr>` + SPEC.requirements.map((r) => `<tr><td><b>${esc(r.name)}</b><br><small class="note">${esc(r.pass)}</small></td><td class="w">${r.weight}%</td><td>${esc(r.why)}</td><td><small>1 · ${esc(r.anchors['1'])}<br>3 · ${esc(r.anchors['3'])}<br>5 · ${esc(r.anchors['5'])}</small></td></tr>`).join('');
+$('gates').innerHTML = `<tr><th>Hard gate</th><th>How it is checked</th></tr>` + SPEC.gates.map((g) => `<tr><td><b>${esc(g.name)}</b></td><td>${esc(g.why)}</td></tr>`).join('');
+
+// ---- atlas (unranked)
+const CAPS = ['Home · rows', 'Home · board', 'Project page · BAM Robotics', 'Track page · Sim to Real (needs you)'];
+$('variants').innerHTML = SPEC.variants.map((v) => `<section class="vcard" id="card-${v.id}">
+  <div class="vhead"><span class="vid">${v.id.toUpperCase()}</span><span class="vname">${esc(v.name)}</span></div>
+  <p class="thesis">${esc(v.thesis)}</p>
+  <div class="axes">${Object.entries(v.axes).map(([k, x]) => `<span>${esc(k)}: <b>${esc(x)}</b></span>`).join('')}</div>
+  <div class="shots">${SHOTS[v.id].slice(0, 4).map((src, i) => `<figure><img loading="lazy" src="${src}" alt="${esc(v.name)} ${CAPS[i]}" data-zoom><figcaption>${CAPS[i]}</figcaption></figure>`).join('')}</div>
+  <div class="vact"><button class="btnr" data-try="${v.id}">Try live ↑</button>
+    ${['pick', 'shortlist', 'reject'].map((a) => `<button class="btnr ${store.verdicts[v.id] === a ? 'on' : ''}" data-verdict="${v.id}:${a}">${a[0].toUpperCase() + a.slice(1)}</button>`).join('')}</div>
+  <details><summary>Decisions · best when · loses when · parts to keep</summary>
+    <ul>${v.decisions.map((d) => `<li>${esc(d)}</li>`).join('')}</ul>
+    <p><b>Best when:</b> ${esc(v.bestWhen)}<br><b>Loses when:</b> ${esc(v.losesWhen)}</p>
+    <div class="keep">${v.keep.map((k, i) => `<label><input type="checkbox" data-keep="${v.id}:${i}" ${store.keep[v.id + ':' + i] ? 'checked' : ''}> keep ${esc(k)}</label>`).join('')}</div>
+  </details></section>`).join('');
+document.querySelectorAll('[data-try]').forEach((b) => (b.onclick = () => { vs.value = b.dataset.try; vs.onchange(); $('try').scrollIntoView({ behavior: 'smooth' }); }));
+document.querySelectorAll('[data-verdict]').forEach((b) => (b.onclick = () => { const [id, a] = b.dataset.verdict.split(':'); store.verdicts[id] = store.verdicts[id] === a ? null : a; save(); document.querySelectorAll(`[data-verdict^="${id}:"]`).forEach((x) => x.classList.toggle('on', store.verdicts[id] === x.dataset.verdict.split(':')[1])); }));
+document.querySelectorAll('[data-keep]').forEach((c) => (c.onchange = () => { store.keep[c.dataset.keep] = c.checked; save(); }));
+$('phonegrid').innerHTML = SPEC.variants.map((v) => `<figure><img loading="lazy" src="${SHOTS[v.id][4]}" alt="${esc(v.name)} at 390 px" data-zoom><figcaption>${v.id.toUpperCase()} · ${esc(v.name)} · home</figcaption></figure>`).join('') + `<figure><img loading="lazy" src="${PHONE_TRACK}" alt="V1 track page at 390 px" data-zoom><figcaption>V1 · track page</figcaption></figure>`;
+
+// ---- prune (after the atlas)
+const total = (id) => SPEC.requirements.reduce((a, r) => a + r.weight * SPEC.scores[id][r.id][0] / 5, 0);
+const order = SPEC.variants.map((v) => v.id).sort((a, b) => total(b) - total(a));
+$('v1total').textContent = total('v1');
+const gateOk = (id) => {
+  if (!PROOF) return [null, null, true];
+  const it = PROOF.interactions[id]; const g1 = Object.entries(it).filter(([k, x]) => x === false).map(([k]) => k);
+  const g2 = Object.entries(PROOF.widths[id]).filter(([k, x]) => !x.ok).map(([k]) => k);
+  return [g1, g2, true];
+};
+$('rank').innerHTML = order.map((id, i) => { const v = SPEC.variants.find((x) => x.id === id); const [g1, g2] = gateOk(id); const ok = g1 && !g1.length && !g2.length;
+  return `<div class="${i === 0 ? 'top ought' : ''}"><div class="note">#${i + 1}${i === 0 ? ' · AI recommendation' : ''}</div><div><b>${id.toUpperCase()} · ${esc(v.name)}</b></div><div class="tot">${total(id)}</div><div class="note">${ok ? 'all gates pass' : 'gate failure'}</div></div>`; }).join('');
+$('matrix').innerHTML = `<tr><th>Criterion</th>${order.map((id) => `<th>${id.toUpperCase()} · ${esc(SPEC.variants.find((x) => x.id === id).name)}</th>`).join('')}</tr>` +
+  SPEC.requirements.map((r) => `<tr><td><b>${esc(r.name)}</b><br><span class="note">${r.weight}%</span></td>${order.map((id) => { const [s, ev, c] = SPEC.scores[id][r.id]; return `<td class="cell ought"><span class="s">${s}</span> <span class="conf">${c}</span><small>${esc(ev)}</small></td>`; }).join('')}</tr>`).join('') +
+  `<tr><td><b>Weighted total</b></td>${order.map((id) => `<td class="w ought">${total(id)}</td>`).join('')}</tr>`;
+const G4 = ['drag_to_done', 'board_has_done_and_archived', 'kpi_small_multiples', 'experiment_detail', 'auditor_rounds', 'discover_optimize_locked', 'discover_accept_unlocks', 'lead_lag_chart'];
+$('gateres').innerHTML = `<tr><th>Variant</th><th>g1 · every brief element by real clicks</th><th>g2 · no sideways scroll (390 + 1440, 4 pages)</th><th>g3 · state words lead</th><th>g4 · Oct 6 feedback</th><th>Sidebar on home?</th></tr>` + SPEC.variants.map((v) => {
+  if (!PROOF) return `<tr><td>${v.id.toUpperCase()}</td><td colspan="4">not measured</td></tr>`;
+  const it = PROOF.interactions[v.id]; const [g1, g2] = gateOk(v.id);
+  const checks = Object.entries(it).filter(([k, x]) => typeof x === 'boolean');
+  return `<tr class="is"><td><b>${v.id.toUpperCase()} · ${esc(v.name)}</b></td><td>${g1.length ? `<span class="fail">FAIL</span> ${esc(g1.join(', '))}` : `<span class="pass">PASS</span> ${checks.length}/${checks.length} checks`}${it.errors.length ? ` · <span class="fail">${it.errors.length} JS errors</span>` : ' · 0 JS errors'}</td>
+    <td>${g2.length ? `<span class="fail">FAIL</span> ${esc(g2.join(', '))}` : `<span class="pass">PASS</span> 8/8 page × width`}</td><td><span class="pass">PASS</span> word + dot on every row and card</td><td>${G4.every((k) => it[k] === true) ? `<span class="pass">PASS</span> ${G4.length}/${G4.length}` : `<span class="fail">FAIL</span> ${esc(G4.filter((k) => it[k] !== true).join(', '))}`}</td><td>${esc(it.note_sidebar_on_home)}</td></tr>`;
+}).join('') + (PROOF ? `<tr><td colspan="6" class="note">g1 + g4 checks: ${esc(Object.keys(PROOF.interactions.v1).filter((k) => typeof PROOF.interactions.v1[k] === 'boolean').join(' · '))}</td></tr>` : '');
+$('scale').innerHTML = `<tr><th>Variant</th><th>Home height</th><th>Needs-you tracks above the fold</th><th>Board sideways overflow</th></tr>` + (PROOF ? SPEC.variants.map((v) => { const m = PROOF.scale[v.id];
+  return `<tr class="is"><td><b>${v.id.toUpperCase()} · ${esc(v.name)}</b></td><td>${m.screens} screens (${m.pageHeight} px)</td><td>${m.needsTracksAboveFold} of ${m.needsTracks}</td><td>${m.boardSidewaysPx > 0 ? m.boardSidewaysPx + ' px (scrolls inside the board)' : 'none'}</td></tr>`; }).join('') : '');
+
+// ---- export
+function brief() {
+  const lines = ['# Vibe Tracks home shell — prune brief (2026-10-06)', '', `AI recommendation: V1 Calm Rows (${total('v1')}/100) + V5's needs-you band; runner-up ${order[1].toUpperCase()} (${total(order[1])}).`, ''];
+  SPEC.variants.forEach((v) => { const ks = v.keep.filter((k, i) => store.keep[v.id + ':' + i]); lines.push(`- ${v.id.toUpperCase()} ${v.name}: ${store.verdicts[v.id] || '—'}${ks.length ? ' · keep: ' + ks.join(', ') : ''}`); });
+  lines.push('', '## Zach', '', $('synth').value.trim() || '(no note)');
+  return lines.join('\n');
+}
+$('synth').value = store.synth || ''; $('synth').oninput = () => { store.synth = $('synth').value; save(); };
+$('copymd').onclick = async () => { try { await navigator.clipboard.writeText(brief()); $('copied').textContent = 'Copied.'; } catch (e) { $('copied').textContent = 'Clipboard blocked — use Download.'; } };
+$('dlmd').onclick = () => { const a = document.createElement('a'); a.href = URL.createObjectURL(new Blob([brief()], { type: 'text/markdown' })); a.download = 'vibetracks-home-prune-2026-10-06.md'; a.click(); };
+
+// ---- round 2 proof tables
+const R2 = /*R2PROOF_JSON*/;
+if (R2) {
+  const A = R2.alignment; const f = (x) => x.n ? `${x.n} sparklines · left ${[...new Set(x.lefts)].join(' / ')} px · spread <b>${x.spread} px</b>` : '—';
+  const rows = [['Before · round-1 V1 · 1440 px', A.before_v1_rows], ['After · round 2 · 1440 px', A.after_r2_rows], ['After · round 2 · 10-project fixture', A.after_r2_rows_10_projects], ['After · round 2 · 1180 px window', A.after_r2_rows_at_1180px]];
+  $('aligntab').innerHTML = `<tr><th>Measured</th><th>Track rows</th><th>Project headers</th><th>All rows together</th></tr>` + rows.map(([l, m]) => `<tr class="is"><td><b>${l}</b></td><td>${f(m.track_rows)}</td><td>${f(m.project_headers)}</td><td>${f(m.all)}</td></tr>`).join('') + `<tr class="is"><td><b>After · project page</b></td><td>${f(A.after_r2_project_page.track_rows)}</td><td>—</td><td>—</td></tr>`;
+  $('alignline').innerHTML = `all ${A.after_r2_rows.all.n} sparklines (11 tracks + 6 project headers) at <b>left = ${A.after_r2_rows.all.lefts[0]} px</b>, spread <b>${A.after_r2_rows.all.spread} px</b> (41 at 10 projects, also 0 px). Before: tracks and headers sat <b>${A.before_v1_rows.all.spread} px</b> apart.`;
+  const names = { sidebar_on_home_by_default: 'Sidebar shown on home by default', no_sparklines_in_sidebar: 'No sparklines in the sidebar', key_2_table: 'Key 2 → Table', key_3_board: 'Key 3 → Board', key_4_cards: 'Key 4 → Cards', key_1_rows: 'Key 1 → Rows', remembers_last_view_after_reload: 'Last view remembered after reload', board_is_state_x_project_swimlanes: 'Board = state × project swimlanes', account_menu_opens_bottom_left: 'Account button bottom-left opens its menu', account_menu_closes_on_outside_click: 'Menu closes on an outside click', menu_settings_opens_settings: 'Menu → Settings', ctrl_comma_opens_settings: 'Ctrl+, → Settings', setting_off_hides_sidebar_on_home: 'Setting off → sidebar hidden on home', setting_off_sidebar_back_on_drill_in: 'Setting off → sidebar back on drill-in', kpi_cards_default: 'KPIs default to cards', key_k_kpi_rows: 'Key K → KPI rows', kpi_rows_trend_column_aligned: 'KPI rows: trend column aligned', kpi_toggle_click_back_to_cards: 'Toggle click → back to cards', review_seam_tab: 'Review tab present (seam)', review_seam_tab_body: 'Review tab shows the reserved slot', review_seam_sidebar_page: 'Sidebar Review → reserved page' };
+  const ws = Object.entries(R2.widths); const wbad = ws.filter(([k, x]) => !x.ok).map(([k]) => k);
+  $('r2checks').innerHTML = `<tr><th>Check</th><th>Result</th></tr>` + Object.entries(R2.checks).map(([k, v]) => `<tr class="is"><td>${esc(names[k] || k)}</td><td>${v === true ? '<span class="pass">PASS</span>' : '<span class="fail">FAIL</span>'}</td></tr>`).join('') +
+    `<tr class="is"><td>No sideways page scroll · rows, table, board, cards, project, track, settings × 390 / 1440 px</td><td>${wbad.length ? '<span class="fail">FAIL</span> ' + esc(wbad.join(', ')) : `<span class="pass">PASS</span> ${ws.length}/${ws.length}`}</td></tr><tr class="is"><td>JavaScript errors</td><td>${R2.errors.length ? '<span class="fail">' + R2.errors.length + '</span>' : '<span class="pass">0</span>'}</td></tr>`;
+}
+const R3 = /*R3PROOF_JSON*/;
+if (R3) {
+  const n3 = { sidebar_review_badge_5: 'Sidebar Review shows a count badge (5)', needs_you_row_opens_track_first_item: '“Needs you” on the rig row opens Zen at its first decision, filtered to rig', no_sidebar_in_zen: 'Zen hides the sidebar', esc_leaves_to_home: 'Esc leaves to home', review_chip_opens_kinsim_first_item: '“3 to review” on Kinematic Sim opens at its first decision', track_review_tab_filters_to_track: 'Track page Review tab → Zen filtered to that track', triaged_order: 'Order: blocking now → waiting (no default) → defaulting (optional)', no_ids_in_top_bar: 'No T-ids in the top bar', every_card_leads_with_media: 'Every card leads with media (eyebrow, question, then media)', recommended_first_and_labelled: 'Option 1 is the recommendation, labelled “(Recommended)”', every_media_labelled_real_or_illustrative: 'Every figure labelled real or illustrative', media_kinds_image_video_chart_diff: 'Image, video, chart and diff media all present', video_pin_has_timestamp: 'Comment pinned on the paused video frame carries its timestamp', topbar_shows_five_states: 'Top bar shows rec · different · skipped (default) · skipped (waits) · defaulting · current', topbar_tooltips_are_titles: 'Every step’s tooltip is its title', summary_decided_defaulting_back_to_agents: 'Summary: decided · defaulting · back to the agents', copy_all_answers: 'C copies all answers', board_sparks_same_offset_in_every_card: 'Board: sparkline at the same offset in every card', board_agent_count_no_wrap: 'Board: agent count never wraps' };
+  const ws3 = Object.entries(R3.widths); const wb3 = ws3.filter(([k, x]) => !x.ok).map(([k]) => k);
+  $('r3checks').innerHTML = `<tr><th>Check</th><th>Result</th></tr>` + Object.entries(R3.checks).map(([k, v]) => `<tr class="is"><td>${esc(n3[k] || k)}</td><td>${v === true ? '<span class="pass">PASS</span>' : '<span class="fail">FAIL</span>'}</td></tr>`).join('') +
+    `<tr class="is"><td>No sideways scroll · Zen (all + one track) and summary at 390 / 1440 px</td><td>${wb3.length ? '<span class="fail">FAIL</span> ' + esc(wb3.join(', ')) : `<span class="pass">PASS</span> ${ws3.length}/${ws3.length}`}</td></tr><tr class="is"><td>JavaScript errors</td><td>${R3.errors.length ? '<span class="fail">' + R3.errors.length + '</span>' : '<span class="pass">0</span>'}</td></tr>`;
+  $('boardline').textContent = `measured: sparkline ${R3.board.offsets[0][0]} px from every card's left edge in all ${R3.board.offsets.length} columns, ${R3.board.wrap} wrapped agent counts.`;
+}
+// open the collapsed round 1 when a link points inside it
+document.addEventListener('click', (e) => { const a = e.target.closest('a[href^="#"]'); if (!a) return; const t = document.querySelector(a.getAttribute('href')); const d = t && t.closest('details'); if (d) d.open = true; });
+
+// ---- lightbox
+document.addEventListener('click', (e) => { const img = e.target.closest('img[data-zoom]'); const lb = $('lb'); if (img) { lb.querySelector('img').src = img.src; lb.classList.add('on'); } else if (e.target.closest('#lb')) lb.classList.remove('on'); });
+document.addEventListener('keydown', (e) => { if (e.key === 'Escape') $('lb').classList.remove('on'); });
+</script>
+</body>
+</html>

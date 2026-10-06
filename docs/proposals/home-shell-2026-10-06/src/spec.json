@@ -1,0 +1,351 @@
+{
+ "requirements": [
+  {
+   "id": "fr1",
+   "name": "Calm first screen",
+   "weight": 30,
+   "why": "Oct 3 round 2 and the calm-UI rule: the first screen must answer “is it OK, what needs me?” before anything else, with colour only for exceptions.",
+   "pass": "At 1440 × 900 the needs-you and stalled tracks are visible and readable as words without scrolling; ordinary tracks read grey.",
+   "anchors": {
+    "1": "Needs-you is buried or only a raw number signals trouble.",
+    "3": "Needs-you is on screen but competes with equal-weight detail.",
+    "5": "Needs-you and stalled lead the screen; everything else is quiet."
+   }
+  },
+  {
+   "id": "fr2",
+   "name": "Reuses agent-UI muscle memory",
+   "weight": 20,
+   "why": "His brief: lean on the Claude Code / Codex sidebar he already uses all day — collapsible project groups, + New, grouped by folder.",
+   "pass": "The drill-in panel behaves like the Claude desktop / Codex project tree (collapse, select, new project with 1..N folders).",
+   "anchors": {
+    "1": "A foreign navigation model.",
+    "3": "A tree exists but with different semantics or only partly.",
+    "5": "The same tree, the same gestures, where he expects them."
+   }
+  },
+  {
+   "id": "fr3",
+   "name": "Scales to 10 projects × 5 tracks",
+   "weight": 20,
+   "why": "Six projects today; the board must not fall apart at ten, with multi-folder projects and dozens of sessions.",
+   "pass": "With the 10-project fixture he can still see what needs him and reach any track in two clicks.",
+   "anchors": {
+    "1": "Breaks or needs endless scrolling.",
+    "3": "Works, with long scrolls or hidden needs-you.",
+    "5": "Collapse / grouping keep it to about one screen and needs-you stays findable."
+   }
+  },
+  {
+   "id": "fr4",
+   "name": "File-first fit",
+   "weight": 10,
+   "why": "Vibe Tracks is file-first: a project is a .vibetrack file listing roots, a track is a file, the evaluator writes KPI rows.",
+   "pass": "Every element on the first screen derives from today's files (project file, track files, KPI ledgers) without a new hand-kept store.",
+   "anchors": {
+    "1": "Needs a new database or hand-kept state.",
+    "3": "Its core structure leans on an unbuilt join.",
+    "5": "Everything derives from files that exist or are one field away."
+   }
+  },
+  {
+   "id": "fr5",
+   "name": "Cost to build on the Dashboard lane",
+   "weight": 20,
+   "why": "The Dashboard lane (vibetracks-dashboard, Variant A: TracksPage + TrackPage inside Clank) is where this lands; less rewrite = sooner in his hands.",
+   "pass": "The variant extends Variant A's L1 table and L2 track page rather than replacing them, and does not fight Clank's own left panel.",
+   "anchors": {
+    "1": "A new shell that fights Clank.",
+    "3": "New component families beside Variant A.",
+    "5": "Extends Variant A's table and page with a small new panel."
+   }
+  }
+ ],
+ "gates": [
+  {
+   "id": "g1",
+   "name": "Every brief element works by real clicks",
+   "why": "rows ↔ board, project highlight + filter, collapse, project page, track page, left panel on drill-in, New-project dialog (name + 1..N folders) — driven by Playwright clicks, read back from the DOM."
+  },
+  {
+   "id": "g2",
+   "name": "No sideways page scroll at 390 px",
+   "why": "Home, board, project and track pages measured at 390 × 844 and 1440 × 900 (document and main scroller)."
+  },
+  {
+   "id": "g3",
+   "name": "Calm state words lead",
+   "why": "Each track shows On track / Stalled / Needs you / Holding as a word; a raw number is never the only signal."
+  },
+  {
+   "id": "g4",
+   "name": "Zach's Oct 6 feedback is in every variant",
+   "why": "Several soft KPIs per track (summary = row sparkline; small multiples on the track page) with hard gates kept separate · Done and Archived as board states you can drag into · project north star (lagging) above its tracks' KPIs (leading) · Auditor panel + row badge · evo-style Experiments tree tied to roadmap rungs · Discover vs Optimize modes. Checked by Playwright clicks and a real drag."
+  }
+ ],
+ "variants": [
+  {
+   "id": "v1",
+   "name": "Calm Rows",
+   "thesis": "Home is one full-width list of track rows under collapsible project summary strips; the Claude-style sidebar appears only once you drill in.",
+   "axes": {
+    "Sidebar": "only on drill-in",
+    "Home body": "rows under summary strips",
+    "Project header": "one-line strip: rollup · north star · spark · agents",
+    "Board columns": "health: Needs you · Stalled · On track · Done · Archived",
+    "Live agents": "chips on each row",
+    "Track page": "tabs, opens on Overview (KPIs, gates, roadmap)"
+   },
+   "decisions": [
+    "Home stays the full-width ledger the brief asked for; no panel steals width on the overview.",
+    "Project header row carries the rollup words, the north star and its sparkline, and a live-agent count.",
+    "Board columns are health (Needs you · Stalled · On track · Holding), so the board is the same question as home, sorted.",
+    "Drill-in brings the Claude desktop tree: projects → tracks, status dot, live-agent count."
+   ],
+   "bestWhen": "He wants the overview calm and wide, and drills in to work.",
+   "losesWhen": "At 10+ projects a needs-you row can sit below the fold unless its project is expanded near the top.",
+   "keep": [
+    "project summary strip",
+    "health-column board",
+    "drill-in sidebar tree"
+   ]
+  },
+  {
+   "id": "v2",
+   "name": "Codex Shell",
+   "thesis": "The Codex / Claude desktop shell unchanged: a permanent left tree of projects → tracks on every page, home included, with live-agent counts as sidebar badges.",
+   "axes": {
+    "Sidebar": "always (home too), with Home / Board nav",
+    "Home body": "sections with inline project headings",
+    "Project header": "heading + rollup + north star inline",
+    "Board columns": "mode: Discover · Optimize · Done · Archived",
+    "Live agents": "count badges in the sidebar",
+    "Track page": "tabs, opens on Overview"
+   },
+   "decisions": [
+    "The sidebar never disappears, so position in the tree is always visible.",
+    "Board columns are the track's mode (Discover · Optimize) plus Done and Archived — evo's discover / optimise split as the board's question; dragging a card between them flips its mode.",
+    "Rows drop the session chips; the sidebar badge says who is on it."
+   ],
+   "bestWhen": "He lives in the Codex / Claude app all day and wants zero relearning.",
+   "losesWhen": "Inside Clank there are now two left panels (Clank's file tree + this), and home shows every track twice.",
+   "keep": [
+    "Home / Board in the sidebar",
+    "lifecycle board incl. Retired",
+    "sidebar live badges"
+   ]
+  },
+  {
+   "id": "v3",
+   "name": "Ledger Table",
+   "thesis": "Home is one dense, sortable table (Linear list view) with project group rows and a Group-by switch; drill-in keeps a 52 px monogram rail that opens on hover.",
+   "axes": {
+    "Sidebar": "52 px rail on drill-in, hover or pin to open",
+    "Home body": "dense sortable table",
+    "Project header": "table group row with aggregates",
+    "Board columns": "state × project grid (5 states incl. Done, Archived)",
+    "Live agents": "an Agents column",
+    "Track page": "one dense page: KPIs, gates, roadmap, auditor, sessions, experiments, no tabs"
+   },
+   "decisions": [
+    "Group by Project / State / None; sort by state, name or agents.",
+    "The board is a grid: projects as swimlanes, health as columns.",
+    "The rail keeps the page wide and still marks needs-you / stalled per project with a corner dot."
+   ],
+   "bestWhen": "Tracks grow past ~30 and he wants to scan, sort and compare.",
+   "losesWhen": "The first screen is nine columns of equal-weight cells — the opposite of calm.",
+   "keep": [
+    "Group-by switch",
+    "health × project swimlane board",
+    "monogram rail with corner dot"
+   ]
+  },
+  {
+   "id": "v4",
+   "name": "Project Boards",
+   "thesis": "Each project is its own mini-dashboard on home: a big north-star chart on the left, its track rows on the right; the board makes every project a column.",
+   "axes": {
+    "Sidebar": "on drill-in, with a north-star spark per project",
+    "Home body": "stacked project cards",
+    "Project header": "mini-dashboard with a big north-star chart",
+    "Board columns": "projects, each with Done and Archived shelves",
+    "Live agents": "chips on rows + count under the chart",
+    "Track page": "tabs, opens on Overview"
+   },
+   "decisions": [
+    "The north star is the biggest thing on the page, per project.",
+    "A collapsed card keeps its north star and spark in the header.",
+    "Board columns are projects, so highlight is mostly redundant."
+   ],
+   "bestWhen": "Projects, not tracks, are the unit he reviews (a weekly business review per project).",
+   "losesWhen": "Only one and a half projects fit above the fold, and ten project columns overflow the board.",
+   "keep": [
+    "north-star chart on the project page",
+    "collapsed card keeps north star",
+    "sidebar north-star spark"
+   ]
+  },
+  {
+   "id": "v5",
+   "name": "Live Ops",
+   "thesis": "Home answers “what needs me” in a band above the rows and shows every live agent in a right rail; drill-in shows the Claude sidebar literally — chats as leaves under their track.",
+   "axes": {
+    "Sidebar": "on drill-in, with chat leaves under each track",
+    "Home body": "needs-you band + rows + live rail",
+    "Project header": "summary strip (as V1)",
+    "Board columns": "who moves next: You · An agent · Nobody · Done · Archived",
+    "Live agents": "right rail grouped by project, and sidebar leaves",
+    "Track page": "tabs, opens on Sessions"
+   },
+   "decisions": [
+    "Needs-you and stalled lift out of the list into a band with the action (Answer · Start agent).",
+    "The board asks “whose move is it?”, not “how healthy is it?”.",
+    "Sessions are first-class leaves under tracks — the Oct 6 session ↔ track join made visible."
+   ],
+   "bestWhen": "Most of his day is unblocking agents across accounts.",
+   "losesWhen": "The session ↔ track join only covers 18 % of KPI rows today, and at scale the leaves and the rail get long.",
+   "keep": [
+    "needs-you band",
+    "who-moves-next board",
+    "chat leaves under tracks"
+   ]
+  }
+ ],
+ "scores": {
+  "v1": {
+   "fr1": [
+    5,
+    "Summary sentence + the one needs-you and one stalled row as words above the fold; everything else grey (v1-home).",
+    "high"
+   ],
+   "fr2": [
+    4,
+    "Drill-in tree is the Claude desktop tree (collapse, status dots, live counts, + New project); home deliberately has no sidebar, unlike the Claude app.",
+    "high"
+   ],
+   "fr3": [
+    4,
+    "10-project fixture: all ten projects collapse to one screen with rollup words still flagging needs-you; expanded it is 3.1 screens and 1 of 2 needs-you tracks sits below the fold.",
+    "high"
+   ],
+   "fr4": [
+    5,
+    "Strip = project file (name, roots) + north-star KPI; rows = track files + latest KPI row; chips degrade to “no agent” without the join.",
+    "medium"
+   ],
+   "fr5": [
+    4,
+    "Variant A's TracksPage is already one row per track; project group rows + a drill-in panel are additive. Board and dialog are new.",
+    "medium"
+   ]
+  },
+  "v2": {
+   "fr1": [
+    4,
+    "Same summary sentence and needs row, but a 268 px tree repeats every track beside the list on the first screen.",
+    "high"
+   ],
+   "fr2": [
+    5,
+    "Identical to the Codex / Claude shell: permanent tree, Home / Board / New project at its top, live badges.",
+    "high"
+   ],
+   "fr3": [
+    4,
+    "3.1 screens expanded, 1 of 2 needs-you tracks above the fold; the tree collapses per project and synthetic projects start collapsed.",
+    "medium"
+   ],
+   "fr4": [
+    5,
+    "Same data as V1; the board's mode columns read the track file's vibe-mode, Done / Archived its vibe-status.",
+    "medium"
+   ],
+   "fr5": [
+    3,
+    "A permanent plugin sidebar sits next to Clank's own left panel on every page and narrows Variant A's table everywhere.",
+    "medium"
+   ]
+  },
+  "v3": {
+   "fr1": [
+    3,
+    "Needs-you is one orange row among ten equal-weight columns, and the track page stacks KPIs, auditor, sessions and experiments on one page; scanning is fast, calm is not.",
+    "high"
+   ],
+   "fr2": [
+    3,
+    "The rail is closer to VS Code's activity bar than the Claude sidebar; the full tree is one hover away.",
+    "medium"
+   ],
+   "fr3": [
+    5,
+    "Densest at scale: 2.7 screens expanded; Group by State puts both needs-you tracks first in one click (grouped by project, 1 of 2 is above the fold).",
+    "high"
+   ],
+   "fr4": [
+    5,
+    "Pure projection of track files + KPI rows.",
+    "medium"
+   ],
+   "fr5": [
+    4,
+    "Closest to Variant A's fixed-layout table; the rail and swimlane grid are new but small.",
+    "medium"
+   ]
+  },
+  "v4": {
+   "fr1": [
+    3,
+    "Needs-you is inside the first card; other projects' trouble starts below the fold (only ~1.5 projects visible).",
+    "high"
+   ],
+   "fr2": [
+    3,
+    "Sidebar on drill-in matches; the home cards are a dashboard idiom, not an agent-UI one.",
+    "medium"
+   ],
+   "fr3": [
+    2,
+    "3.8 screens expanded; ten project columns overflow the board by 966 px sideways at 1440 (scrolls inside the board).",
+    "high"
+   ],
+   "fr4": [
+    4,
+    "Needs a north-star series per project at chart fidelity — one more field in the project file plus its history.",
+    "medium"
+   ],
+   "fr5": [
+    2,
+    "A new card layout, a per-project chart and a per-project board: new component families beside Variant A.",
+    "medium"
+   ]
+  },
+  "v5": {
+   "fr1": [
+    4,
+    "The band answers “what needs me” first, with the action; the live rail adds eleven moving entries to the first screen.",
+    "high"
+   ],
+   "fr2": [
+    5,
+    "Drill-in is the Claude sidebar literally: project → track → chats, one click to the chat.",
+    "high"
+   ],
+   "fr3": [
+    3,
+    "The band keeps both needs-you tracks above the fold at 10 projects (the only variant that does), but the rail and chat leaves grow with every session (3.5 screens).",
+    "high"
+   ],
+   "fr4": [
+    3,
+    "Its core structures (rail, leaves, Who-moves-next) depend on the session ↔ track join that covers 18 % of KPI rows today.",
+    "medium"
+   ],
+   "fr5": [
+    2,
+    "Needs live session liveness from claude-hub polled into Vibe Tracks plus three new surfaces.",
+    "medium"
+   ]
+  }
+ }
+}
