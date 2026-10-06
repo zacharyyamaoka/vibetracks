@@ -1,0 +1,14 @@
+{
+  // Type-checks the stories and this config against the same program as the plugin (../tsconfig.json: Clank's React
+  // and @clank/api types), plus Vite's client types for the fixtures' `?raw` imports. Run:
+  // /home/bam/clank-workbench/node_modules/.bin/tsc -p /home/bam/vibetracks-roadmap/clank/.storybook/tsconfig.json
+  // WHY a config of its own: ../tsconfig.json includes only src, so the plugin's own check never sees a story.
+  // WHY preview.tsx by name and main.ts not at all: a "." include skips this dot-directory, and main.ts runs in Node,
+  // whose types this program does not carry (src/roadmap/test-shims.d.ts declares only readFileSync of node:fs).
+  "extends": "../tsconfig.json",
+  "compilerOptions": {
+    "types": ["vite/client"]
+  },
+  "include": ["../src", "../stories", "preview.tsx"],
+  "exclude": ["../node_modules", "../storybook-static"]
+}

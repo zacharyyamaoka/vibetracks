@@ -5,7 +5,18 @@
   "description": "Vibe Tracks dashboard as a Clank plugin: a viewer for .vtdash files that shows agent loops at three levels of resolution (tracks, KPIs over iterations, per-iteration evidence), with a read-only stdlib backend serving the projection and its media.",
   "scripts": {
     "typecheck": "/home/bam/clank-workbench/node_modules/.bin/tsc -p tsconfig.json",
-    "test:backend": "python3 -m unittest discover -s backend -p 'test_*.py'"
+    "test:backend": "python3 -m unittest discover -s backend -p 'test_*.py'",
+    "storybook": "storybook dev --host 127.0.0.1 -p 6006 --no-open --ci",
+    "build-storybook": "storybook build -o storybook-static"
+  },
+  "devDependencies": {
+    "@storybook/react-vite": "10.6.1",
+    "@vitejs/plugin-react": "6.1.1",
+    "lucide-react": "1.42.0",
+    "react": "19.2.8",
+    "react-dom": "19.2.8",
+    "storybook": "10.6.1",
+    "vite": "8.2.2"
   },
   "clank": {
     "id": "vibetracks",
