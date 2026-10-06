@@ -1,0 +1,27 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <link rel="icon" href="data:,">
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="color-scheme" content="light">
+<title>Vibe Tracks</title>
+<link rel="stylesheet" href="/static/hub.css">
+</head>
+<body>
+<div class="page">
+  <header class="top">
+    <div class="top-line">
+      <a class="brand" href="#/">Vibe Tracks</a>
+      <span class="live" id="live" data-state="connecting">connecting…</span>
+    </div>
+    <nav class="tabs" aria-label="Views">
+      <a href="#/" data-tab="home">Tracks</a>
+      <a href="#/machines" data-tab="machines">Machines</a>
+    </nav>
+  </header>
+  <main id="view" aria-live="polite"><p class="muted">Loading…</p></main>
+</div>
+<script src="/static/hub.js"></script>
+</body>
+</html>

@@ -1,0 +1,260 @@
+#!/usr/bin/env python3
+"""Run a self-contained two-machine Vibe Tracks remote sandbox: a share, two workers, one hub.
+
+    /home/bam/vibetracks-remote/scripts/remote-demo --dir /tmp/vt-remote-demo [--port 4471] [--duration S] [--tick-every 8]
+
+Builds, under --dir:
+
+- ``origin.git``: a bare repo standing in for GitHub, and its clones ``hub/``, ``win-a/``, ``win-b/``.
+- ``win-a-local/bam_curriculum/``: a copy (copy2, so the real mtimes) of the kinsim loop's ``status.json``,
+  ``loop_events.jsonl`` and ``runs.jsonl`` from ~/.local/share/bam_curriculum (read only). win-a's sync loop mirrors
+  them as ``kinsim_status``, ``kinsim_events``, ``kinsim_runs`` (interval 2 s, heartbeat 10 s).
+- win-b: one sync of a tiny file under a key no track reads, dated 3 h ago, then nothing: an offline machine.
+- a session card on win-a for the kinsim track whose link is ``session_DEMO_not_a_real_link`` and which carries
+  ``"demo": true``, so the app labels it a demo link.
+- the hub on --port over this repo's real ``workspace/`` with ``--data-home <dir>/data-home``: every other track reads
+  this workstation's real files; kinsim reads the copies that came from win-a.
+
+Every --tick-every seconds a simulated win-a agent appends one line to win-a's loop_events.jsonl (the last real event,
+its timestamp set to now, plus ``"demo_tick": n``) and touches its session card. Ctrl-C or --duration stops every
+process this started. Re-running with the same --dir starts over (the folder must be empty or an earlier sandbox).
+"""
+
+from __future__ import annotations
+
+import argparse
+import json
+import os
+import shutil
+import signal
+import subprocess
+import sys
+import threading
+import time
+import urllib.request
+from datetime import datetime, timezone
+from pathlib import Path
+
+REPO = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(REPO))
+
+from vibetracks.remote import session_hook, share, sync  # noqa: E402
+
+KINSIM_HOME = Path("~/.local/share/bam_curriculum").expanduser()
+KINSIM_FILES = {"kinsim_status": "status.json", "kinsim_events": "loop_events.jsonl", "kinsim_runs": "runs.jsonl"}
+MARKER = ".vt-remote-demo"
+DEMO_SESSION = "demo-0000-win-a-kinsim"
+DEMO_BRIDGE = "session_DEMO_not_a_real_link"
+TIME_FIELDS = ("ts", "at", "when", "time", "timestamp", "created_at", "updated_at")
+
+
+def say(message: str) -> None:
+    print(f"{time.strftime('%H:%M:%S')} {message}", flush=True)
+
+
+def git(cwd: Path, *args: str) -> None:
+    subprocess.run(["git", "-C", str(cwd), *args], check=True, capture_output=True, text=True)
+
+
+def prepare(root: Path) -> None:
+    if root.exists() and any(root.iterdir()):
+        if not (root / MARKER).exists():
+            sys.exit(f"remote-demo: {root} is not empty and is not an earlier demo sandbox; pick an empty --dir")
+        shutil.rmtree(root)  # WHY safe: the marker says this folder is a sandbox this script made
+    root.mkdir(parents=True, exist_ok=True)
+    (root / MARKER).write_text("made by vibetracks scripts/remote-demo\n")
+
+
+def make_share(root: Path) -> dict[str, Path]:
+    origin = root / "origin.git"
+    subprocess.run(["git", "init", "--bare", "-q", "-b", "main", str(origin)], check=True)
+    seed = root / "seed"
+    subprocess.run(["git", "clone", "-q", str(origin), str(seed)], check=True, capture_output=True)
+    git(seed, "config", "user.name", "seed")
+    git(seed, "config", "user.email", "seed@example.invalid")
+    (seed / "README.md").write_text("Vibe Tracks share (demo). Each machine writes only hosts/<its name>/.\n")
+    git(seed, "add", "README.md")
+    git(seed, "commit", "-q", "-m", "seed")
+    git(seed, "push", "-q", "origin", "HEAD:main")
+    shutil.rmtree(seed)
+    clones = {}
+    for name in ("hub", "win-a", "win-b"):
+        clone = root / name
+        subprocess.run(["git", "clone", "-q", str(origin), str(clone)], check=True, capture_output=True)
+        git(clone, "config", "user.name", name)
+        git(clone, "config", "user.email", f"{name}@example.invalid")
+        clones[name] = clone
+    return clones
+
+
+def write_card(root: Path, win_a: Path, event: str) -> None:
+    """The demo session card: written by the real hook into a scratch share, then flagged ``demo`` and moved into
+    win-a's clone in one atomic write. WHY not in place: sync could commit the card between the hook's write and the
+    flag, and the hub would show a fake link as real."""
+
+    scratch = root / "hook-scratch"
+    transcript = root / "win-a-local" / "demo-transcript.jsonl"
+    stdin = json.dumps({"session_id": DEMO_SESSION, "cwd": str(root / "win-a-local"), "hook_event_name": event,
+                        "transcript_path": str(transcript)})
+    env = {"CLAUDE_CODE_BRIDGE_SESSION_ID": DEMO_BRIDGE, "CLAUDE_CONFIG_DIR": str(Path.home() / ".claude-demo"),
+           "AI_AGENT": "claude-code (demo)"}
+    session_hook.main(["--share", str(scratch), "--host", "win-a", "--track", "kinsim"], stdin, env)
+    card = share.read_json(scratch / "hosts/win-a/sessions" / f"{DEMO_SESSION}.json")
+    target = win_a / "hosts/win-a/sessions" / f"{DEMO_SESSION}.json"
+    previous = share.read_json(target)
+    if isinstance(previous, dict) and previous.get("started_at"):
+        card["started_at"] = previous["started_at"]
+    card["demo"] = True
+    share.write_json_atomic(target, card)
+
+
+def last_real_event(path: Path) -> dict:
+    for line in reversed(path.read_text(encoding="utf-8").splitlines()):
+        try:
+            row = json.loads(line)
+        except ValueError:
+            continue
+        if isinstance(row, dict) and "demo_tick" not in row:
+            return row
+    return {"kind": "demo", "ts": None}
+
+
+def tick(events: Path, template: dict, n: int) -> None:
+    row = dict(template)
+    now = datetime.now(timezone.utc).isoformat(timespec="seconds")
+    for field in TIME_FIELDS:
+        if field in row:
+            row[field] = now
+    row["demo_tick"] = n
+    with events.open("a", encoding="utf-8") as handle:
+        handle.write(json.dumps(row, ensure_ascii=False) + "\n")
+
+
+def health(port: int) -> dict | None:
+    try:
+        with urllib.request.urlopen(f"http://127.0.0.1:{port}/api/health", timeout=2) as response:
+            return json.loads(response.read())
+    except (OSError, ValueError):
+        return None
+
+
+def main(argv: list[str] | None = None) -> int:
+    parser = argparse.ArgumentParser(description="Run a two-machine Vibe Tracks remote sandbox.")
+    parser.add_argument("--dir", required=True, help="the sandbox folder (empty, or an earlier demo sandbox)")
+    parser.add_argument("--port", type=int, default=4471)
+    parser.add_argument("--duration", type=float, default=None, help="stop after this many seconds (default: Ctrl-C)")
+    parser.add_argument("--tick-every", type=float, default=8.0)
+    args = parser.parse_args(argv)
+    if not (KINSIM_HOME / "status.json").is_file():
+        sys.exit(f"remote-demo: needs the real kinsim loop files in {KINSIM_HOME}")
+
+    root = Path(args.dir).expanduser().resolve()
+    prepare(root)
+    notes: list[str] = []
+    clones = make_share(root)
+    notes.append(f"share: {root / 'origin.git'} (bare) with clones hub/, win-a/, win-b/")
+
+    local = root / "win-a-local" / "bam_curriculum"
+    local.mkdir(parents=True)
+    for name in KINSIM_FILES.values():
+        shutil.copy2(KINSIM_HOME / name, local / name)
+    (root / "win-a-local" / "demo-transcript.jsonl").write_text(
+        json.dumps({"type": "assistant", "message": {"model": "claude-opus-5-5", "content": []}}) + "\n")
+    notes.append(f"win-a: seeded {local} from {KINSIM_HOME} (copy2)")
+
+    win_a_cfg = {"host": "win-a", "share": str(clones["win-a"]), "interval_s": 2, "heartbeat_s": 10,
+                 "mirror": [{"key": key, "path": str(local / name)} for key, name in KINSIM_FILES.items()]}
+    (root / "win-a.json").write_text(json.dumps(win_a_cfg, indent=1) + "\n")
+    write_card(root, clones["win-a"], "UserPromptSubmit")
+    first = sync.sync_once(win_a_cfg)
+    if first["error"]:
+        sys.exit(f"remote-demo: win-a's first sync failed: {first['error']}")
+    notes.append(f"win-a: first sync pushed {len(first['copied'])} files and the demo session card")
+
+    note = root / "win-b-local" / "note.json"
+    note.parent.mkdir(parents=True)
+    note.write_text('{"note": "win-b demo: one sync three hours ago, then silence"}\n')
+    three_hours_ago = time.time() - 3 * 3600
+    os.utime(note, (three_hours_ago, three_hours_ago))
+    win_b = sync.sync_once({"host": "win-b", "share": str(clones["win-b"]), "interval_s": 3,
+                            "mirror": [{"key": "win_b_demo_note", "path": str(note)}]}, now=three_hours_ago)
+    if win_b["error"]:
+        sys.exit(f"remote-demo: win-b's sync failed: {win_b['error']}")
+    notes.append("win-b: one sync with last_sync 3 h ago, no loop (an offline machine)")
+
+    env = {**os.environ, "PYTHONPATH": os.pathsep.join(filter(None, [str(REPO), os.environ.get("PYTHONPATH")]))}
+    children: list[subprocess.Popen] = []
+
+    def stop_all() -> None:
+        for child in children:
+            if child.poll() is None:
+                child.terminate()
+        for child in children:
+            try:
+                child.wait(timeout=10)
+            except subprocess.TimeoutExpired:
+                child.kill()
+                child.wait()
+
+    def on_term(*_: object) -> None:
+        raise KeyboardInterrupt
+
+    signal.signal(signal.SIGTERM, on_term)
+    try:
+        hub = subprocess.Popen(
+            [sys.executable, "-m", "vibetracks.remote.hub", "--share", str(clones["hub"]),
+             "--workspace", str(REPO / "workspace"), "--data-home", str(root / "data-home"),
+             "--port", str(args.port), "--pull-interval", "2"],
+            cwd=REPO, env=env, stdout=subprocess.PIPE, text=True)
+        children.append(hub)
+        line = hub.stdout.readline().strip()
+        if not line.startswith("listening on "):
+            raise SystemExit(f"remote-demo: the hub did not start ({line or 'no output'})")
+        print(f"hub: {line.split('listening on ', 1)[1]}", flush=True)
+        threading.Thread(target=lambda: [None for _ in hub.stdout], daemon=True).start()
+        for message in notes:
+            say(message)
+
+        sync_child = subprocess.Popen(
+            [sys.executable, "-m", "vibetracks.remote.sync", "--config", str(root / "win-a.json")],
+            cwd=REPO, env=env, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
+        children.append(sync_child)
+
+        def relay() -> None:
+            for out in sync_child.stdout:
+                print(f"{out.rstrip().split(' ', 1)[0]} win-a sync: {out.rstrip().split(' ', 1)[-1]}", flush=True)
+
+        threading.Thread(target=relay, daemon=True).start()
+        say(f"win-a: sync loop running (pid {sync_child.pid}); hub on port {args.port} (pid {hub.pid})")
+
+        events = local / "loop_events.jsonl"
+        template = last_real_event(events)
+        started = time.monotonic()
+        next_tick = started + args.tick_every
+        n = 0
+        revision = None
+        while args.duration is None or time.monotonic() - started < args.duration:
+            if hub.poll() is not None:
+                raise SystemExit(f"remote-demo: the hub exited ({hub.returncode})")
+            current = health(args.port)
+            if current and current.get("revision") != revision:
+                state = "built" if current.get("ok") else f"not built yet{': ' + current['build_error'] if current.get('build_error') else ''}"
+                say(f"hub: revision {current.get('revision')} ({state})")
+                revision = current.get("revision")
+            if time.monotonic() >= next_tick:
+                n += 1
+                tick(events, template, n)
+                write_card(root, clones["win-a"], "UserPromptSubmit")
+                say(f"win-a agent: appended demo_tick {n} ({template.get('kind')} event, timestamp now) to {events.name}")
+                next_tick += args.tick_every
+            time.sleep(1.0)
+    except KeyboardInterrupt:
+        pass
+    finally:
+        stop_all()
+        say(f"stopped {len(children)} processes; the sandbox stays in {root}")
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())
