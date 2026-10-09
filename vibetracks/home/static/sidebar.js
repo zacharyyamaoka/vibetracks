@@ -4,7 +4,10 @@
    ring is idle, a warning glyph is an error) and the account button bottom-left.
    NOT Claude's grouping key: Claude groups chats by the repo folder they started in; this groups TRACKS by project,
    a project being a name plus 1..N folders (the Codex model, Zach Oct 6), so each header says how many folders.
-   Collapse a project by clicking its header; the arrow beside it opens the project page. */
+   Collapse a project by clicking its header; the arrow beside it opens the project page.
+   r3 (Zach, Oct 9: "Other sessions should not be collapsed … like in claude"): a session no track's rule matches is
+   its own row, a dot and its title like Claude's, under its project after the tracks (quieter: agents are detail),
+   or under "Other" when no project lists its folder. No account chip anywhere. */
 (function () {
   'use strict';
   const VT = window.VT;
@@ -17,6 +20,25 @@
     return o.href ? `<a ${attrs} href="${esc(o.href)}">${inner}</a>` : `<button ${attrs}${o.act ? ` data-act="${o.act}"` : ''}${o.id ? ` data-id="${esc(o.id)}"` : ''}>${inner}</button>`;
   }
   const lead = (k) => `<span class="sd lead">${VT.ic(k)}</span>`;
+
+  /** Where a session row goes: the session itself in Claude (Desktop's link, else Remote Control), like Claude's
+   *  sidebar opens a chat; with neither, the project page that lists it. */
+  function sessionHref(s, p) {
+    const o = s.open || {};
+    return o.desktop || o.remote_control || (p ? `#/project/${encodeURIComponent(p.id)}` : '#/');
+  }
+  function sessionRows(list, p, cls) {
+    const rank = { needs_you: 0, error: 1, working: 2 };
+    const at = (s) => Math.max(s.last_action ? Date.parse(s.last_action.ts) : 0, s.remote && s.remote.last_event_ts ? Date.parse(s.remote.last_event_ts) : 0);
+    return list.slice().sort((a, b) => (rank[a.state.word] ?? 3) - (rank[b.state.word] ?? 3) || at(b) - at(a)).map((s) => {
+      const title = s.title || s.branch || s.id.slice(0, 8);
+      const host = s.remote ? `<span class="host" title="on ${esc(s.remote.host)}, as of ${esc(VT.ago(s.remote.as_of))}">${esc(s.remote.host)}</span>` : '';
+      const where = s.remote ? `on ${s.remote.host} · as of ${VT.ago(s.remote.as_of)}` : (s.live ? `live · ${s.status || 'unknown status'}` : 'ended');
+      return row({ href: sessionHref(s, p), cls, testid: 'vt-side-session', extra: ` data-session-id="${esc(s.id)}"${(s.open || {}).remote_control && !(s.open || {}).desktop ? ' target="_blank" rel="noopener"' : ''}`,
+        title: `${title} · ${VT.WORD[s.state.word] || s.state.word} · ${where} · no track rule matches${s.cwd ? ' · ' + s.cwd : ''}`,
+        lead: VT.sd(VT.sessionDot(s)), text: esc(title), meta: host });
+    }).join('');
+  }
 
   function project(p, r) {
     const closed = !!VT.S.side[p.id];
@@ -37,13 +59,7 @@
         extra: ` data-track-id="${esc(t.id)}" data-dot="${VT.trackDot(t)}"`, title: VT.dotTitle(t) + (n ? ` · ${n} live session${n === 1 ? '' : 's'}` : ''),
         lead: VT.sd(VT.trackDot(t)), text: esc(t.title), meta: `${age}${n ? `<span class="n" title="${n} live session${n === 1 ? '' : 's'}">${n}</span>` : ''}` });
     }
-    const loose = (p.sessions_unpinned || []).length;
-    if (loose) {
-      const waiting = p.sessions_unpinned.filter((s) => s.state.word === 'needs_you').length;
-      h += row({ href: `#/project/${encodeURIComponent(p.id)}`, cls: 'loose', testid: 'vt-side-unpinned',
-        title: `Live sessions in ${p.name}'s folders that no track's rule matches (shown under every project that lists the folder)`,
-        lead: VT.sd(waiting ? 'awaiting' : 'idle'), text: `${loose} session${loose === 1 ? '' : 's'} on no track`, meta: `<span class="n">${loose}</span>` });
-    }
+    h += sessionRows(p.sessions_unpinned || [], p, 'loose');
     if (!h) h = `<div class="srow empty"><span class="sd"></span><span class="t">No active tracks · ${live} live</span></div>`;
     return `<div class="sgroup" data-project="${esc(p.id)}">${head}${h}</div>`;
   }
@@ -51,7 +67,10 @@
   VT.page('sidebar', {
     render(r) {
       const d = VT.doc;
-      let h = `<aside class="side" data-testid="vt-home-sidebar" aria-label="Navigation"><nav class="side-top">`;
+      const w = VT.clampSide(VT.S.sideW || VT.SIDE.def);
+      // WHY a handle on the edge and not a splitter control (Zach, Oct 9: "I should be able to resize the side bar"):
+      // Claude Desktop's own sidebar resizes by dragging its right edge; double-click puts it back.
+      let h = `<aside class="side" data-testid="vt-home-sidebar" aria-label="Navigation"><div class="side-resize" data-testid="vt-side-resize" role="separator" aria-orientation="vertical" aria-label="Resize the sidebar" aria-valuemin="${VT.SIDE.min}" aria-valuemax="${VT.SIDE.max}" aria-valuenow="${w}" tabindex="0" title="Drag to resize · double-click to reset"></div><nav class="side-top">`;
       h += row({ href: '#/', sel: r.name === 'home', testid: 'vt-side-home', lead: lead('home'), text: 'Home' });
       if (d) {
         const rv = d.review;
@@ -65,15 +84,15 @@
         for (const p of d.projects) h += project(p, r);
         const nowhere = d.other_sessions.filter((s) => !(s.projects || []).length);
         if (nowhere.length) {
-          const waiting = nowhere.filter((s) => s.state.word === 'needs_you').length;
-          h += `<div class="sgroup"><div class="sgh-row"><span class="sgh static"><span class="nm">Other</span></span></div>`
-            + row({ href: '#/?other=1', testid: 'vt-side-other', lead: VT.sd(waiting ? 'awaiting' : 'idle'), text: `${nowhere.length} session${nowhere.length === 1 ? '' : 's'} in no project`,
-              title: "Live sessions whose folder no project lists", meta: `<span class="n">${nowhere.length}</span>` }) + '</div>';
+          // Claude's "Other" group: a header that folds, a + on it, one row per session.
+          const closed = !!VT.S.side.__other;
+          h += `<div class="sgroup${closed ? ' closed' : ''}" data-group="other"><div class="sgh-row"><button class="sgh" data-act="sidefold" data-id="__other" data-testid="vt-side-other" aria-expanded="${closed ? 'false' : 'true'}" title="Sessions whose folder no project lists · click to ${closed ? 'expand' : 'collapse'}"><span class="nm">Other</span><span class="caret ${closed ? '' : 'open'}">${VT.ic('caret')}</span><span class="fc">${nowhere.length}</span></button>`
+            + `<button class="sgh-go" data-act="pop" data-id="newproject" data-testid="vt-side-other-add" title="New project: give these sessions' folders a home" aria-label="New project">${VT.ic('plus')}</button></div>`
+            + (closed ? '' : sessionRows(nowhere, null, '')) + '</div>';
         }
       }
       h += '</div>';
-      const accounts = d ? d.accounts.length : 0;
-      h += `<div class="side-foot"><button class="acct" data-act="pop" data-id="acct" data-testid="vt-home-account" aria-haspopup="menu"><span class="av">Z</span><span class="who">Zach</span><span class="plan">· ${accounts} account${accounts === 1 ? '' : 's'}</span>${VT.ic('chev', 'chev')}</button>`
+      h += `<div class="side-foot"><button class="acct" data-act="pop" data-id="acct" data-testid="vt-home-account" aria-haspopup="menu"><span class="av">Z</span><span class="who">Zach</span>${VT.ic('chev', 'chev')}</button>`
         + `<button class="gear" data-act="pop" data-id="acct" title="Settings" aria-label="Settings">${VT.ic('gear')}</button></div></aside>`;
       return h;
     },
@@ -154,5 +173,46 @@
     theme(el) { VT.S.theme = el.dataset.id; VT.applyTheme(); },
     npadd() { addFolder(); setTimeout(focusDraft, 0); },
     npdel(el) { NP.folders.splice(+el.dataset.id, 1); },
+  });
+  // ------------------------------------------------------------------ resize (drag the right edge, like Claude)
+  // Document-level listeners: the poll re-renders the sidebar every 10 s, so a drag never depends on the handle element
+  // it started on; the width lives on #vt-home (--side-w), which re-renders keep.
+  let drag = null;
+  const handleOf = (ev) => ev.target && ev.target.closest && ev.target.closest('[data-testid="vt-side-resize"]');
+  function setWidth(w, persist) {
+    VT.S.sideW = VT.clampSide(w);
+    VT.applySideWidth();
+    const handle = document.querySelector('[data-testid="vt-side-resize"]');
+    if (handle) handle.setAttribute('aria-valuenow', String(VT.S.sideW));
+    if (persist) VT.save();
+  }
+  document.addEventListener('pointerdown', (ev) => {
+    if (ev.button !== 0 || !handleOf(ev)) return;
+    const side = document.querySelector('[data-testid="vt-home-sidebar"]');
+    drag = { x: ev.clientX, w: side ? side.getBoundingClientRect().width : VT.SIDE.def };
+    document.documentElement.classList.add('vt-resizing');
+    ev.preventDefault();
+  });
+  document.addEventListener('pointermove', (ev) => { if (drag) setWidth(drag.w + ev.clientX - drag.x, false); });
+  const end = () => {
+    if (!drag) return;
+    drag = null;
+    document.documentElement.classList.remove('vt-resizing');
+    VT.save();
+  };
+  document.addEventListener('pointerup', end);
+  document.addEventListener('pointercancel', end);
+  document.addEventListener('dblclick', (ev) => {
+    if (!handleOf(ev)) return;
+    VT.S.sideW = null;
+    VT.applySideWidth();
+    VT.save();
+    ev.preventDefault();
+  });
+  document.addEventListener('keydown', (ev) => {
+    if (!handleOf(ev) || (ev.key !== 'ArrowLeft' && ev.key !== 'ArrowRight')) return;
+    setWidth((VT.S.sideW || VT.SIDE.def) + (ev.key === 'ArrowRight' ? 16 : -16), true);
+    ev.preventDefault();
+    ev.stopImmediatePropagation();
   });
 })();

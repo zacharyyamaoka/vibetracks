@@ -33,6 +33,12 @@ h2 { font-size: 15px; font-weight: 600; margin: 0; }
 .side { width: var(--side-w); flex: none; background: var(--side); border-right: 1px solid var(--line); display: flex; flex-direction: column;
   padding: var(--side-inset); position: sticky; top: 0; height: 100vh; z-index: 40; font-size: var(--row-font); line-height: 1.5; }
 .side-top { display: flex; flex-direction: column; padding-bottom: 6px; }
+/* the resize handle: an 8 px strip centred on the right edge, a hairline on hover or while dragging (Claude's edge) */
+.side-resize { position: absolute; top: 0; bottom: 0; right: -4px; width: 8px; cursor: col-resize; z-index: 41; touch-action: none; }
+.side-resize::after { content: ""; position: absolute; top: 0; bottom: 0; left: 3px; width: 2px; background: transparent; transition: background .12s; }
+.side-resize:hover::after, .side-resize:focus-visible::after, .vt-resizing .side-resize::after { background: var(--alpha-3); }
+.side-resize:focus-visible { outline: none; }
+html.vt-resizing, html.vt-resizing * { cursor: col-resize !important; user-select: none !important; }
 .side-list { flex: 1; min-height: 0; overflow-y: auto; overflow-x: clip; margin: 0 calc(-1 * var(--side-inset)); padding: 0 var(--side-inset); }
 /* a row: h 26, 2 px side padding, the 24 px leading slot (dot centred), 4 px gap, 13 px text-secondary, radius 6,
    2 px stack gap (pitch 28) */
@@ -46,6 +52,7 @@ h2 { font-size: 15px; font-weight: 600; margin: 0; }
 .srow .meta .n { font-variant-numeric: tabular-nums; min-width: 8px; text-align: right; }
 .srow .meta .count { min-width: 18px; height: 16px; padding: 0 5px; border-radius: 8px; background: var(--warn); color: #1a1200; font-size: 10.5px; font-weight: 650; display: inline-grid; place-items: center; }
 .srow.loose, .srow.empty { color: var(--ink-3); }
+.srow .meta .host { font-size: var(--fs-caption); color: var(--ink-3); max-width: 96px; overflow: hidden; text-overflow: ellipsis; }
 .srow.empty:hover { background: none; }
 .sd.lead { color: var(--ink-3); }
 .sd.lead svg.i { width: var(--icon); height: var(--icon); }
@@ -126,10 +133,6 @@ h2 { font-size: 15px; font-weight: 600; margin: 0; }
 .pill { padding: 2px 11px; border-radius: 999px; color: var(--ink-2); font-size: 13px; }
 .pill:hover { background: var(--hover); color: var(--ink); }
 .pill.on { background: var(--alpha-2); color: var(--ink); font-weight: 500; }
-.vseg { display: inline-flex; margin-left: 10px; background: var(--alpha-1); border-radius: 8px; padding: 2px; gap: 2px; }
-.vseg button { display: inline-flex; align-items: center; gap: 5px; padding: 2px 8px; border-radius: 6px; color: var(--ink-2); font-size: var(--fs-footnote); }
-.vseg button.on { background: var(--surface); color: var(--ink); box-shadow: 0 0 0 1px var(--alpha-2); }
-.vseg svg.i { width: 13px; height: 13px; }
 .btn { display: inline-flex; align-items: center; gap: 6px; height: 28px; padding: 0 10px; border-radius: var(--radius); border: 1px solid var(--line); font-size: 13px; background: var(--surface); color: var(--ink); white-space: nowrap; }
 .btn:hover { background: var(--hover); }
 .btn.on { background: var(--alpha-2); }
@@ -174,6 +177,10 @@ a.t:hover { text-decoration: underline; text-decoration-color: var(--alpha-3); }
 .meter b { display: block; height: 100%; background: var(--ink-3); }
 .roll { display: inline-flex; gap: 9px; font-size: var(--fs-footnote); color: var(--ink-2); white-space: nowrap; }
 .roll span { display: inline-flex; align-items: center; gap: 4px; }
+/* a track's agent count: the agents are detail, so the count is quiet text that opens the track's Agents tab */
+.agn { font-size: var(--fs-footnote); color: var(--ink-2); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; display: block; }
+a.agn:hover { color: var(--ink); text-decoration: underline; }
+.agn.none { color: var(--ink-3); }
 .wk { display: flex; flex-direction: column; line-height: 1.25; font-size: var(--fs-footnote); color: var(--ink-2); white-space: nowrap; min-width: 0; }
 .wk small { color: var(--ink-3); font-size: var(--fs-footnote); overflow: hidden; text-overflow: ellipsis; }
 
@@ -250,6 +257,7 @@ a.t:hover { text-decoration: underline; text-decoration-color: var(--alpha-3); }
 
 /* ================================================================== phone: the sidebar is a drawer */
 @media (max-width: 760px) {
+  .side-resize { display: none; }
   .side { position: fixed; left: 0; top: 0; bottom: 0; height: auto; width: min(300px, 86vw); transform: translateX(-105%); transition: transform .18s ease; box-shadow: var(--shadow); }
   .vlm.drawer .side { transform: none; }
   .vlm.drawer .scrim { display: block; position: fixed; inset: 0; background: rgba(0, 0, 0, .25); z-index: 35; }
@@ -259,10 +267,8 @@ a.t:hover { text-decoration: underline; text-decoration-color: var(--alpha-3); }
   .tree { --cols: minmax(0, 1fr) minmax(0, 112px) !important; }
   .tr.sess .chip, .tr.sess .opens { display: none; }
   .ph { display: inline; }
-  .tree .c-target, .tree .c-health, .tree .c-prog, .tree .c-work { display: none; }
+  .tree .c-target, .tree .c-health, .tree .c-prog, .tree .c-agents, .tree .c-work { display: none; }
   .thead, .tr { column-gap: 8px; padding: 0 4px; }
-  .vseg .vl { display: none; }
-  .vseg { margin-left: 0; }
   .board { grid-template-columns: 1fr; border: 0; }
   .board .bh { display: none; }
   .board .lane { border-bottom: 0; padding: 12px 0 4px; }

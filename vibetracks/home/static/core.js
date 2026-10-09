@@ -15,19 +15,35 @@
   const STORE = 'vt-home-ui-v1';
   const SEEN = 'vt-home-seen-v1';
   VT.POLL_MS = 10000;
-  VT.DEFAULTS = { view: 'rows', group: 'project', order: 'attention', tabset: 'active', subs: true, ended: false,
-    props: { target: 1, health: 1, prog: 1, state: 1, work: 1 }, collapsed: {}, otherOpen: false,
-    theme: 'system', side: {}, kpiView: 'cards', trackTab: 'overview' };
+  // WHY subs off (Zach, Oct 9: "you have made agents too primary. Agents work on tracks"): a track row says how many
+  // agents work on it; the sessions themselves are one toggle (Display) or one click (the track's Agents tab) away.
+  VT.DEFAULTS = { v: 2, view: 'rows', group: 'project', order: 'attention', tabset: 'active', subs: false, ended: false,
+    props: { target: 1, health: 1, prog: 1, state: 1, agents: 1, work: 1 }, collapsed: {},
+    theme: 'system', side: {}, sideW: null, kpiView: 'cards', trackTab: 'overview' };
+  /** The sidebar's width: Claude's default (tokens.css --side-w), dragged between these bounds, remembered per viewer. */
+  VT.SIDE = { def: 288, min: 220, max: 480 };
 
   // ------------------------------------------------------------------ persisted preferences (per viewer)
   function load() {
     try {
       const saved = JSON.parse(localStorage.getItem(STORE) || '{}');
+      // v1 (B2) saved "sessions under tracks" on by default; v2 starts everyone on the new default once.
+      if ((saved.v || 1) < 2) { delete saved.subs; delete saved.otherOpen; saved.v = 2; }
+      if (saved.trackTab === 'sessions') saved.trackTab = 'agents';
       return Object.assign({}, VT.DEFAULTS, saved, { props: Object.assign({}, VT.DEFAULTS.props, saved.props || {}),
         collapsed: Object.assign({}, saved.collapsed || {}), side: Object.assign({}, saved.side || {}) });
     } catch (e) { return JSON.parse(JSON.stringify(VT.DEFAULTS)); }
   }
   VT.S = load();
+  VT.clampSide = (w) => Math.round(Math.max(VT.SIDE.min, Math.min(VT.SIDE.max, w)));
+  /** Puts the remembered width on #vt-home (it survives every re-render: only its children are replaced). */
+  VT.applySideWidth = () => {
+    const el = document.getElementById('vt-home');
+    if (!el) return;
+    if (VT.S.sideW) el.style.setProperty('--side-w', VT.clampSide(VT.S.sideW) + 'px');
+    else el.style.removeProperty('--side-w');
+  };
+  VT.applySideWidth();
   VT.save = () => { try { localStorage.setItem(STORE, JSON.stringify(VT.S)); } catch (e) { /* private window */ } };
   VT.applyTheme = () => {
     const t = VT.S.theme;

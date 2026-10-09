@@ -9,7 +9,7 @@
   const VT = window.VT;
   const esc = VT.esc;
   const S = VT.S;
-  const TABS = ['overview', 'activity', 'sessions', 'auditor'];
+  const TABS = ['overview', 'activity', 'agents', 'auditor'];
   const W = { kcard: 200 };                 // the KPI card sparkline width, measured after each render
   const openAudits = new Set();             // audit rounds expanded on this visit (by file name)
 
@@ -172,21 +172,44 @@
     return h + '</div>';
   }
 
-  // ------------------------------------------------------------------ sessions
-  function sessionsTab(t) {
-    const list = t.sessions.slice().sort((a, b) => (b.live - a.live) || ((b.last_action ? Date.parse(b.last_action.ts) : 0) - (a.last_action ? Date.parse(a.last_action.ts) : 0)));
-    if (!list.length) return '<div class="empty-state">No session matched this track in the last 7 days.</div>';
-    return `<div class="pg-tbl pg-tses"><div class="pg-th"><div>Session</div><div class="pg-x">Joined by</div><div>State</div><div class="pg-x">Worked · last action</div><div class="pg-x">Open</div></div>
+  // ------------------------------------------------------------------ agents
+  // WHY "Agents" and this much detail here (Zach, Oct 9: "rename this Sessions to Agents. Here is where you can put
+  // info on the agent provider, etc."): agents work on tracks, so the home only counts them; who runs where, on which
+  // account and model, and how each was joined to this track is read here.
+  const PROVIDERS = { 'claude-code': 'Claude Code', claude: 'Claude Code', codex: 'Codex' };
+  function provider(s, info) {
+    const raw = (info && info.provider) || (s.remote && s.remote.agent) || 'claude-code';
+    const name = PROVIDERS[String(raw).toLowerCase()] || raw;
+    const via = s.entrypoint ? String(s.entrypoint).replace(/^claude-/, '') : null;
+    return `<span>${esc(name)}</span>${via ? `<small>${esc(via)}</small>` : ''}`;
+  }
+  function agentsTab(t, d) {
+    const at = (s) => Math.max(s.last_action ? Date.parse(s.last_action.ts) : 0, s.remote && s.remote.last_event_ts ? Date.parse(s.remote.last_event_ts) : 0);
+    const now = (s) => s.live || (s.remote && s.remote.current);
+    const list = t.sessions.slice().sort((a, b) => (now(b) ? 1 : 0) - (now(a) ? 1 : 0) || at(b) - at(a));
+    if (!list.length) return '<div class="empty-state">No agent matched this track in the last 7 days.</div>';
+    const info = (d && d.agents) || {};
+    return `<div class="pg-tbl pg-tagents" data-testid="vt-track-agents"><div class="pg-th"><div>Agent · branch / folder</div><div class="pg-x">Provider</div><div class="pg-x">Model</div><div class="pg-x">Account</div><div class="pg-x">Joined by</div><div>State</div><div class="pg-x">Worked</div><div class="pg-x">Open</div></div>
       ${list.map((s) => {
         const title = s.title || s.id.slice(0, 8);
+        const i = info[s.id] || {};
+        const model = i.model || (s.remote && s.remote.model) || null;
         const join = s.join && s.join.by ? `<span>${esc(s.join.by)}</span><small title="${esc(s.join.value || '')}">${esc(s.join.value || '')}</small>` : '<span class="unk">no rule matched</span>';
-        const status = s.live ? `live · ${s.status || 'unknown status'}${s.waiting_for ? ' (' + s.waiting_for + ')' : ''}` : 'ended (no live process)';
+        const status = s.remote ? `on ${s.remote.host}, reported by its session hook · as of ${VT.ago(s.remote.as_of)} (not observed live from here)`
+          : s.live ? `live · ${s.status || 'unknown status'}${s.waiting_for ? ' (' + s.waiting_for + ')' : ''}` : 'ended (no live process)';
+        const where = [s.branch || 'no branch', s.cwd || null].filter(Boolean).join(' · ');
         const w = s.worked || {};
-        return `<div class="pg-tr${s.live ? '' : ' ended'}" data-testid="vt-track-session" data-session-id="${esc(s.id)}" data-live="${s.live ? 'true' : 'false'}">
-          <div class="nm">${VT.sd(VT.sessionDot(s), status)}<span class="chip"><b>${esc(s.account)}</b></span><span class="t2"><span class="t" title="${esc(title + ' · ' + (s.cwd || ''))}">${esc(title)}</span><small title="${esc(s.cwd || '')}">${esc(s.branch || 'no branch')}${s.subagent_files ? ' · ' + plural(s.subagent_files, 'subagent file') : ''}</small></span></div>
+        const worked = s.remote ? `<span class="wk"><span>on ${esc(s.remote.host)}</span><small>${s.remote.last_event_ts ? 'last event ' + VT.ago(s.remote.last_event_ts) : 'no event time'}</small></span>`
+          : `<span class="wk" title="${esc(`worked ${VT.dur(w.h24_s)} in 24 h, ${VT.dur(w.d7_s)} in 7 d`)}"><span>${w.h24_s ? VT.dur(w.h24_s) + ' today' : 'none today'} · ${VT.dur(w.d7_s)} 7 d</span><small>${s.last_action ? 'last action ' + VT.ago(s.last_action.ts) : 'no agent entry'}</small></span>`;
+        const asof = s.remote ? ` <small class="faint pg-blk">as of ${esc(VT.ago(s.remote.as_of))}</small>` : (s.live || s.state.word === 'ended' ? '' : '<small class="faint pg-blk">ended</small>');
+        return `<div class="pg-tr${now(s) ? '' : ' ended'}" data-testid="vt-track-agent" data-session-id="${esc(s.id)}" data-live="${s.live ? 'true' : 'false'}">
+          <div class="nm">${VT.sd(VT.sessionDot(s), status)}<span class="t2"><span class="t" title="${esc(title + ' · ' + (s.cwd || ''))}">${esc(title)}</span><small title="${esc(where)}">${esc(where)}${s.subagent_files ? ' · ' + plural(s.subagent_files, 'subagent file') : ''}</small></span></div>
+          <div class="pg-x wk">${provider(s, i)}</div>
+          <div class="pg-x wk"><span title="${esc(i.model_source || '')}">${model ? esc(model) : '<span class="unk">unknown</span>'}</span></div>
+          <div class="pg-x wk"><span>${esc(s.remote ? s.remote.host + ' · ' + (s.account || 'unknown') : s.account)}</span></div>
           <div class="pg-x wk">${join}</div>
-          <div><span class="stw ${esc(s.state.word)}" title="${esc(status)}">${esc(VT.WORD[s.state.word] || s.state.word)}</span>${s.live || s.state.word === 'ended' ? '' : '<small class="faint pg-blk">ended</small>'}</div>
-          <div class="pg-x"><span class="wk" title="${esc(`worked ${VT.dur(w.h24_s)} in 24 h, ${VT.dur(w.d7_s)} in 7 d`)}"><span>${w.h24_s ? 'worked ' + VT.dur(w.h24_s) : 'no work today'}</span><small>${s.last_action ? 'last action ' + VT.ago(s.last_action.ts) : 'no agent entry'}</small></span></div>
+          <div><span class="stw ${esc(s.state.word)}" title="${esc(status)}">${esc(VT.WORD[s.state.word] || s.state.word)}</span>${asof}</div>
+          <div class="pg-x">${worked}</div>
           <div class="pg-open">${VT.openLinks(s)}</div></div>`;
       }).join('')}</div>`;
   }
@@ -238,21 +261,23 @@
     const callout = t.state.word === 'needs_you' ? `<a class="pg-callout warn" href="#/review?track=${encodeURIComponent(t.id)}" data-testid="vt-track-needs">${VT.sd('awaiting')}<span class="pg-cb"><b class="warnword">Needs you</b> · ${[
       n.blocking ? `<b>${n.blocking} blocking</b>` : '', n.open ? `${n.open} open` : '', (n.open_questions || []).length ? plural(n.open_questions.length, 'open question') : '',
       n.waiting_sessions ? `${plural(n.waiting_sessions, 'session')} waiting` : ''].filter(Boolean).join(' · ') || esc(t.state.why)} ${VT.ageBadge(VT.needAge(t))}${n.unknown_ages ? ` <small class="faint">${n.unknown_ages} with no recorded ask time</small>` : ''}</span><span class="btn small">Open Review</span></a>` : '';
-    const live = VT.liveCount(t);
+    const live = t.sessions.filter((s) => s.live || (s.remote && s.remote.current)).length;
     const rounds = d && d.audits ? (d.audits.rounds || []).length : null;
-    const label = { overview: 'Overview', activity: 'Activity', sessions: `Sessions <span class="faint">${live} live</span>`, auditor: `Auditor <span class="faint">${rounds == null ? '' : plural(rounds, 'round')}</span>` };
+    const label = { overview: 'Overview', activity: 'Activity', agents: `Agents <span class="faint">${live} live</span>`, auditor: `Auditor <span class="faint">${rounds == null ? '' : plural(rounds, 'round')}</span>` };
     const tabs = `<div class="bar pg-tabs" role="tablist">${TABS.map((k) => `<button class="pill ${tab === k ? 'on' : ''}" role="tab" aria-selected="${tab === k}" data-act="pgtab" data-id="${k}" data-testid="vt-track-tab-${k}">${label[k]}</button>`).join('')}</div>`;
     return `<div class="crumb"><a href="#/">Home</a> / ${p.id ? `<a href="#/project/${encodeURIComponent(p.id)}">${esc(p.name)}</a>` : '<span class="faint">no project</span>'} / <span>${esc(t.title)}</span></div>
       <div class="pg-titlerow"><h1>${esc(t.title)}</h1>${mode}</div>
       <p class="sub pg-tsub">${sub}</p>${t.purpose ? `<p class="pg-purpose">${esc(t.purpose)}</p>` : ''}${callout}${tabs}`;
   }
-  const tabOf = (r) => (TABS.includes(r.query.tab) ? r.query.tab : TABS.includes(S.trackTab) ? S.trackTab : 'overview');
+  // ?tab=sessions (links written before r3) opens Agents.
+  const tabName = (k) => (k === 'sessions' ? 'agents' : k);
+  const tabOf = (r) => (TABS.includes(tabName(r.query.tab)) ? tabName(r.query.tab) : TABS.includes(tabName(S.trackTab)) ? tabName(S.trackTab) : 'overview');
 
   VT.page('track', {
     title: (r) => (VT.findTrack(r.id) || {}).title || 'Track',
     enter(r) {
       if (r.id) VT.markSeen(r.id);
-      if (TABS.includes(r.query.tab)) { S.trackTab = r.query.tab; VT.save(); }
+      if (TABS.includes(tabName(r.query.tab))) { S.trackTab = tabName(r.query.tab); VT.save(); }
     },
     render(r) {
       const t0 = VT.findTrack(r.id);
@@ -268,7 +293,7 @@
       let body;
       if (!d) body = e.error ? `<div class="banner">The track document could not be read: ${esc(e.error)}</div>` : '<p class="faint pg-p">Reading KPIs, activity and audits…</p>';
       else if (tab === 'activity') body = activity(t, d);
-      else if (tab === 'sessions') body = sessionsTab(t);
+      else if (tab === 'agents') body = agentsTab(t, d);
       else if (tab === 'auditor') body = auditorTab(t, d);
       else body = overview(t, d);
       return `<div class="page pg" data-testid="vt-track-page" data-track-id="${esc(t.id)}" data-tab="${tab}">${header(t, d, tab)}<div class="pg-body">${body}</div>

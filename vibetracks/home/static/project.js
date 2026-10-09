@@ -204,7 +204,7 @@
     const title = s.title || s.id.slice(0, 8);
     const st = `<span class="stw ${esc(s.state.word)}" title="${esc(s.live ? 'live · ' + (s.status || 'unknown status') : 'ended')}">${esc(VT.WORD[s.state.word] || s.state.word)}</span>`;
     return `<div class="pg-tr pg-ses" data-testid="vt-project-session" data-session-id="${esc(s.id)}">
-      <div class="nm">${VT.sd(VT.sessionDot(s), s.live ? 'live · ' + (s.status || 'unknown status') : 'ended')}<span class="chip"><b>${esc(s.account)}</b></span><span class="t2"><span class="t" title="${esc(title + ' · ' + (s.cwd || ''))}">${esc(title)}</span><small title="${esc(s.cwd || '')}">${where} · ${esc(s.branch || 'no branch')}</small></span></div>
+      <div class="nm">${VT.sd(VT.sessionDot(s), s.live ? 'live · ' + (s.status || 'unknown status') : 'ended')}<span class="t2"><span class="t" title="${esc(title + ' · ' + (s.cwd || '') + ' · ' + s.account)}">${esc(title)}</span><small title="${esc(s.cwd || '')}">${where} · ${esc(s.branch || 'no branch')}</small></span></div>
       <div>${st}</div><div class="pg-x"><span class="wk"><span>${s.last_action ? VT.ago(s.last_action.ts) : 'unknown'}</span><small>${s.worked && s.worked.h24_s ? 'worked ' + VT.dur(s.worked.h24_s) + ' today' : 'no work today'}</small></span></div>
       <div class="pg-open">${VT.openLinks(s)}</div></div>`;
   }

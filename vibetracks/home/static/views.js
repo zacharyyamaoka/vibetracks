@@ -1,7 +1,11 @@
 /* Vibe Tracks home · Home (B2): the accepted Linear initiatives table (Oct 6 mock, B1), restyled to Claude's tokens,
-   over ONE document (GET doc) in four views: 1 Rows (project -> track -> live sessions on one grid), 2 Table (a flat
-   ledger), 3 Board (state x project swimlanes, round 2's "respects each project"), 4 Cards (one card per project).
-   Keys 1-4 switch views; the last view, grouping, ordering and columns are remembered per viewer.
+   over ONE document (GET doc) in four views: 1 Rows (project -> track, and the track's live sessions when Display
+   says so), 2 Table (a flat ledger), 3 Board (state x project swimlanes, round 2's "respects each project"), 4 Cards
+   (one card per project). Keys 1-4 and the Display popover switch views (r3: no second switcher in the toolbar);
+   the last view, grouping, ordering and columns are remembered per viewer.
+   WHY tracks first, agents as detail (Zach, Oct 9: "Agents work on tracks"; "vibe tracks doesn't care about the
+   different agent accounts"): a track row carries its agent count; sessions are off by default and never wear an
+   account chip; sessions on no track live in the sidebar, not here.
    Every column of every row sits on ONE grid template so they align at every depth (Zach, Oct 6; measured by
    tests/browser/home_b2.py). A track row opens the track page; "Needs you" opens Review filtered to that track. */
 (function () {
@@ -25,8 +29,21 @@
     const title = `worked ${VT.dur(w.h24_s)} in 24 h, ${VT.dur(w.d7_s)} in 7 d (gaps up to 15 min between agent entries, overlap counted once)${loop}`;
     return `<span class="wk" title="${esc(title)}"><span>${w.h24_s ? 'worked ' + VT.dur(w.h24_s) : 'no work today'}</span><small>${last ? 'last action ' + VT.ago(last.ts) : 'no agent entry in 7 d'}</small></span>`;
   }
-  const COLS = [['target', 'Target'], ['health', 'Health'], ['prog', 'Progress'], ['state', 'State'], ['work', 'Worked · last action']];
-  const WIDTH = { target: '72px', health: '100px', prog: '128px', state: '172px', work: '156px' };
+  const COLS = [['target', 'Target'], ['health', 'Health'], ['prog', 'Progress'], ['state', 'State'], ['agents', 'Agents'], ['work', 'Worked · last action']];
+  const WIDTH = { target: '72px', health: '100px', prog: '128px', state: '172px', agents: '136px', work: '156px' };
+  /** The agents working on a track now: its live sessions (and, across machines, other hosts' current ones). */
+  const agentsOf = (t) => t.sessions.filter((s) => s.live || (s.remote && s.remote.current));
+  function agentsText(list) {
+    if (!list.length) return 'no agents';
+    const working = list.filter((s) => s.state.word === 'working').length;
+    const waiting = list.filter((s) => s.state.word === 'needs_you').length;
+    return `${list.length} agent${list.length === 1 ? '' : 's'}${working ? ` · ${working} working` : ''}${waiting ? ` · ${waiting} waiting` : ''}`;
+  }
+  function agentsCell(t) {
+    const list = agentsOf(t);
+    const title = list.length ? list.map((s) => `${s.title || s.id.slice(0, 8)} (${VT.WORD[s.state.word] || s.state.word})`).join(' · ') : 'no live session matched this track';
+    return `<a class="agn${list.length ? '' : ' none'}" data-testid="vt-home-agents" href="#/track/${encodeURIComponent(t.id)}?tab=agents" title="${esc(title)}">${esc(agentsText(list))}</a>`;
+  }
   const colStyle = () => '--cols: minmax(220px,1fr) ' + COLS.filter(([k]) => S.props[k]).map(([k]) => WIDTH[k]).join(' ');
   const cells = (o) => COLS.filter(([k]) => S.props[k]).map(([k]) => `<div class="c-${k}">${o[k] || ''}</div>`).join('');
   function indent(depth) {
@@ -55,9 +72,10 @@
   function sessionRow(s, depth, trackId) {
     const title = s.title || s.id.slice(0, 8);
     const join = s.join.by ? `matched by ${s.join.by}: ${s.join.value}` : (s.projects && s.projects.length ? `in this project's folders · no track rule matches` : 'no track rule matches');
+    // WHY no account chip: which Claude account runs an agent is agent detail (the track page's Agents tab).
     return `<div class="tr sess" data-testid="vt-home-session" data-session-id="${esc(s.id)}" data-track="${esc(trackId || '')}">
-      <div class="nm">${indent(depth)}${VT.sd(VT.sessionDot(s), s.live ? 'live · ' + (s.status || 'unknown status') : 'ended')}<span class="chip"><b>${esc(s.account)}</b></span>
-        <span class="t2" style="flex:1"><span class="t" title="${esc(title + ' · ' + (s.branch || 'no branch') + ' · ' + (s.cwd || ''))}">${esc(title)}</span><small title="${esc(join)}"><span class="ph">${esc(s.account)} · </span>${esc(join)}${s.subagent_files ? ' · ' + s.subagent_files + ' subagent file' + (s.subagent_files > 1 ? 's' : '') : ''}</small></span><span class="opens">${VT.openPrimary(s)}</span></div>
+      <div class="nm">${indent(depth)}${VT.sd(VT.sessionDot(s), s.live ? 'live · ' + (s.status || 'unknown status') : 'ended')}
+        <span class="t2" style="flex:1"><span class="t" title="${esc(title + ' · ' + (s.branch || 'no branch') + ' · ' + (s.cwd || '') + ' · ' + s.account)}">${esc(title)}</span><small title="${esc(join)}">${esc(join)}${s.subagent_files ? ' · ' + s.subagent_files + ' subagent file' + (s.subagent_files > 1 ? 's' : '') : ''}</small></span><span class="opens">${VT.openPrimary(s)}</span></div>
       ${cells({ state: `<span class="stw ${s.state.word}" title="${esc(s.live ? 'live · ' + (s.status || 'unknown status') + (s.waiting_for ? ' (' + s.waiting_for + ')' : '') : 'ended (no live process)')}">${VT.WORD[s.state.word] || s.state.word}${s.live && s.status && s.status !== (VT.WORD[s.state.word] || '').toLowerCase() ? ' · ' + esc(s.status) : ''}</span>`, work: workCell(s, false) })}</div>`;
   }
   function trackRow(t, depth) {
@@ -68,7 +86,7 @@
       <div class="nm">${indent(depth)}${ks.length ? `<button class="chev ${open ? '' : 'closed'}" data-act="fold" data-id="t:${esc(t.id)}" aria-label="Show sessions">${VT.ic('chev')}</button>` : '<span class="chev-sp"></span>'}
         <span class="t2"><a class="t" href="${href}" title="Open the ${esc(t.title)} track page">${esc(t.title)}</a><small title="${esc(t.state.why)}">${esc(t.state.why)}</small></span></div>
       ${cells({ target: t.target ? `<span class="num" title="from the note's vibe-target">${esc(VT.fmtDate(t.target))}</span>` : '<span class="faint" title="no target written in the note">—</span>',
-        health: VT.health(t.health.color), prog: progressCell(t), state: VT.stateWord(t), work: workCell(t, true) })}</div>`;
+        health: VT.health(t.health.color), prog: progressCell(t), state: VT.stateWord(t), agents: agentsCell(t), work: workCell(t, true) })}</div>`;
     if (open) for (const s of ks) h += sessionRow(s, depth + 1, t.id);
     return h;
   }
@@ -88,32 +106,8 @@
       <span class="t2"><a class="t" href="#/project/${encodeURIComponent(p.id)}" title="Open the ${esc(p.name)} project page">${esc(p.name)}</a><small title="${esc((p.roots || []).map((r) => r.path).join(' · '))}">${esc(sub)}</small></span></div>
       ${cells({ target: p.target ? `<span class="num" title="earliest track target (${esc(p.target_from)})">${esc(VT.fmtDate(p.target))}</span>` : '<span class="faint">—</span>',
         health: VT.health(worst), prog: '', state: need ? `<span class="stw needs_you">${VT.sd('awaiting')}${need} need${need > 1 ? '' : 's'} you</span>` : rollup(list),
+        agents: (() => { const all = list.flatMap(agentsOf); return `<span class="agn${all.length ? '' : ' none'}" title="agents on this project's tracks">${esc(agentsText(all))}</span>`; })(),
         work: `<span class="wk"><span>${w ? 'worked ' + VT.dur(w) : 'no work today'}</span><small>${rollup(list)}</small></span>` })}</div>`;
-  }
-  // Sessions no track's rule matches, grouped by the project whose folders hold them (Codex model): a session in a
-  // folder two projects list shows under both; the rest are "in no project". Every one is listed (B1's contract).
-  function otherRows() {
-    const d = VT.doc;
-    if (S.tabset === 'done' || !d.other_sessions.length) return '';
-    const n = d.other_sessions.length;
-    const waiting = d.other_sessions.filter((s) => s.state.word === 'needs_you').length;
-    const state = waiting ? `<span class="stw needs_you">${VT.sd('awaiting')}${waiting} waiting</span>` : '';
-    let h = `<div class="tr proj other" id="row-other" data-testid="vt-home-other-toggle" data-act="other"><div class="nm"><button class="chev ${S.otherOpen ? '' : 'closed'}" data-act="other" aria-label="Show sessions on no track">${VT.ic('chev')}</button><span class="pico muted">·</span>
-      <span class="t2"><span class="t">Sessions on no track (${n})</span><small>live sessions no track's rule matches, under the project whose folders hold them · none disappears</small></span></div>${cells({ state })}</div>`;
-    if (S.otherOpen) {
-      for (const p of d.projects) {
-        const list = p.sessions_unpinned || [];
-        if (!list.length) continue;
-        h += `<div class="tr sub" data-testid="vt-home-other-project" data-project-id="${esc(p.id)}"><div class="nm">${indent(1)}<span class="pico sm" style="background:${esc(p.color)}">${esc(p.name[0].toUpperCase())}</span><span class="t">${esc(p.name)}</span><span class="faint">${list.length}</span></div>${cells({})}</div>`;
-        for (const s of list) h += sessionRow(s, 2, '');
-      }
-      const nowhere = d.other_sessions.filter((s) => !(s.projects || []).length);
-      if (nowhere.length) {
-        h += `<div class="tr sub" data-testid="vt-home-other-project" data-project-id=""><div class="nm">${indent(1)}<span class="pico sm muted">·</span><span class="t">In no project's folders</span><span class="faint">${nowhere.length}</span></div>${cells({})}</div>`;
-        for (const s of nowhere) h += sessionRow(s, 2, '');
-      }
-    }
-    return h;
   }
   function tree() {
     const d = VT.doc;
@@ -138,7 +132,7 @@
       }
     }
     if (!all.length) h += `<div class="tr" style="cursor:default"><div class="nm faint">No ${S.tabset === 'done' ? 'done or archived' : ''} tracks.</div></div>`;
-    return h + otherRows() + '</div>';
+    return h + '</div>';
   }
 
   // ------------------------------------------------------------------ board: state x project swimlanes
@@ -209,29 +203,19 @@
 
   VT.page('home', {
     title: () => 'Tracks',
-    enter(r) { if (r.query.other) { S.otherOpen = true; VT.save(); } },
     render(r) {
       const d = VT.doc;
       const body = S.view === 'board' ? board() : S.view === 'cards' ? cards() : tree();
       const fresh = VT.fetchedAt ? `<span class="fresh" title="generated ${esc(d.generated_at)}">updated ${VT.ago(new Date(VT.fetchedAt).toISOString())}</span>` : '';
       const t = d.sources.transcripts;
-      const VIEWS = [['rows', 'Rows', 1], ['table', 'Table', 2], ['board', 'Board', 3], ['cards', 'Cards', 4]];
       return `<div class="page wide" data-testid="vt-home-page" data-view="${esc(S.view)}"><div class="crumb">Home</div><h1>Tracks</h1><p class="sub">${summary()}</p>
         ${VT.error ? `<div class="banner">Last refresh failed (${esc(VT.error)}); showing the document from ${esc(VT.ago(new Date(VT.fetchedAt).toISOString()))}.</div>` : ''}
         <div class="bar">${[['active', 'Active'], ['done', 'Done'], ['all', 'All tracks']].map(([k, l]) => `<button class="pill ${S.tabset === k ? 'on' : ''}" data-act="tabset" data-id="${k}">${l}</button>`).join('')}
-          <span class="vseg" role="tablist" aria-label="View">${VIEWS.map(([k, l, n]) => `<button class="${S.view === k ? 'on' : ''}" data-act="view" data-id="${k}" title="${l} (${n})" aria-label="${l}">${VT.ic(k)}<span class="vl">${l}</span></button>`).join('')}</span>
           <span class="spacer"></span>${fresh}<button class="btn icon" data-act="refresh" title="Refresh now" aria-label="Refresh">${VT.ic('refresh')}</button><button class="btn ${VT.pop === 'display' ? 'on' : ''}" data-act="pop" data-id="display" data-testid="vt-home-display-button">${VT.ic('display')}Display</button></div>
         ${body}
         <div class="foot">Derived from Claude Code's own files and the loops' files, never from what an agent says: ${t.recent} transcripts from the last 7 days (${t.subagent_files} of them subagents) of ${t.files} on disk · sessions matched by ${joinCounts()} · generated ${esc(d.generated_at)}${d.problems.length ? ` · ${d.problems.length} problem${d.problems.length > 1 ? 's' : ''}: ${esc(d.problems.map((p) => p.path + ': ' + p.error).join('; '))}` : ''}</div></div>`;
     },
     popover(pop) { return pop === 'display' ? displayPop() : ''; },
-    after(main, r) {
-      if (r.query.other && S.otherOpen && !VT._otherScrolled) {
-        VT._otherScrolled = true;
-        const row = document.getElementById('row-other');
-        if (row) row.scrollIntoView({ block: 'start' });
-      }
-    },
     key(ev) {
       if (/^[1-4]$/.test(ev.key)) { S.view = ['rows', 'table', 'board', 'cards'][+ev.key - 1]; return true; }
       return false;
@@ -244,7 +228,6 @@
       VT.go('#/track/' + encodeURIComponent(el.dataset.id)); return false;
     },
     fold(el) { S.collapsed[el.dataset.id] = !S.collapsed[el.dataset.id]; },
-    other() { S.otherOpen = !S.otherOpen; },
     view(el) { S.view = el.dataset.id; },
     cycle(el) {
       const id = el.dataset.id;
