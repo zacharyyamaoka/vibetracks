@@ -85,7 +85,7 @@
     const status = remote ? VT.remoteTitle(s) : s.live ? 'live · ' + (s.status || 'unknown status') + (s.waiting_for ? ' (' + s.waiting_for + ')' : '') : 'ended (no live process)';
     const where = remote ? `<span class="hostchip" title="${esc(VT.remoteTitle(s))}">${esc(remote.host)}</span>` : '';
     const state = remote
-      ? `<span class="stw ${s.state.word}" title="${esc(status)}">${VT.WORD[s.state.word] || s.state.word}<small class="asof"> · ${esc(VT.asOf(s))}</small></span>`
+      ? `<span class="stw ${s.state.word}" title="${esc(status)}">${VT.WORD[s.state.word] || s.state.word}&nbsp;<small class="asof">· ${esc(VT.asOf(s))}</small></span>`
       : `<span class="stw ${s.state.word}" title="${esc(status)}">${VT.WORD[s.state.word] || s.state.word}${s.live && s.status && s.status !== (VT.WORD[s.state.word] || '').toLowerCase() ? ' · ' + esc(s.status) : ''}</span>`;
     const work = remote
       ? `<span class="wk" title="${esc(status)}"><span>on ${esc(remote.host)}</span><small>${remote.last_event_ts ? 'last event ' + VT.ago(remote.last_event_ts) : 'no event time'}</small></span>`
