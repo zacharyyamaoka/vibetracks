@@ -1,9 +1,10 @@
 #!/usr/bin/env python3
 """Claude Code hook wrapper for a settings.json that several machines share (stdlib only, imports nothing of ours).
 
-settings.json runs it through one guarded line, printed by ``python -m vibetracks.remote.sync hook-config``::
+settings.json runs it through one line, the same on every machine, by way of a per-machine launcher
+``~/.vibetracks/hook`` (``exec "<python>" "<this file>"``) that ``python -m vibetracks.remote.sync hook-config`` writes::
 
-    [ ! -f "$HOME/.vibetracks/remote.json" ] || exec python3 "<this file>"
+    [ ! -x "$HOME/.vibetracks/hook" ] || exec "$HOME/.vibetracks/hook"
 
 ``~/.vibetracks/remote.json`` is machine-local, written by ``hook-config``::
 
