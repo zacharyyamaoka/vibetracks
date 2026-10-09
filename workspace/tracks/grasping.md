@@ -11,6 +11,11 @@ vibe-roadmap:
   projector: grasping
   sources: [grasp_bench_dir]
 vibe-children: []
+vibe-project: BAM Robotics
+vibe-sessions:
+  branches: [claude/grasping-agent-roadmap-*, claude/grasp-bench-*]
+  cwds: []
+  titles: [grasping agent roadmap, grasp bench]
 ---
 
 # Grasping

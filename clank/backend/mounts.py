@@ -26,4 +26,6 @@ from __future__ import annotations
 MOUNTS: list[tuple[str, str]] = [
     ("/roadmap", "vibetracks.roadmap.api:handle"),
     ('/needs', 'vibetracks.dashboard.needs:handle'),
+    # WHY a page beside Clank and not inside it: docs/peps/0001-home-surface-and-derived-state.md
+    ('/home', 'vibetracks.home.api:handle'),
 ]

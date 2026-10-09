@@ -11,6 +11,11 @@ vibe-roadmap:
   projector: detection
   sources: [detection_dir]
 vibe-children: []
+vibe-project: BAM Robotics
+vibe-sessions:
+  branches: [claude/hyperspectral-*]
+  cwds: [/home/bam/spectralwaste-segmentation]
+  titles: [hyperspectral, object database, object db]
 ---
 
 # Object Detection & Hyperspectral

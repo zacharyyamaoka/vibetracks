@@ -9,6 +9,11 @@ vibe-adapter: pyblocks
 vibe-sources: [pyblocks_board_dir, pyblocks_windows]
 vibe-roadmap: null
 vibe-children: []
+vibe-project: pyblocks
+vibe-sessions:
+  branches: []
+  cwds: [/home/bam/pyblocks]
+  titles: [pyblocks, ultracode, sf handoff]
 ---
 
 # Pyblocks

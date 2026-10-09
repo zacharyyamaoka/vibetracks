@@ -11,6 +11,11 @@ vibe-roadmap:
   projector: kinsim
   sources: [kinsim_curriculum_dir, kinsim_home]
 vibe-children: []
+vibe-project: BAM Robotics
+vibe-sessions:
+  branches: [claude/kinematic-simulator-waste-sorting-*, claude/wave-3-handoff-*, claude/kinematic-simulator-loop-*, claude/roadmap-curriculum-viz-*]
+  cwds: []
+  titles: [Kinematic Sim (AGENT), Traj Gen and Kinematic Sim]
 ---
 
 # Kinematic Sim
