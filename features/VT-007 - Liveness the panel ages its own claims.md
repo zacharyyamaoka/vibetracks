@@ -1,9 +1,10 @@
 ---
 vibe-track: feature
 vibe-id: VT-007
-vibe-status: review
-vibe-description: Cards carry their age, a quiet running claim is drawn stale, and per-track briefings feed one pinned agent per lane.
+vibe-status: done
+vibe-description: 'Cards carry their age, a quiet running claim is drawn stale, and per-track briefings feed one pinned agent per lane.'
 vibe-areas:
+- data
 - renderer
 - agent
 vibe-depends-on:
@@ -12,6 +13,10 @@ vibe-priority: high
 vibe-review-packet: ../reports/VT-007-liveness-review.html
 vibe-runs:
 - 'claude:VT-007/attempt-001'
+vibe-commits:
+- '8490224'
+vibe-origin:
+- 'vault: PROJECT - Vibe Tracks > Not working as I expect (Aug 25-26)'
 ---
 
 # Liveness: the panel ages its own claims
@@ -50,3 +55,7 @@ a live one.
 mtime is a proxy. This can prove nobody is reporting; it cannot prove someone
 is working. An agent that never claims its lane is still invisible — the panel
 now just says so out loud instead of looking empty.
+
+## Roadmap pass, 2026-10-09
+
+Marked done by the roadmap pass: on main since `8490224`, and its rule (state from what files show, not from what agents claim) became the home's derived state (VT-054). `done` is Zach's gesture: set it back to `review` if this was not yours to close.
