@@ -13,7 +13,7 @@ worker machine (win-a)                          share (a git repo on GitHub)    
     copy changed files into the clone             hosts/win-a/files/<key>/...             restore mtimes from commits
     only if something changed:         ──push──▶  hosts/win-a/sessions/<id>.json          merge every sources.json
       commit hosts/win-a/ only, push              hosts/win-b/...                         run vibetracks.dashboard.build
-      ──poke (POST /api/poke)─────────────────────────────────────────────────────────▶   serve the phone app on :4470
+      ──poke (POST /api/poke)─────────────────────────────────────────────────────────▶   serve the home on :4470
   session hook (Claude Code) writes a session card into the clone
 ```
 
@@ -22,7 +22,31 @@ worker machine (win-a)                          share (a git repo on GitHub)    
 - **One writer per host folder.** A machine only ever stages `hosts/<its name>/`, so two machines never touch the same path: every pull is a fast-forward or a trivial rebase, and a conflict means something wrote where it must not (sync then aborts the rebase, keeps its local commit, and reports the error; it never forces).
 - **`sync.py`** (per machine): every `interval_s`, mirror and (when due) heartbeat, locally; only when something is there to send: commit, `git pull --rebase --autostash`, `git push`, poke. It only reads the agents' files. `init` and `hook-config` set a machine up (docs/remote/WORKER_SETUP.md).
 - **`session_hook.py`**: a Claude Code hook that records `{session_id, host, account, agent, model, cwd, track, url, …}`. The `url` is `https://claude.ai/code/<CLAUDE_CODE_BRIDGE_SESSION_ID>`, which exists only when the session has Remote Control on (`remoteControlAtStartup` in settings); otherwise the card says so and the app shows "no Remote Control link".
-- **`hub.py`**: checks the share (below), pulls when it moved, writes `<data-home>/remote-sources.json` (this machine's own `sources.json` if any, then every key the share supplies pointed into `hosts/<host>/files/`, then `dashboard_data_home` = the hub's `--data-home`), runs the ordinary `python -m vibetracks.dashboard.build` with `$VIBETRACKS_SOURCES` naming that file, and serves `/api/state`, `/api/track/<id>`, `/api/events` (SSE), `/api/health`, the JSON POSTs `/api/refresh` and `/api/poke`, and the app. `/api/state` lists every session card under its machine (`hosts[].sessions`: live first, then up to 10 others), with or without a track, so the Machines page answers "which agents run on win-a, and how do I talk to them". A track is attributed to the hosts that supply at least one of its declared `vibe-sources` keys; a track none of whose keys come from the share is on the hub machine. Two hosts supplying the same key: the newer `last_sync` wins and a `duplicate_key` problem is listed.
+- **`hub.py`**: checks the share (below), pulls when it moved, writes `<data-home>/remote-sources.json` (this machine's own `sources.json` if any, then every key the share supplies pointed into `hosts/<host>/files/`, then `dashboard_data_home` = the hub's `--data-home`), runs the ordinary `python -m vibetracks.dashboard.build` with `$VIBETRACKS_SOURCES` naming that file, and serves the Vibe Tracks home at `/` (below), the original app at `/hub/` with its `/api/state`, `/api/track/<id>`, `/api/events` (SSE), `/api/health`, and the JSON POSTs `/api/refresh` and `/api/poke`. `/api/state` lists every session card under its machine (`hosts[].sessions`: live first, then up to 10 others), with or without a track, so the Machines page answers "which agents run on win-a, and how do I talk to them". A track is attributed to the hosts that supply at least one of its declared `vibe-sources` keys; a track none of whose keys come from the share is on the hub machine. Two hosts supplying the same key: the newer `last_sync` wins and a `duplicate_key` problem is listed.
+
+## The home across machines (r3, 2026-10-09; docs/peps/0003)
+
+The Vibe Tracks home (`vibetracks/home`, docs/peps/0001) reads the share as well as this machine's own files
+(`vibetracks/home/remote.py`), wherever it is served:
+
+- **The hub** answers `/` with a redirect to `/home/`: the same page the dock icon opens, built over the hub's workspace,
+  its projection (the merged sources above) and the share, with `/needs` and `/roadmap` beside it as on the dashboard
+  backend. Read-only there: no renames, no links into Clank; the account menu links the old machine view (`/hub/`).
+- **The dashboard backend** (Stable, Preview, lanes) reads the share at `$VIBETRACKS_SHARE` (`off` disables), else
+  `~/vibetracks-share` when it is a clone, and its live projection takes other machines' keys on top of its own. It
+  never pulls: the hub does; Stable reads the clone as it is and prints each machine's age.
+- **Sessions on other machines** join tracks like local ones: the card's `track` (the hook's tracks-map) first, else
+  the same branch / cwd / title rules (cards carry `title` and `branch` since r3; older cards still read). They are
+  never "live" (no pid here to check): a card is *current* as of its host's last report (`as_of` = the newer of
+  `last_sync` and the card's `last_seen`) while the host is online or stale, the card is not ended and its last hook
+  event is within 30 min of `as_of`; the page says "as of 3 min ago" and draws a still dot, never Claude's blink. A
+  current remote session that is working moves its track to Working (rule `remote`), and remote events count for the
+  stall rule.
+- **This machine's own folder is skipped**, and a session id seen locally wins over any card, so a workstation that is
+  also a worker is never doubled.
+- **No share, no change**: the document is byte-identical to the single-machine one (checked on B1's fixtures).
+
+Tests: `tests/test_home_remote.py`, `tests/test_remote_home_hub.py`, `tests/browser/home_remote.py`.
 
 ## The refresh model: push on change, poke, adaptive checks, Refresh now
 
