@@ -55,24 +55,26 @@ for two minutes after news, one every 5 s. A poke is one small local HTTP reques
 ## The session hook on a settings.json that every machine shares
 
 Zach's `~/.claude/settings.json` is a symlink into his vault, identical on every machine, so it cannot name one
-machine's python, share or host. Those live in a machine-local file, `~/.vibetracks/remote.json`
-(`{"python", "share", "host", "tracks_map"}`, written by `python -m vibetracks.remote.sync hook-config`), and
-settings.json gets one guarded line under `UserPromptSubmit`, `Stop` and `SessionEnd`:
+machine's python, share or host. `python -m vibetracks.remote.sync hook-config` writes two machine-local files instead:
+
+- `~/.vibetracks/remote.json`: `{"python", "share", "host", "tracks_map"}`;
+- `~/.vibetracks/hook`: a two-line POSIX sh launcher, `exec "<this machine's python>" "<…>/vibetracks_session.py"`.
+
+settings.json gets one line, the same on every machine, under `UserPromptSubmit`, `Stop` and `SessionEnd`:
 
 ```bash
-[ ! -f "$HOME/.vibetracks/remote.json" ] || exec python3 "<site-packages>/vibetracks/remote/hooks/vibetracks_session.py"
+[ ! -x "$HOME/.vibetracks/hook" ] || exec "$HOME/.vibetracks/hook"
 ```
 
-- Without remote.json the line is a no-op (exit 0), so the hub workstation and every other machine are unaffected.
-- `vibetracks_session.py` is stdlib only, so any python3 can start it; it runs `<python from remote.json> -m
-  vibetracks.remote.session_hook --share … --host …` with the hook's stdin and environment
-  (`CLAUDE_CODE_BRIDGE_SESSION_ID` is how the card gets its Remote Control link), a 5 s timeout, stdout discarded (a
-  UserPromptSubmit hook's stdout would land in the prompt), and always exits 0.
-- The script path is where pip installed the package on the worker; `hook-config` prints the exact line. On Windows
-  the hook shell is Git Bash, where `python3` is often missing, so there the line carries the absolute python path
-  `hook-config` found instead.
-- Known limit: the line holds one machine's paths. A second worker whose python or site-packages path differs needs
-  the same layout, or a decision about the line.
+- A machine that never ran hook-config has no launcher, so the line is a silent no-op there (exit 0, no output). The
+  hub workstation and every other machine are unaffected, and a second or third worker needs no edit to the shared
+  file: running hook-config on it is what switches the hook on there.
+- `vibetracks_session.py` is stdlib only. It runs `<python from remote.json> -m vibetracks.remote.session_hook
+  --share … --host …` with the hook's stdin and environment (`CLAUDE_CODE_BRIDGE_SESSION_ID` is how the card gets its
+  Remote Control link), a 5 s timeout and stdout discarded (a UserPromptSubmit hook's stdout would land in the
+  prompt), and always exits 0.
+- On Windows the hook shell is Git Bash, which runs the sh launcher; the launcher names the venv's python by absolute
+  path, so a missing `python3` there does not matter. `tests/test_remote_units.py` runs the exact line through `sh`.
 
 ## Why git for v1, and the mtime restore
 

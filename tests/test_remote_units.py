@@ -541,11 +541,41 @@ class SetupCommands(Temp):
         remote = json.loads((home / ".vibetracks/remote.json").read_text())
         self.assertEqual(remote, {"python": sys.executable, "share": clones["win-a"].resolve().as_posix(),
                                   "host": "win-a", "tracks_map": {"kinsim": ["/home/bam/bam_ws"]}})
-        line = f'[ ! -f "$HOME/.vibetracks/remote.json" ] || exec python3 "{sync.HOOK_SCRIPT.as_posix()}"'
-        self.assertIn(line, printed)
+        self.assertIn(sync.HOOK_LINE, printed)
+        self.assertNotIn(sys.executable, sync.HOOK_LINE)  # the shared line names no machine's paths
+        launcher = home / ".vibetracks/hook"
+        self.assertTrue(os.access(launcher, os.X_OK))
+        self.assertIn(Path(sys.executable).as_posix(), launcher.read_text())
+        self.assertIn(sync.HOOK_SCRIPT.as_posix(), launcher.read_text())
         self.assertTrue(sync.HOOK_SCRIPT.is_file())
         for event in ("UserPromptSubmit", "Stop", "SessionEnd"):
             self.assertIn(event, printed)
+
+
+    def test_the_shared_line_runs_this_machines_launcher_end_to_end(self) -> None:
+        # The exact line from settings.json, run by a POSIX shell the way Claude Code runs hooks: it must reach the
+        # launcher hook-config wrote, which must reach the hook script, which must write the session card.
+        _, clones = make_share(self.tmp, "win-a")
+        home = self.tmp / "home"
+        home.mkdir()
+        env = {**os.environ, "HOME": str(home), "PYTHONPATH": str(REPO),
+               "CLAUDE_CODE_BRIDGE_SESSION_ID": "session_01Shared"}
+        with mock.patch.dict(os.environ, {"HOME": str(home)}):
+            self.run_main("hook-config", "--share", str(clones["win-a"]), "--host", "win-a")
+        stdin = json.dumps({"session_id": "5e55e55e-0000-1111-2222-333344445555", "cwd": "/x",
+                            "hook_event_name": "Stop"})
+        done = subprocess.run(["sh", "-c", sync.HOOK_LINE], input=stdin, capture_output=True, text=True,
+                              timeout=30, env=env)
+        self.assertEqual(done.returncode, 0, done.stderr)
+        card = json.loads((clones["win-a"] / "hosts/win-a/sessions/5e55e55e-0000-1111-2222-333344445555.json")
+                          .read_text())
+        self.assertEqual(card["url"], "https://claude.ai/code/session_01Shared")
+        # and on a machine that never ran hook-config the same line is a silent no-op
+        bare = self.tmp / "bare-home"
+        bare.mkdir()
+        done = subprocess.run(["sh", "-c", sync.HOOK_LINE], input=stdin, capture_output=True, text=True,
+                              timeout=30, env={**env, "HOME": str(bare)})
+        self.assertEqual((done.returncode, done.stdout, done.stderr), (0, "", ""))
 
 
 class HookWrapper(Temp):

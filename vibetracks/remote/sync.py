@@ -550,10 +550,23 @@ def remote_config_path() -> Path:
     return Path.home() / ".vibetracks" / "remote.json"
 
 
-def hook_line(python: str, script: Path = HOOK_SCRIPT) -> str:
-    """The one guarded line for a settings.json that several machines share: a no-op where remote.json is absent."""
+#: The one hook line for a settings.json that several machines share. WHY a per-machine launcher and not this
+#: machine's python path in the line: Zach's settings.json is one file synced to every machine, so a line naming
+#: win-a's python would fail on every prompt on a second worker laid out differently. The line names only
+#: ``~/.vibetracks/hook``, which hook-config writes on each machine; where it is absent the line does nothing.
+HOOK_LINE = '[ ! -x "$HOME/.vibetracks/hook" ] || exec "$HOME/.vibetracks/hook"'
 
-    return f'[ ! -f "$HOME/.vibetracks/remote.json" ] || exec {python} "{script.as_posix()}"'
+
+def hook_launcher_path() -> Path:
+    return Path.home() / ".vibetracks" / "hook"
+
+
+def hook_launcher_text(python: str, script: Path = HOOK_SCRIPT) -> str:
+    """A POSIX sh launcher (Git Bash runs it on Windows) that starts this machine's python on the hook script."""
+
+    return ("#!/bin/sh\n"
+            "# Written by `python -m vibetracks.remote.sync hook-config`: this machine's python and hook script.\n"
+            f'exec "{Path(python).as_posix()}" "{script.as_posix()}"\n')
 
 
 def init(args: argparse.Namespace) -> int:
@@ -615,15 +628,15 @@ def hook_config(args: argparse.Namespace) -> int:
     target = remote_config_path()
     layout.write_json_atomic(target, {"python": sys.executable, "share": clone.as_posix(), "host": args.host,
                                       "tracks_map": tracks_map})
-    # WHY an absolute python on Windows: the hook shell there is Git Bash, where python3 is often missing.
-    if os.name == "nt":
-        python = f'"{Path(sys.executable).as_posix()}"'
-    else:
-        python = "python3" if shutil.which("python3") else shlex.quote(sys.executable)
-    line = hook_line(python)
+    # WHY the absolute python of THIS run: on Windows the hook shell is Git Bash, where python3 is often missing,
+    # and a venv's python is the one that can import vibetracks.
+    launcher = hook_launcher_path()
+    launcher.write_text(hook_launcher_text(sys.executable), encoding="utf-8")
+    launcher.chmod(0o755)
+    line = HOOK_LINE
     entry = [{"hooks": [{"type": "command", "command": line}]}]
-    print(f"wrote {target.as_posix()}")
-    print("the guarded hook line (add it to settings.json under UserPromptSubmit, Stop and SessionEnd):")
+    print(f"wrote {target.as_posix()} and {launcher.as_posix()}")
+    print("the guarded hook line, the same on every machine (settings.json: UserPromptSubmit, Stop and SessionEnd):")
     print("  " + line)
     print("as settings.json hooks:")
     print(json.dumps({"hooks": {event: entry for event in ("UserPromptSubmit", "Stop", "SessionEnd")}}, indent=1))
