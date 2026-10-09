@@ -158,6 +158,29 @@ a[data-rename], button[data-rename] { cursor: pointer; }
 /* ================================================================== Rows / Table: ONE grid for every row */
 :root { --ind: 22px; }
 .thead, .tr { display: grid; grid-template-columns: var(--cols); align-items: center; column-gap: 14px; padding: 0 8px; }
+/* Columns drop by the page's own width (views.js colStyle: --cols-mid, --cols-narrow), never into sideways scroll.
+   main is the query container, so a sidebar dragged wider drops columns exactly like a narrower window. */
+.main { container-type: inline-size; container-name: main; }
+@media (min-width: 761px) {
+  @container main (max-width: 1099px) {
+    .tree .thead, .tree .tr { grid-template-columns: var(--cols-mid); }
+    .tree .c-target, .tree .c-work { display: none; }
+    .board { grid-template-columns: 140px repeat(var(--bcols), minmax(0, 1fr)); }
+  }
+  @container main (max-width: 971px) {
+    .tree .thead, .tree .tr { grid-template-columns: var(--cols-narrow); }
+    .tree .c-health, .tree .c-prog { display: none; }
+    .board { grid-template-columns: 112px repeat(var(--bcols), minmax(0, 1fr)); }
+  }
+  @container main (max-width: 579px) {
+    .page, .page.wide { padding-left: 20px; padding-right: 20px; }
+    .tree .thead, .tree .tr { grid-template-columns: minmax(0, 1fr) minmax(0, 150px); column-gap: 8px; }
+    .tree .c-agents { display: none; }
+    .board { grid-template-columns: 1fr; }
+    .board .bh { display: none; }
+    .board .cell { border-left: 0; }
+  }
+}
 .thead { color: var(--ink-3); font-size: var(--fs-footnote); height: 32px; border-bottom: 1px solid var(--line); }
 .tr { min-height: 44px; border-bottom: 1px solid var(--line); cursor: pointer; }
 .tr:hover { background: var(--hover); }

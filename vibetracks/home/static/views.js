@@ -44,7 +44,14 @@
     const title = list.length ? list.map((s) => `${s.title || s.id.slice(0, 8)} (${VT.WORD[s.state.word] || s.state.word})`).join(' · ') : 'no live session matched this track';
     return `<a class="agn${list.length ? '' : ' none'}" data-testid="vt-home-agents" href="#/track/${encodeURIComponent(t.id)}?tab=agents" title="${esc(title)}">${esc(agentsText(list))}</a>`;
   }
-  const colStyle = () => '--cols: minmax(220px,1fr) ' + COLS.filter(([k]) => S.props[k]).map(([k]) => WIDTH[k]).join(' ');
+  // WHY four templates (r3: at 1280 px the grid overflowed, at 1100 px the page scrolled sideways): as the page's own
+  // width shrinks (the window, or a wider sidebar), the lowest-priority columns drop out, Target and Worked first, then
+  // Health and Progress, and the remaining tracks keep one template so every column stays aligned. home.css picks the
+  // template by a container query on main, not the window, because the sidebar's width is Zach's to drag.
+  const DROPS = { mid: ['target', 'work'], narrow: ['target', 'work', 'health', 'prog'] };
+  const template = (name, drop) => `${name} ` + COLS.filter(([k]) => S.props[k] && !drop.includes(k)).map(([k]) => WIDTH[k]).join(' ');
+  const colStyle = () => `--cols: ${template('minmax(220px,1fr)', [])}; --cols-mid: ${template('minmax(200px,1fr)', DROPS.mid)}; `
+    + `--cols-narrow: ${template('minmax(180px,1fr)', DROPS.narrow)}`;
   const cells = (o) => COLS.filter(([k]) => S.props[k]).map(([k]) => `<div class="c-${k}">${o[k] || ''}</div>`).join('');
   function indent(depth) {
     if (!depth) return '';
