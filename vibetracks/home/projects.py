@@ -98,6 +98,10 @@ def main_checkout(cwd: str) -> str | None:
     ``<main>/.git/worktrees/<name>``), mapped to the same relative path inside it; None when ``cwd`` is not inside
     such a worktree. Cached per cwd (a worktree does not move its main checkout)."""
 
+    # WHY absolute only: a path that is not absolute here (another machine's "C:/Users/BAM/x", r3) would be read
+    # relative to this process's own working directory, and land in whatever repo the server runs from.
+    if not os.path.isabs(cwd):
+        return None
     if cwd in _MAIN:
         return _MAIN[cwd]
     found = None
