@@ -33,6 +33,8 @@ from pathlib import Path
 DEFAULT_URL = "http://127.0.0.1:4481/api/plugins/vibetracks/home/"
 DEFAULT_CHROME = "/home/bam/.cache/ms-playwright/chromium-1243/chrome-linux64/chrome"
 SIDE_DEFAULT, SIDE_MIN, SIDE_MAX = 288.0, 220.0, 480.0
+#: Claude's sidebar hover, the same fill as its selected row (dark measured by Claude Hub; light: the selected token)
+HOVER = {"dark": "rgb(52, 52, 52)", "light": "rgba(11, 11, 11, 0.1)"}
 results: list[dict] = []
 failures = 0
 
@@ -196,6 +198,15 @@ def desktop(browser, url: str, scheme: str, shots: Path | None, do_rename: bool)
         loose_colors = {s["color"] for pid, g in side.items() if pid != "other" for s in g}
         check(not loose_colors or track_color not in loose_colors, f"{tag} a project's loose sessions read secondary to its tracks",
               f"track {track_color} vs loose {loose_colors}")
+        # Claude's hover = its selected fill (--df-selected = --df-hover in the session list; Claude Hub measured
+        # rgb(52,52,52) under every hovered row in dark, /home/bam/claude-hub-sidebar app/src/styles/sidebar.css)
+        unselected = page.locator('[data-testid="vt-side-track"]:not(.sel)').first
+        unselected.hover()
+        page.wait_for_timeout(250)
+        hovered = unselected.evaluate("(el) => getComputedStyle(el).backgroundColor")
+        want = HOVER[scheme]
+        check(hovered == want, f"{tag} a hovered sidebar row is Claude's hover fill ({want})", hovered)
+        page.mouse.move(900, 600)
         if nowhere:
             page.click('[data-testid="vt-side-other"]')
             page.wait_for_timeout(150)
