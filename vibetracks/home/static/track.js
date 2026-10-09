@@ -200,7 +200,7 @@
         const where = [s.branch || 'no branch', s.cwd || null].filter(Boolean).join(' · ');
         const w = s.worked || {};
         const worked = s.remote ? `<span class="wk"><span>on ${esc(s.remote.host)}</span><small>${s.remote.last_event_ts ? 'last event ' + VT.ago(s.remote.last_event_ts) : 'no event time'}</small></span>`
-          : `<span class="wk" title="${esc(`worked ${VT.dur(w.h24_s)} in 24 h, ${VT.dur(w.d7_s)} in 7 d`)}"><span>${w.h24_s ? VT.dur(w.h24_s) + ' today' : 'none today'} · ${VT.dur(w.d7_s)} 7 d</span><small>${s.last_action ? 'last action ' + VT.ago(s.last_action.ts) : 'no agent entry'}</small></span>`;
+          : `<span class="wk" title="${esc(`worked ${VT.dur(w.h24_s)} in 24 h, ${VT.dur(w.d7_s)} in 7 d${s.last_action ? '; last action ' + VT.ago(s.last_action.ts) : ''}`)}"><span>${w.h24_s ? VT.dur(w.h24_s) + ' in 24 h' : 'none in 24 h'}</span><small>${VT.dur(w.d7_s)} in 7 d · ${s.last_action ? VT.ago(s.last_action.ts) : 'no entry'}</small></span>`;
         const asof = s.remote ? ` <small class="faint pg-blk">as of ${esc(VT.ago(s.remote.as_of))}</small>` : (s.live || s.state.word === 'ended' ? '' : '<small class="faint pg-blk">ended</small>');
         return `<div class="pg-tr${now(s) ? '' : ' ended'}" data-testid="vt-track-agent" data-session-id="${esc(s.id)}" data-live="${s.live ? 'true' : 'false'}">
           <div class="nm">${VT.sd(VT.sessionDot(s), status)}<span class="t2"><span class="t" title="${esc(title + ' · ' + (s.cwd || ''))}">${esc(title)}</span><small title="${esc(where)}">${esc(where)}${s.subagent_files ? ' · ' + plural(s.subagent_files, 'subagent file') : ''}</small></span></div>

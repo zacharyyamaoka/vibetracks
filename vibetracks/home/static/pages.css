@@ -49,7 +49,7 @@
 .pg-trk { --cols: minmax(0, 1fr) 172px 150px 52px 132px; }
 .pg-sess { --cols: minmax(0, 1fr) 96px 132px 190px; }
 .pg-tses { --cols: minmax(0, 1fr) 170px 96px 140px 180px; }
-.pg-tagents { --cols: minmax(0, 1.5fr) 92px minmax(0, .8fr) 92px minmax(0, 1fr) 96px 118px 132px; }
+.pg-tagents { --cols: minmax(0, 1.4fr) 88px 118px 76px minmax(0, 1fr) 84px 150px 118px; }
 .pg-tagents .pg-open { justify-content: flex-end; }
 .pg-krows { --cols: minmax(0, 1fr) 128px 200px 124px 220px; }
 .pg-aus { --cols: 18px 112px minmax(0, 1fr) 104px 150px 64px; }

@@ -30,7 +30,7 @@
     return `<span class="wk" title="${esc(title)}"><span>${w.h24_s ? 'worked ' + VT.dur(w.h24_s) : 'no work today'}</span><small>${last ? 'last action ' + VT.ago(last.ts) : 'no agent entry in 7 d'}</small></span>`;
   }
   const COLS = [['target', 'Target'], ['health', 'Health'], ['prog', 'Progress'], ['state', 'State'], ['agents', 'Agents'], ['work', 'Worked · last action']];
-  const WIDTH = { target: '72px', health: '100px', prog: '128px', state: '172px', agents: '136px', work: '156px' };
+  const WIDTH = { target: '64px', health: '94px', prog: '118px', state: '160px', agents: '122px', work: '144px' };
   /** The agents working on a track now: its live sessions (and, across machines, other hosts' current ones). */
   const agentsOf = (t) => t.sessions.filter((s) => s.live || (s.remote && s.remote.current));
   function agentsText(list) {
