@@ -20,9 +20,26 @@ export function startupPath(search: string): string | null {
 
 const STARTUP_OPEN_DELAY_MS = 1500
 
+/** Where the home page lives on every channel (Stable, Preview, a lane): the backend's /home mount through Clank's
+ * plugin proxy, same origin as Clank. */
+export const HOME_PATH = '/api/plugins/vibetracks/home/'
+
+/** The bare root (`/`, no query, no hash) is what the dock icon opens: land on the home page.
+ * WHY here and not in stable-preview.json: the sps runtime opens a channel's root and serves only Clank's build there,
+ * so the one place that sees the dock's click on every channel is this plugin (docs/peps/0001). Any query or hash
+ * (`?vtdash=...`, `?workbench`, a `#vt` route) keeps Clank, so the workbench is always one link away. */
+export function homeRedirect(where: { pathname: string; search: string; hash: string }): string | null {
+  return where.pathname === '/' && !where.search && !where.hash ? HOME_PATH : null
+}
+
 const plugin: ClankPlugin = {
   id: 'vibetracks',
   activate(ctx) {
+    const home = homeRedirect(location)
+    if (home) {
+      location.replace(home)
+      return () => {}
+    }
     function VibeTracksDashboard(props: ViewerProps) {
       return <Dashboard {...props} backend={ctx.backend} />
     }
