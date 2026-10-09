@@ -13,7 +13,13 @@
   <header class="top">
     <div class="top-line">
       <a class="brand" href="#/">Vibe Tracks</a>
-      <span class="live" id="live" data-state="connecting">connecting…</span>
+      <div class="top-side">
+        <div class="top-actions">
+          <span class="live" id="live" data-state="connecting">connecting…</span>
+          <button type="button" class="refresh" id="refresh" title="Check the share now (r)"><span aria-hidden="true">↻</span> <span class="refresh-label">Refresh</span></button>
+        </div>
+        <div class="checked" id="checked"></div>
+      </div>
     </div>
     <nav class="tabs" aria-label="Views">
       <a href="#/" data-tab="home">Tracks</a>
