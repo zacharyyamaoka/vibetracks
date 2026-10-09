@@ -211,7 +211,13 @@ def main(argv: list[str]) -> int:
                     bg = page.evaluate("getComputedStyle(document.querySelector('[data-testid=vt-home-sidebar]')).backgroundColor")
                     check(page.evaluate("document.documentElement.dataset.theme") == "light" and bg == CLAUDE["side_bg"]["light"],
                           f"{tag} Settings > Theme > Light pins the light theme", bg)
-                    page.evaluate("localStorage.clear()")
+                    # back to System in the same (still open) menu: a hash-only goto keeps the page, so clearing
+                    # storage alone would leave the dark run's area shots pinned light
+                    page.click('[data-testid="vt-home-settings"] [data-act="theme"][data-id="system"]')
+                    page.wait_for_timeout(200)
+                    bg = page.evaluate("getComputedStyle(document.querySelector('[data-testid=vt-home-sidebar]')).backgroundColor")
+                    check(page.evaluate("document.documentElement.dataset.theme") is None and bg == CLAUDE["side_bg"]["dark"],
+                          f"{tag} Settings > Theme > System follows the dark scheme again", bg)
                 # every area renders on real data
                 for route, sel in (("#/review", "vt-review"), (f"#/project/{doc['projects'][0]['id']}", "vt-project-page"),
                                    ("#/track/rig", "vt-track-page")):
