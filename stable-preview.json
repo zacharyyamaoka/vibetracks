@@ -1,6 +1,7 @@
 {
   "app": "vibetracks-dashboard",
   "name": "Vibe Tracks",
+  "icon": "assets/vibetracks.svg",
   "mainBranch": "main",
   "chip": {"position": "bottom-right", "avoid": ["[data-testid=\"shadcn-status-bar\"]"]},
   "stable": {
