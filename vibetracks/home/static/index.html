@@ -3,14 +3,24 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Vibe Tracks Home</title>
+<title>Vibe Tracks</title>
 <link rel="icon" href="data:,">
+<link rel="stylesheet" href="static/tokens.css">
 <link rel="stylesheet" href="static/home.css">
+<link rel="stylesheet" href="static/pages.css">
 </head>
 <body>
-<!-- The Vibe Tracks home (docs/peps/0001): a thin page over GET doc (vibetracks-home/1). It renders that document and
-     nothing else; every state word, count and age on it is derived on the backend from harness and loop files. -->
+<!-- The Vibe Tracks home (docs/peps/0001; B2 2026-10-09): a thin page over GET doc (vibetracks-home/1) and the
+     track / project documents beside it. It renders those documents and nothing else; every state word, count and
+     age on it is derived on the backend from harness and loop files. Areas: sidebar.js, views.js (Home),
+     review.js, project.js, track.js; core.js holds the shared helpers, app.js boots. -->
 <div id="vt-home" data-testid="vt-home" data-ready="0" class="vlm"><div class="boot">Reading sessions and transcripts…</div></div>
-<script src="static/home.js"></script>
+<script src="static/core.js"></script>
+<script src="static/sidebar.js"></script>
+<script src="static/views.js"></script>
+<script src="static/review.js"></script>
+<script src="static/project.js"></script>
+<script src="static/track.js"></script>
+<script src="static/app.js"></script>
 </body>
 </html>
