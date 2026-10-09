@@ -39,9 +39,9 @@ from ..activity.join import SessionRules, match, parse_rules
 from ..dashboard.registry import find_registry, read_registry
 from ..descriptor import load_descriptor
 from ..edits import read_note_exact
-from ..notes import first_paragraph, parse_frontmatter
+from ..notes import first_paragraph, note_revision, parse_frontmatter
 from ..sources import _resolve_worktree
-from .projects import read_projects, slug
+from .projects import read_projects, resolve, slug
 
 SCHEMA = "vibetracks-home/1"
 ACTIVITY_MARKER = "activity"
@@ -71,6 +71,8 @@ class HomeTrack:
     purpose: str
     note_path: str
     problems: list[str] = field(default_factory=list)
+    #: the note's revision (``notes.note_revision`` of its exact text): the fence a rename is sent with
+    revision: str | None = None
 
 
 # ------------------------------------------------------------------------------------------------ the notes
@@ -147,9 +149,12 @@ def read_tracks_uncached(workspace: str | os.PathLike[str]) -> tuple[list[HomeTr
     source = load_descriptor(registry.descriptor).source
     notes: dict[str, tuple[dict[str, Any], str, Path]] = {}
     activity: dict[str, tuple[dict[str, Any], str, Path]] = {}
+    revisions: dict[str, str] = {}
     for path in sorted(source.rglob("*.md")):
         try:
-            frontmatter, body = parse_frontmatter(read_note_exact(path))
+            text = read_note_exact(path)
+            revisions[str(path)] = note_revision(text)
+            frontmatter, body = parse_frontmatter(text)
         except Exception as error:  # noqa: BLE001 - one bad note never takes the home down
             problems.append({"path": path.name, "error": str(error)})
             continue
@@ -182,7 +187,7 @@ def read_tracks_uncached(workspace: str | os.PathLike[str]) -> tuple[list[HomeTr
                           project=str(home_key(track_id, "vibe-project")).strip() if home_key(track_id, "vibe-project") else None,
                           target=_target(home_key(track_id, "vibe-target")), stall_hours=stall, rules=rules,
                           loop_files=_string_list(home_key(track_id, "vibe-loop-files")), purpose=purpose,
-                          note_path=str(path), problems=list(rules.problems))
+                          note_path=str(path), problems=list(rules.problems), revision=revisions.get(str(path)))
         for text in rules.problems:
             problems.append({"path": path.name, "error": text})
         return track
@@ -624,7 +629,7 @@ def build_home(workspace: str | os.PathLike[str], *, claude_homes: Iterable[str 
         review_link = f"{track_link}&needs=1" if track_link and counts.get("open") else None
         track_docs.append({
             "id": track.id, "title": track.title, "kind": track.kind, "adapter": track.adapter,
-            "project": track.project, "status": track.status, "priority": track.priority, "target": track.target,
+            "project": track.project, "revision": track.revision, "status": track.status, "priority": track.priority, "target": track.target,
             "purpose": track.purpose, "stall_hours": track.stall_hours,
             "state": {**state, "since": None},
             "health": health_of(state),
@@ -659,6 +664,12 @@ def build_home(workspace: str | os.PathLike[str], *, claude_homes: Iterable[str 
 
     descriptors, project_problems = read_projects(workspace)
     problems += project_problems
+    # A track names its project by name; a project renamed since keeps its tracks (projects.resolve: the slug of the
+    # old name is the descriptor's stem).
+    for doc in track_docs:
+        owner = resolve(descriptors, doc["project"])
+        if owner is not None:
+            doc["project"] = owner.name
     # Session -> project (Codex model): an unpinned live session (no track rule matched it) belongs to EVERY project
     # whose roots hold its cwd; a pinned one belongs to its track's project only, and stays under its track.
     other = []
@@ -692,6 +703,7 @@ def build_home(workspace: str | os.PathLike[str], *, claude_homes: Iterable[str 
         loose = sorted(unpinned.get(name, []), key=lambda s: (s["account"], (s["title"] or "").casefold()))
         project_docs.append({
             "id": slug(name),
+            "revision": descriptor.revision if descriptor else None,
             "name": name, "color": PROJECT_COLORS[position % len(PROJECT_COLORS)],
             "target": targets[0][0] if targets else None, "target_from": targets[0][1] if targets else None,
             "health": health,

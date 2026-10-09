@@ -24,6 +24,10 @@
   }
 
   VT.render = function render() {
+    // WHY hold back while renaming: the whole page is re-rendered from the document (every 10 s, on any click), and
+    // that would replace the input under the cursor (rename.js). The edit's own end renders.
+    const focused = document.activeElement;
+    if (VT.editing && focused && focused.dataset && focused.dataset.testid === 'vt-rename') return;
     const y = window.scrollY;
     const r = VT.route;
     root.className = 'vlm' + (VT.drawer ? ' drawer' : '');

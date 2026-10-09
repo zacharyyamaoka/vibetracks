@@ -6,10 +6,14 @@ two fenced writes on the backend, written before the code they test (r3, 2026-10
 - ``POST /tracks/<id>/title`` already renames a WORK track (test_server.RenameTest). The home also lists activity
   tracks (``vibe-track: activity`` notes, no KPI adapter yet); the same route renames their ``vibe-title``, with the
   same fence (409 on a stale revision), the same atomic write and the same title rules (never trimmed, one line).
-- ``POST /projects/<id>/name`` renames a project: the ``name`` of its descriptor (``workspace/projects/<id>.vibetrack``),
+- ``POST /projects/<id>/name`` renames a project: the ``name`` of its descriptor (``workspace/projects/*.vibetrack``),
   JSON ``{name, revision}``, fenced on the descriptor's revision (409 when it changed), atomic, and only the name line
-  changes. The project's id is its descriptor's file stem, so it survives the rename, and tracks that name the project
-  by its old name (``vibe-project``) stay under it.
+  changes. Tracks that name the project by its old name (``vibe-project``) stay under it. The project's id is the slug
+  of its name (B2's contract, pinned by the frozen tests/test_home_detail.py), so the answer carries the new id.
+
+Amended once after it was committed (r3): it first asked for the id to be the descriptor's file stem; the frozen B2
+test_home_detail.py requests a project by the slug of its name ("fixture.vibetrack" named "Fixture Robotics" is
+"fixture-robotics"), so the id follows the name and only the tracks' survival is required.
 
 Every case runs on a temp copy of tests/fixtures/home/workspace; nothing outside the temp dir is written.
 """
@@ -125,14 +129,13 @@ class HomeRenameTest(unittest.TestCase):
     def test_project_rename_round_trip_keeps_id_and_tracks(self) -> None:
         doc = self.home()
         project = next(p for p in doc["projects"] if p["name"] == "Fixture Robotics")
-        self.assertEqual(project["id"], "fixture-robotics", "a project's id is its descriptor's file stem")
         self.assertEqual(project["revision"], self.revision(self.bam))
         tracks = sorted(t["id"] for t in project["tracks"])
         self.assertTrue(tracks)
 
         status, body = self.post("/projects/fixture-robotics/name", {"name": "BAM  lab", "revision": project["revision"]})
         self.assertEqual(status, 200, body)
-        self.assertEqual((body["id"], body["name"]), ("fixture-robotics", "BAM  lab"))
+        self.assertEqual((body["id"], body["name"]), ("bam-lab", "BAM  lab"), "the answer carries the new id")
         text = self.bam.read_text(encoding="utf-8")
         self.assertEqual(body["revision"], server.note_revision(text))
         old, new = BAM_DESCRIPTOR.splitlines(), text.splitlines()
@@ -140,13 +143,13 @@ class HomeRenameTest(unittest.TestCase):
         self.assertEqual([i for i, (a, b) in enumerate(zip(old, new)) if a != b], [4], "only the name line changes")
 
         doc = self.home()
-        renamed = next(p for p in doc["projects"] if p["id"] == "fixture-robotics")
+        renamed = next(p for p in doc["projects"] if p["id"] == "bam-lab")
         self.assertEqual(renamed["name"], "BAM  lab")
         self.assertEqual(sorted(t["id"] for t in renamed["tracks"]), tracks,
                          "tracks whose vibe-project still says the old name stay under the renamed project")
         self.assertNotIn("Fixture Robotics", [p["name"] for p in doc["projects"]], "no orphan group under the old name")
 
-        status, body = self.post("/projects/fixture-robotics/name", {"name": "Fixture Robotics", "revision": body["revision"]})
+        status, body = self.post("/projects/bam-lab/name", {"name": "Fixture Robotics", "revision": body["revision"]})
         self.assertEqual(status, 200, body)
         self.assertEqual(self.bam.read_text(encoding="utf-8"), BAM_DESCRIPTOR, "renaming back restores every byte")
 
@@ -158,7 +161,7 @@ class HomeRenameTest(unittest.TestCase):
         self.assertEqual(len(added), 1, lines)
         self.assertTrue(added[0].startswith("  name:"), "inside the vibetracks: block")
         self.assertEqual("".join(line for line in lines if line not in added), SOLO_DESCRIPTOR, "one name line added, nothing else")
-        self.assertEqual(next(p for p in self.home()["projects"] if p["id"] == "solo-repo")["name"], "Solo")
+        self.assertEqual(next(p for p in self.home()["projects"] if p["id"] == "solo")["name"], "Solo")
 
     def test_project_stale_revision_is_409(self) -> None:
         stale = self.revision(self.bam)

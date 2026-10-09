@@ -62,6 +62,16 @@ html.vt-resizing, html.vt-resizing * { cursor: col-resize !important; user-selec
 .sgh { flex: 1; min-width: 0; display: flex; align-items: center; gap: 4px; height: 100%; padding: 0 var(--row-px) 0 calc(var(--row-px) + var(--label-inset));
   color: var(--ink-3); font-size: var(--group-font); line-height: 16px; font-weight: 400; border-radius: var(--radius); }
 .sgh .nm { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* inline rename (rename.js): the name becomes its own text, selected, in place (Claude's rename) */
+.rn { flex: 1; min-width: 0; width: 100%; font: inherit; color: var(--ink); background: var(--surface); border: 1px solid var(--accent);
+  border-radius: 4px; padding: 0 4px; height: 22px; outline: none; margin: 0; }
+.rn::selection { background: color-mix(in srgb, var(--accent) 45%, transparent); }
+.rn.h1 { height: auto; font-size: inherit; font-weight: inherit; letter-spacing: inherit; padding: 0 6px; max-width: 100%; }
+h1.editing { flex: 1; min-width: 0; }
+.srow.editing, .sgh.editing { cursor: default; }
+.sgh.editing { color: var(--ink); }
+[data-rename] { cursor: default; }
+a[data-rename], button[data-rename] { cursor: pointer; }
 .sgh:hover { color: var(--ink-2); }
 .sgh .caret { display: inline-grid; place-items: center; width: 12px; height: 12px; opacity: 0; transition: opacity .1s; }
 .sgh .caret svg { width: 11px; height: 11px; }

@@ -268,7 +268,7 @@
         : `<div class="pg-card pg-chart" data-testid="vt-project-chart">${e.error ? `<div class="banner">The project document could not be read: ${esc(e.error)}</div>` : '<p class="faint">Reading the north star and the tracks\' KPIs…</p>'}</div>`;
       return `<div class="page pg" data-testid="vt-project-page" data-project-id="${esc(p.id)}">
         <div class="crumb"><a href="#/">Home</a> / <span>${esc(p.name)}</span></div>
-        <h1 class="pg-h1"><span class="pico" style="background:${esc(p.color)}">${esc((p.name || '?')[0].toUpperCase())}</span>${esc(p.name)}</h1>
+        <h1 class="pg-h1"${VT.isRenaming('project', p.id, 'title') ? '' : ` data-rename="project:${encodeURIComponent(p.id)}:title" title="double-click to rename"`}><span class="pico" style="background:${esc(p.color)}">${esc((p.name || '?')[0].toUpperCase())}</span>${VT.isRenaming('project', p.id, 'title') ? VT.rnInput('h1') : esc(p.name)}</h1>
         <p class="sub">${sub}</p>
         ${callouts(p)}${body}
         <h2 class="pg-h2">Tracks <span class="faint">${p.tracks.length}</span></h2>${trackRows(p)}

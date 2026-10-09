@@ -46,7 +46,9 @@
     const nf = roots.length;
     const folders = nf ? `${nf} folder${nf === 1 ? '' : 's'}` : 'no folders';
     const live = p.sessions_live || 0;
-    const head = `<div class="sgh-row"><button class="sgh" data-act="sidefold" data-id="${esc(p.id)}" aria-expanded="${closed ? 'false' : 'true'}" data-testid="vt-side-project" data-project-id="${esc(p.id)}" title="${esc(p.name + ' · ' + (roots.map((x) => x.path).join(', ') || 'no descriptor') + ' · click to ' + (closed ? 'expand' : 'collapse'))}">`
+    const head = VT.isRenaming('project', p.id, 'side')
+      ? `<div class="sgh-row"><div class="sgh editing" data-testid="vt-side-project" data-project-id="${esc(p.id)}">${VT.rnInput()}<span class="fc" data-testid="vt-side-folders">${folders}</span></div>`
+      : `<div class="sgh-row"><button class="sgh" data-act="sidefold" data-id="${esc(p.id)}" aria-expanded="${closed ? 'false' : 'true'}" data-testid="vt-side-project" data-project-id="${esc(p.id)}" data-rename="project:${encodeURIComponent(p.id)}:side" title="${esc(p.name + ' · ' + (roots.map((x) => x.path).join(', ') || 'no descriptor') + ' · click to ' + (closed ? 'expand' : 'collapse') + ', double-click to rename')}">`
       + `<span class="nm">${esc(p.name)}</span><span class="caret ${closed ? '' : 'open'}">${VT.ic('caret')}</span><span class="fc" data-testid="vt-side-folders">${folders}</span></button>`
       + `<a class="sgh-go${r.name === 'project' && r.id === p.id ? ' sel' : ''}" href="#/project/${encodeURIComponent(p.id)}" title="Open the ${esc(p.name)} project page" aria-label="Open project ${esc(p.name)}">${VT.ic('open')}</a></div>`;
     if (closed) return `<div class="sgroup closed" data-project="${esc(p.id)}">${head}</div>`;
@@ -55,8 +57,13 @@
       if (!VT.ACTIVE(t)) continue;
       const n = VT.liveCount(t);
       const age = t.state.word === 'needs_you' ? VT.ageBadge(VT.needAge(t)) : '';
+      if (VT.isRenaming('track', t.id, 'side')) {
+        h += `<div class="srow sel editing" data-testid="vt-side-track" data-track-id="${esc(t.id)}" data-dot="${VT.trackDot(t)}">${VT.sd(VT.trackDot(t))}${VT.rnInput()}</div>`;
+        continue;
+      }
       h += row({ href: `#/track/${encodeURIComponent(t.id)}`, sel: r.name === 'track' && r.id === t.id, testid: 'vt-side-track',
-        extra: ` data-track-id="${esc(t.id)}" data-dot="${VT.trackDot(t)}"`, title: VT.dotTitle(t) + (n ? ` · ${n} live session${n === 1 ? '' : 's'}` : ''),
+        extra: ` data-track-id="${esc(t.id)}" data-dot="${VT.trackDot(t)}" data-rename="track:${encodeURIComponent(t.id)}:side"`,
+        title: VT.dotTitle(t) + (n ? ` · ${n} live session${n === 1 ? '' : 's'}` : '') + ' · double-click to rename',
         lead: VT.sd(VT.trackDot(t)), text: esc(t.title), meta: `${age}${n ? `<span class="n" title="${n} live session${n === 1 ? '' : 's'}">${n}</span>` : ''}` });
     }
     h += sessionRows(p.sessions_unpinned || [], p, 'loose');
@@ -169,7 +176,8 @@
   }
   function focusDraft() { const el = document.querySelector('[data-np="folder"]'); if (el) el.focus(); }
   Object.assign(VT.actions, {
-    sidefold(el) { const id = el.dataset.id; VT.S.side[id] = !VT.S.side[id]; },
+    // WHY skip a click with detail > 1: the second click of a double-click (a rename, rename.js) must not fold back.
+    sidefold(el, ev) { if (ev && ev.detail > 1) return false; const id = el.dataset.id; VT.S.side[id] = !VT.S.side[id]; },
     theme(el) { VT.S.theme = el.dataset.id; VT.applyTheme(); },
     npadd() { addFolder(); setTimeout(focusDraft, 0); },
     npdel(el) { NP.folders.splice(+el.dataset.id, 1); },

@@ -266,7 +266,7 @@
     const label = { overview: 'Overview', activity: 'Activity', agents: `Agents <span class="faint">${live} live</span>`, auditor: `Auditor <span class="faint">${rounds == null ? '' : plural(rounds, 'round')}</span>` };
     const tabs = `<div class="bar pg-tabs" role="tablist">${TABS.map((k) => `<button class="pill ${tab === k ? 'on' : ''}" role="tab" aria-selected="${tab === k}" data-act="pgtab" data-id="${k}" data-testid="vt-track-tab-${k}">${label[k]}</button>`).join('')}</div>`;
     return `<div class="crumb"><a href="#/">Home</a> / ${p.id ? `<a href="#/project/${encodeURIComponent(p.id)}">${esc(p.name)}</a>` : '<span class="faint">no project</span>'} / <span>${esc(t.title)}</span></div>
-      <div class="pg-titlerow"><h1>${esc(t.title)}</h1>${mode}</div>
+      <div class="pg-titlerow">${VT.isRenaming('track', t.id, 'title') ? `<h1 class="editing">${VT.rnInput('h1')}</h1>` : `<h1 data-rename="track:${encodeURIComponent(t.id)}:title" title="double-click to rename">${esc(t.title)}</h1>`}${mode}</div>
       <p class="sub pg-tsub">${sub}</p>${t.purpose ? `<p class="pg-purpose">${esc(t.purpose)}</p>` : ''}${callout}${tabs}`;
   }
   // ?tab=sessions (links written before r3) opens Agents.
