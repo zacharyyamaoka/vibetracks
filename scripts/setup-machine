@@ -1,0 +1,616 @@
+#!/usr/bin/env python3
+"""Set this machine up as a Vibe Tracks worker, or bring it up to date. Idempotent: rerun it after every git pull.
+
+    python3 ~/vibetracks/scripts/setup-machine --host HOST [--share-url URL] [--share-dir ~/vibetracks-share]
+        [--mirror KEY=PATH ...] [--poke-url URL] [--no-autostart] [--install-hook] [--dry-run] [--python PATH]
+
+Windows (Git Bash): ``PYTHONIOENCODING=utf-8 /c/Users/BAM/miniconda3/python ~/vibetracks/scripts/setup-machine ...``
+
+Two repos, like Obsidian and a vault: this one is the app (public code); the share
+(``zacharyyamaoka/vibetracks-share``, private) is the database, small synced files with one folder per machine.
+
+Every step prints one line, ``✓ <step>: <what happened>`` or ``· <step>: already done``, and the run ends with a
+summary to paste back to Zach:
+
+1. venv + install: ``~/.vibetracks/venv``, then ``pip install -e <this clone>`` (editable, so ``git pull`` here updates
+   the code). WHY a venv under the home folder: on Windows inside Claude Desktop (an MSIX app) ``pip --user`` lands in
+   a virtualized %APPDATA% that Task Scheduler cannot see. ``--python PATH`` uses that interpreter instead (tests,
+   unusual layouts); this run puts the clone first on its PYTHONPATH, autostart and the hook do not on Windows.
+2. share: clone ``--share-url`` into ``--share-dir``, or check an existing clone's origin and credentials.
+3. config: ``sync init`` into ``~/.vibetracks/sync.json``; an existing config is kept unless the arguments change it.
+4. round: one ``sync --once``; fails unless this host's folder has reached the share's origin.
+5. autostart: Task Scheduler (Windows) or a systemd user unit (Linux) running the sync loop; elsewhere it prints the
+   command to run at login.
+6. hook: ``sync hook-config`` (``~/.vibetracks/remote.json`` and the launcher ``~/.vibetracks/hook``), then the shared
+   hook line in ``~/.claude/settings.json``, only with ``--install-hook`` because that file is shared with Zach's other
+   machines through his vault.
+
+``--dry-run`` prints every command it would run and changes nothing. Exit 0 when everything is done or only a
+NEEDS ZACH item is left; 1 when a step failed.
+"""
+
+from __future__ import annotations
+
+import argparse
+import json
+import os
+import re
+import shlex
+import shutil
+import subprocess
+import sys
+import tempfile
+import time
+from pathlib import Path, PureWindowsPath
+from typing import Any
+
+if sys.version_info < (3, 11):
+    sys.exit(f"setup-machine needs Python 3.11 or newer, not {sys.version.split()[0]}")
+
+ROOT = Path(__file__).resolve().parents[1]
+SHARE_URL = "https://github.com/zacharyyamaoka/vibetracks-share"
+SYNC = "vibetracks.remote.sync"
+TASK_NAME = "Vibe Tracks sync"
+UNIT_NAME = "vibetracks-sync.service"
+HOOK_EVENTS = ("UserPromptSubmit", "Stop", "SessionEnd")
+#: A copy of ``vibetracks.remote.sync.HOOK_LINE`` (tests/test_remote_setup.py pins them equal). WHY a copy: this
+#: script starts on the base python before the venv exists, and importing the vibetracks package needs PyYAML.
+HOOK_LINE = '[ ! -x "$HOME/.vibetracks/hook" ] || exec "$HOME/.vibetracks/hook"'
+#: ``vibetracks/remote/share.py``'s NAME, checked here so a bad name fails before anything is cloned.
+NAME = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]*$")
+COMMAND_TIMEOUT_S = 300
+PIP_TIMEOUT_S = 900
+START_WAIT_S = 10.0
+NEEDS_HOOK = ("add the hook line to the shared settings.json (it is shared with his other machines through his vault; "
+              "the line is a no-op on machines without ~/.vibetracks/hook). "
+              "Rerun with --install-hook once he says yes.")
+SIGN_IN = ("git has no GitHub credentials for the share on this machine. On Windows: sign into GitHub Desktop "
+           "(File > Options > Accounts) with the account that can see zacharyyamaoka/vibetracks-share; elsewhere: set "
+           "up git credentials for github.com. Then rerun this command.")
+#: What git says when it cannot authenticate (GitHub answers "Repository not found" for a private repo without them).
+AUTH_FAILURES = ("authentication failed", "could not read username", "terminal prompts disabled",
+                 "repository not found", "permission denied", "403", "401")
+UNIT = """[Unit]
+Description=Vibe Tracks sync
+
+[Service]
+{environment}ExecStart={command}
+Restart=always
+RestartSec=30
+
+[Install]
+WantedBy=default.target
+"""
+
+
+class StepFailed(RuntimeError):
+    def __init__(self, step: str, message: str) -> None:
+        super().__init__(message)
+        self.step = step
+
+
+def detect_platform() -> str:
+    """'windows', 'linux', 'macos' or sys.platform. A function so a test can force it (the Windows dry-run plan)."""
+
+    if sys.platform.startswith("win") or sys.platform == "cygwin":
+        return "windows"
+    if sys.platform == "darwin":
+        return "macos"
+    return "linux" if sys.platform.startswith("linux") else sys.platform
+
+
+def posix(path: str | os.PathLike[str]) -> str:
+    return Path(path).as_posix()
+
+
+def tail(result: subprocess.CompletedProcess) -> str:
+    lines = (result.stderr.strip() or result.stdout.strip()).splitlines()
+    return " / ".join(lines[-3:]) or f"exit {result.returncode}"
+
+
+def done(step: str, what: str) -> None:
+    print(f"✓ {step}: {what}", flush=True)
+
+
+def already(step: str, what: str = "already done") -> None:
+    print(f"· {step}: {what}", flush=True)
+
+
+def planned(step: str, what: str) -> None:
+    print(f"→ {step}: {what}", flush=True)
+
+
+def same_url(first: str, second: str) -> bool:
+    def normal(url: str) -> str:
+        url = url.strip().rstrip("/").removesuffix(".git")
+        if "://" in url or url.startswith("git@"):
+            return url.lower()  # WHY lower: GitHub owner and repo names are case-insensitive
+        return Path(url).expanduser().resolve().as_posix()
+
+    return normal(first) == normal(second)
+
+
+def read_json(path: Path) -> Any:
+    try:
+        return json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return None
+
+
+def write_atomic(path: Path, text: str) -> None:
+    """Write through a temp file in the same folder and ``os.replace``, keeping an existing file's mode."""
+
+    path.parent.mkdir(parents=True, exist_ok=True)
+    handle, temp = tempfile.mkstemp(dir=path.parent, prefix=f".{path.name}.", suffix=".tmp")
+    try:
+        with os.fdopen(handle, "w", encoding="utf-8", newline="") as out:
+            out.write(text)
+        if path.exists():
+            shutil.copymode(path, temp)
+        os.replace(temp, path)
+    except BaseException:
+        Path(temp).unlink(missing_ok=True)
+        raise
+
+
+def json_indent(text: str) -> str | int:
+    """The indent an existing JSON file uses (its first indented line), so a rewrite keeps the file's look."""
+
+    for line in text.splitlines()[1:]:
+        stripped = line.lstrip(" \t")
+        if stripped and len(stripped) < len(line):
+            return line[:len(line) - len(stripped)]
+    return 2
+
+
+def has_hook_line(settings: Any, event: str) -> bool:
+    hooks = settings.get("hooks") if isinstance(settings, dict) else None
+    groups = hooks.get(event) if isinstance(hooks, dict) else None
+    for group in groups if isinstance(groups, list) else []:
+        for hook in group.get("hooks", []) if isinstance(group, dict) else []:
+            if isinstance(hook, dict) and hook.get("command") == HOOK_LINE:
+                return True
+    return False
+
+
+def parse_mirror(item: str) -> tuple[str, str]:
+    key, sep, path = item.partition("=")
+    if not sep or not NAME.match(key) or not path:
+        raise StepFailed("config", f"--mirror {item!r}: expected KEY=PATH with KEY like kinsim_events")
+    # WHY resolve here: init runs with the home folder as its cwd, and a relative PATH means the agent's cwd.
+    return key, Path(path).expanduser().resolve().as_posix()
+
+
+class Setup:
+    def __init__(self, args: argparse.Namespace, system: str) -> None:
+        self.args = args
+        self.system = system
+        self.dry = args.dry_run
+        self.home = Path.home()
+        self.state = self.home / ".vibetracks"
+        self.config = self.state / "sync.json"
+        self.log = self.state / "sync.log"
+        self.share = Path(args.share_dir).expanduser().resolve()
+        # WHY GIT_TERMINAL_PROMPT=0: an agent's shell has no terminal to answer a credential prompt; git must fail.
+        self.env = {**os.environ, "GIT_TERMINAL_PROMPT": "0"}
+        self.venv = self.state / "venv"
+        if args.python:
+            # WHY abspath and not resolve: a venv's python is a symlink to the base one, and resolving leaves the venv.
+            python = shutil.which(args.python) if os.sep not in args.python and "/" not in args.python else None
+            self.python = Path(os.path.abspath(Path(python or args.python).expanduser()))
+            self.env["PYTHONPATH"] = os.pathsep.join(p for p in (str(ROOT), os.environ.get("PYTHONPATH", "")) if p)
+        else:
+            self.python = self.venv / ("Scripts/python.exe" if system == "windows" else "bin/python")
+        self.summary: dict[str, str] = {"host": args.host, "share": posix(self.share), "last push": "none yet",
+                                        "autostart": "not set up", "hook": "not checked"}
+        self.needs: list[str] = []
+
+    # ----------------------------------------------------------------------------------------- commands
+
+    def show(self, argv: list[Any]) -> str:
+        argv = [str(part) for part in argv]
+        return subprocess.list2cmdline(argv) if self.system == "windows" else shlex.join(argv)
+
+    def run(self, argv: list[Any], step: str, *, check: bool = True,
+            timeout: float = COMMAND_TIMEOUT_S) -> subprocess.CompletedProcess:
+        """Run a command now (read-only probes, and changes outside --dry-run); ``check`` raises StepFailed."""
+
+        argv = [str(part) for part in argv]
+        try:
+            # WHY cwd = home and stdin closed: a python -c/-m must not import from the agent's cwd, and nothing may
+            # wait on input that no one will type.
+            result = subprocess.run(argv, capture_output=True, text=True, encoding="utf-8", errors="replace",
+                                    env=self.env, cwd=self.home, stdin=subprocess.DEVNULL, timeout=timeout)
+        except (OSError, subprocess.SubprocessError) as error:
+            if check:
+                raise StepFailed(step, f"{self.show(argv)}: {error}") from error
+            return subprocess.CompletedProcess(argv, 127, "", str(error))
+        if check and result.returncode != 0:
+            raise StepFailed(step, f"{self.show(argv)} failed: {tail(result)}")
+        return result
+
+    def change(self, argv: list[Any], step: str, **kwargs: Any) -> subprocess.CompletedProcess | None:
+        """A command that changes something: under --dry-run it is printed, not run, and returns None."""
+
+        if self.dry:
+            print(f"    would run: {self.show(argv)}", flush=True)
+            return None
+        return self.run(argv, step, **kwargs)
+
+    def write(self, path: Path, text: str) -> None:
+        if self.dry:
+            print(f"    would write: {posix(path)}", flush=True)
+            return
+        write_atomic(path, text)
+
+    def sync(self, *args: Any) -> list[Any]:
+        return [self.python, "-m", SYNC, *args]
+
+    def git(self, *args: Any) -> list[Any]:
+        return ["git", "-C", self.share, *args]
+
+    # ----------------------------------------------------------------------------------------- steps
+
+    def step_venv(self) -> None:
+        if self.args.python:
+            already("venv", f"skipped (--python {posix(self.python)})")
+            self.run([self.python, "-c", "import vibetracks.remote.sync"], "install")
+            already("install", "skipped (--python; this clone is first on its PYTHONPATH for this run)")
+            return
+        if self.python.exists():
+            already("venv", f"already done ({posix(self.venv)})")
+        else:
+            self.change([sys.executable, "-m", "venv", self.venv], "venv")
+            (planned if self.dry else done)("venv", f"created {posix(self.venv)} with python {sys.version.split()[0]}")
+        if self.python.exists() and self.installed_here():
+            already("install", f"already done (editable from {posix(ROOT)})")
+            return
+        self.change([self.python, "-m", "pip", "install", "-q", "-e", ROOT], "install", timeout=PIP_TIMEOUT_S)
+        if self.dry:
+            planned("install", f"pip install -e {posix(ROOT)}")
+            return
+        if not self.installed_here():
+            raise StepFailed("install", f"{posix(self.python)} still does not import vibetracks from {posix(ROOT)}")
+        done("install", f"pip install -e {posix(ROOT)} (git pull in this clone now updates the code)")
+
+    def installed_here(self) -> bool:
+        """``pip show`` says the editable install is this clone, and the venv's python imports it from here."""
+
+        shown = self.run([self.python, "-m", "pip", "show", "vibetracks"], "install", check=False)
+        location = next((line.partition(":")[2].strip() for line in shown.stdout.splitlines()
+                         if line.startswith("Editable project location:")), "")
+        if not location or Path(location).resolve() != ROOT:
+            return False
+        probe = self.run([self.python, "-c", "import pathlib, vibetracks; "
+                                             "print(pathlib.Path(vibetracks.__file__).resolve().parents[1])"],
+                         "install", check=False)
+        return probe.returncode == 0 and Path(probe.stdout.strip()).resolve() == ROOT
+
+    def step_share(self) -> None:
+        url = self.args.share_url
+        if (self.share / ".git").exists():
+            origin = self.run(self.git("remote", "get-url", "origin"), "share", check=False)
+            have = origin.stdout.strip()
+            if origin.returncode != 0 or not same_url(have, url):
+                raise StepFailed("share", f"{posix(self.share)} is a clone of {have or '(no origin)'}, not {url}; "
+                                          "pass --share-url with its URL if that clone is right, "
+                                          "or another --share-dir")
+            probe = self.run(self.git("ls-remote", "--heads", "origin"), "share", check=False)
+            if probe.returncode != 0:
+                self.no_access(probe)
+            already("share", f"already cloned ({posix(self.share)}, origin {have})")
+            return
+        if self.share.exists() and any(self.share.iterdir()):
+            raise StepFailed("share", f"{posix(self.share)} exists and is not a git clone; move it or pass another "
+                                      "--share-dir")
+        result = self.change(["git", "clone", "-q", url, self.share], "share", check=False)
+        if result is None:
+            planned("share", f"clone {url} into {posix(self.share)}")
+            return
+        if result.returncode != 0:
+            self.no_access(result)
+        done("share", f"cloned {url} into {posix(self.share)}")
+
+    def no_access(self, result: subprocess.CompletedProcess) -> None:
+        detail = tail(result)
+        if any(sign in detail.lower() for sign in AUTH_FAILURES):
+            print(f"NEEDS ZACH: {SIGN_IN}", flush=True)
+            self.needs.append(SIGN_IN)
+            raise StepFailed("share", f"git cannot reach {self.args.share_url}: {detail}")
+        raise StepFailed("share", f"git cannot reach {self.args.share_url} (no network?): {detail}")
+
+    def step_config(self) -> None:
+        mirrors = [parse_mirror(item) for item in self.args.mirror]
+        existing = read_json(self.config) if self.config.exists() else None
+        if self.config.exists() and not isinstance(existing, dict):
+            raise StepFailed("config", f"{posix(self.config)} is not a JSON object; move it aside and rerun")
+        changed: list[str] = []
+        if existing is not None:
+            want = {"host": self.args.host, "share": posix(self.share),
+                    "mirror": [{"key": key, "path": path} for key, path in mirrors] if mirrors
+                    else existing.get("mirror", []),
+                    "poke_url": self.args.poke_url or existing.get("poke_url")}
+            changed = [key for key, value in want.items()
+                       if existing.get(key, [] if key == "mirror" else None) != value]
+            if not changed:
+                already("config", f"already done ({posix(self.config)})")
+                return
+        argv = self.sync("init", "--share", self.share, "--host", self.args.host, "--config", self.config)
+        for key, path in mirrors:
+            argv += ["--mirror", f"{key}={path}"]
+        if self.args.poke_url:
+            argv += ["--poke-url", self.args.poke_url]
+        what = f"rewrote {posix(self.config)} ({', '.join(changed)} changed)" if existing is not None \
+            else f"wrote {posix(self.config)} (host {self.args.host}, {len(mirrors)} mirrored)"
+        if self.change(argv, "config") is None:
+            planned("config", what)
+            return
+        if existing is not None:
+            # WHY merge back: init writes only what its flags say; mirrors, the poke URL, intervals and any hand-made
+            # keys ("include" globs, receive_interval_s) that this run did not change must survive the rewrite.
+            fresh = read_json(self.config)
+            merged = dict(fresh)
+            for key, value in existing.items():
+                replaced = (key == "mirror" and mirrors) or (key == "poke_url" and self.args.poke_url)
+                if key in ("host", "share") or replaced:
+                    continue
+                merged[key] = value
+            if merged != fresh:
+                write_atomic(self.config, json.dumps(merged, indent=1) + "\n")
+        done("config", what)
+
+    def step_round(self) -> None:
+        argv = self.sync("--config", self.config, "--once")
+        if self.dry:
+            self.change(argv, "round")
+            planned("round", "one sync round, then check this host reached the share's origin")
+            return
+        result = self.run(argv, "round", check=False)
+        outcome = None
+        for line in reversed(result.stdout.splitlines()):
+            try:
+                outcome = json.loads(line)
+                break
+            except ValueError:
+                continue
+        if result.returncode != 0 or not isinstance(outcome, dict) or outcome.get("error"):
+            error = outcome.get("error") if isinstance(outcome, dict) else None
+            raise StepFailed("round", f"sync --once failed: {error or tail(result)}")
+        upstream = self.run(self.git("rev-parse", "--abbrev-ref", "--symbolic-full-name", "@{u}"), "round",
+                            check=False).stdout.strip()
+        if not upstream:
+            raise StepFailed("round", "the round pushed nothing: the share clone has no upstream branch")
+        ahead = self.run(self.git("rev-list", "--count", "@{u}..HEAD"), "round").stdout.strip()
+        reached = self.run(self.git("log", "-1", "--format=%h", "@{u}", "--", f"hosts/{self.args.host}"),
+                           "round").stdout.strip()
+        if ahead != "0" or not reached:
+            raise StepFailed("round", f"hosts/{self.args.host} has not reached {upstream} "
+                                      f"({ahead} local commits not pushed)")
+        line = self.run(self.git("log", "-1", "--format=%h %an %cr %s", "@{u}"), "round").stdout.strip()
+        self.summary["last push"] = f"{upstream} {line}"
+        if outcome.get("pushed"):
+            done("round", f"pushed: {upstream} {line}")
+        else:
+            already("round", f"nothing new to push; {upstream} is {line}")
+
+    def step_autostart(self) -> None:
+        if self.args.no_autostart:
+            already("autostart", "skipped (--no-autostart)")
+            self.summary["autostart"] = "off (--no-autostart)"
+            return
+        if self.system == "windows":
+            self.autostart_windows()
+        elif self.system == "linux":
+            self.autostart_linux()
+        else:
+            command = self.show(self.sync("--config", posix(self.config), "--log", posix(self.log)))
+            print(f"! autostart: not automated on {self.system}; start this at login yourself (e.g. a launchd "
+                  f"agent): {command}", flush=True)
+            self.summary["autostart"] = f"not set up ({self.system}: no automation; see the autostart line)"
+
+    def autostart_windows(self) -> None:
+        pythonw = self.python.with_name("pythonw.exe")
+        if self.python.exists() and not pythonw.exists():
+            pythonw = self.python
+        # WHY an argument list for schtasks: no shell parses it, so Git Bash's MSYS rewriting of /Create never happens.
+        task = subprocess.list2cmdline([str(PureWindowsPath(pythonw)), "-m", SYNC, "--config", posix(self.config),
+                                        "--log", posix(self.log)])
+        query = ["schtasks", "/Query", "/TN", TASK_NAME, "/V", "/FO", "LIST"]
+        current = self.task_fields(self.run(query, "autostart", check=False))
+        if current.get("Task To Run") == task and current.get("Status") == "Running":
+            already("autostart", f"already done (Task Scheduler \"{TASK_NAME}\" is running)")
+            self.summary["autostart"] = f"running (Task Scheduler \"{TASK_NAME}\", at logon)"
+            return
+        if current.get("Task To Run") != task:
+            self.change(["schtasks", "/Create", "/SC", "ONLOGON", "/TN", TASK_NAME, "/TR", task, "/F"], "autostart")
+        self.change(["schtasks", "/Run", "/TN", TASK_NAME], "autostart")
+        if self.dry:
+            planned("autostart", f"Task Scheduler \"{TASK_NAME}\" at logon, started now")
+            return
+        status = ""
+        deadline = time.monotonic() + START_WAIT_S
+        while time.monotonic() < deadline:
+            status = self.task_fields(self.run(query, "autostart", check=False)).get("Status", "")
+            if status == "Running":
+                break
+            time.sleep(1.0)
+        if status != "Running":
+            raise StepFailed("autostart", f"Task Scheduler \"{TASK_NAME}\" is {status or 'missing'}, not Running; "
+                                          f"read {posix(self.log)}")
+        note = " (it has no PYTHONPATH: --python must import vibetracks by itself)" if self.args.python else ""
+        done("autostart", f"Task Scheduler \"{TASK_NAME}\" at logon, running now{note}")
+        self.summary["autostart"] = f"running (Task Scheduler \"{TASK_NAME}\", at logon)"
+
+    @staticmethod
+    def task_fields(result: subprocess.CompletedProcess) -> dict[str, str]:
+        if result.returncode != 0:
+            return {}
+        fields: dict[str, str] = {}
+        for line in result.stdout.splitlines():
+            key, sep, value = line.partition(":")
+            if sep and key.strip() and key.strip() not in fields:
+                fields[key.strip()] = value.strip()
+        return fields
+
+    def autostart_linux(self) -> None:
+        unit = self.home / ".config" / "systemd" / "user" / UNIT_NAME
+        parts = [str(self.python), "-m", SYNC, "--config", posix(self.config), "--log", posix(self.log)]
+        command = " ".join(f'"{part}"' if " " in part else part for part in parts)
+        environment = f"Environment=PYTHONPATH={ROOT}\n" if self.args.python else ""
+        text = UNIT.format(environment=environment, command=command)
+        current = unit.read_text(encoding="utf-8") if unit.is_file() else None
+        systemctl = ["systemctl", "--user"]
+        active = self.run([*systemctl, "is-active", UNIT_NAME], "autostart", check=False).stdout.strip()
+        enabled = self.run([*systemctl, "is-enabled", UNIT_NAME], "autostart", check=False).stdout.strip()
+        if current == text and active == "active" and enabled == "enabled":
+            already("autostart", f"already done (systemd user unit {UNIT_NAME} is active)")
+            self.summary["autostart"] = f"running (systemd user unit {UNIT_NAME})"
+            return
+        if current != text:
+            self.write(unit, text)
+        self.change([*systemctl, "daemon-reload"], "autostart")
+        self.change([*systemctl, "enable", "--now", UNIT_NAME], "autostart")
+        if current is not None and current != text and active == "active":
+            self.change([*systemctl, "restart", UNIT_NAME], "autostart")  # WHY: enable --now leaves the old one running
+        if self.dry:
+            planned("autostart", f"systemd user unit {UNIT_NAME}, enabled and started")
+            return
+        deadline = time.monotonic() + START_WAIT_S
+        while time.monotonic() < deadline:
+            active = self.run([*systemctl, "is-active", UNIT_NAME], "autostart", check=False).stdout.strip()
+            if active == "active":
+                break
+            time.sleep(1.0)
+        if active != "active":
+            raise StepFailed("autostart", f"{UNIT_NAME} is {active or 'unknown'}, not active; read "
+                                          f"journalctl --user -u {UNIT_NAME} and {posix(self.log)}")
+        done("autostart", f"systemd user unit {posix(unit)}, enabled and running")
+        self.summary["autostart"] = f"running (systemd user unit {UNIT_NAME})"
+
+    def step_hook(self) -> None:
+        files = [self.state / "remote.json", self.state / "hook"]
+        before = [path.read_bytes() if path.is_file() else None for path in files]
+        argv = self.sync("hook-config", "--share", self.share, "--host", self.args.host)
+        if self.change(argv, "hook-config") is None:
+            planned("hook-config", f"write {posix(files[0])} and the launcher {posix(files[1])}")
+        elif [path.read_bytes() if path.is_file() else None for path in files] == before:
+            already("hook-config", f"already done ({posix(files[0])}, {posix(files[1])})")
+        else:
+            done("hook-config", f"wrote {posix(files[0])} and the launcher {posix(files[1])}")
+        settings_path = self.home / ".claude" / "settings.json"
+        raw = settings_path.read_bytes() if settings_path.is_file() else None
+        try:
+            settings = json.loads(raw.decode("utf-8")) if raw is not None else {}
+        except ValueError as error:
+            raise StepFailed("hook", f"{posix(settings_path)} is not valid JSON ({error}); not touching it")
+        if not isinstance(settings, dict):
+            raise StepFailed("hook", f"{posix(settings_path)} is not a JSON object; not touching it")
+        missing = [event for event in HOOK_EVENTS if not has_hook_line(settings, event)]
+        if not missing:
+            already("hook", "already in settings.json")
+            self.summary["hook"] = "in settings.json; this machine's launcher switches it on here"
+            return
+        if not self.args.install_hook:
+            print(f"NEEDS ZACH: {NEEDS_HOOK}", flush=True)
+            print(f"    the line: {HOOK_LINE}", flush=True)
+            self.needs.append(NEEDS_HOOK)
+            self.summary["hook"] = f"launcher written; the line is not in settings.json ({', '.join(missing)})"
+            return
+        self.install_hook(settings_path, settings, raw, missing)
+
+    def install_hook(self, settings_path: Path, settings: dict[str, Any], raw: bytes | None,
+                     missing: list[str]) -> None:
+        # WHY edit the link's target: Zach's settings.json is a symlink into his vault, and replacing the link with a
+        # file would quietly fork this machine's settings from every other machine's.
+        target = Path(os.path.realpath(settings_path))
+        backup = self.state / f"settings.json.bak-{time.strftime('%Y%m%d-%H%M%S')}"
+        hooks = settings.setdefault("hooks", {})
+        if not isinstance(hooks, dict) or any(not isinstance(hooks.get(event, []), list) for event in missing):
+            raise StepFailed("hook", f"{posix(target)}: 'hooks' is not shaped like Claude Code settings; "
+                                     "not touching it")
+        if self.dry:
+            if raw is not None:
+                print(f"    would copy: {posix(target)} -> {posix(backup)}", flush=True)
+            print(f"    would add the hook line to {', '.join(missing)} in {posix(target)}", flush=True)
+            planned("hook", "add the hook line to settings.json")
+            return
+        if raw is not None:
+            self.state.mkdir(parents=True, exist_ok=True)
+            backup.write_bytes(raw)
+        for event in missing:
+            hooks.setdefault(event, []).append({"hooks": [{"type": "command", "command": HOOK_LINE}]})
+        original = raw.decode("utf-8") if raw is not None else ""
+        text = json.dumps(settings, indent=json_indent(original), ensure_ascii=False)
+        text += "\n" if raw is None or original.endswith("\n") else ""
+        if "\r\n" in original:
+            text = text.replace("\n", "\r\n")  # WHY: core.autocrlf=true checkouts on Windows keep CRLF
+        write_atomic(target, text)
+        via = f" via the link {posix(settings_path)}" if settings_path.is_symlink() else ""
+        saved = f"; backup {posix(backup)}" if raw is not None else ""
+        done("hook", f"added the hook line to {', '.join(missing)} in {posix(target)}{via}{saved}")
+        self.summary["hook"] = "in settings.json (added by this run)"
+
+    # ----------------------------------------------------------------------------------------- the run
+
+    def run_all(self) -> int:
+        if not NAME.match(self.args.host):
+            print(f"✗ host: {self.args.host!r} must be letters, digits, '.', '_' or '-' (e.g. win-a)", flush=True)
+            return 2
+        failure: StepFailed | None = None
+        for step in (self.step_venv, self.step_share, self.step_config, self.step_round, self.step_autostart,
+                     self.step_hook):
+            try:
+                step()
+            except StepFailed as error:
+                print(f"✗ {error.step}: {error}", flush=True)
+                failure = error
+                break
+            except OSError as error:
+                print(f"✗ {step.__name__.removeprefix('step_')}: {error}", flush=True)
+                failure = StepFailed(step.__name__.removeprefix("step_"), str(error))
+                break
+        print()
+        print("Summary for Zach" + (" (dry run: nothing was changed)" if self.dry else "") + ":")
+        for key, value in self.summary.items():
+            print(f"  {key + ':':<11}{value}")
+        if failure is not None:
+            print(f"  {'failed:':<11}{failure.step}: {failure}")
+        for need in self.needs:
+            print(f"  NEEDS ZACH: {need}")
+        if failure is None and not self.needs:
+            print("  nothing needs Zach")
+        return 1 if failure is not None else 0
+
+
+def parse_args(argv: list[str] | None) -> argparse.Namespace:
+    parser = argparse.ArgumentParser(prog="setup-machine",
+                                     description="Set this machine up as a Vibe Tracks worker (idempotent).")
+    parser.add_argument("--host", required=True, help="this machine's name in the share: the lower-case hostname, or "
+                                                      "the name Zach gives (e.g. win-a)")
+    parser.add_argument("--share-url", default=SHARE_URL, help=f"the share to clone (default {SHARE_URL})")
+    parser.add_argument("--share-dir", default="~/vibetracks-share", help="where the share clone lives "
+                                                                         "(default ~/vibetracks-share)")
+    parser.add_argument("--mirror", action="append", default=[], metavar="KEY=PATH",
+                        help="a vibetracks/sources.py key and the file or folder to mirror under it; repeatable; "
+                             "replaces the config's mirror list")
+    parser.add_argument("--poke-url", help="the hub's /api/poke URL, POSTed after each push")
+    parser.add_argument("--no-autostart", action="store_true", help="do not set up Task Scheduler / systemd")
+    parser.add_argument("--install-hook", action="store_true",
+                        help="add the shared hook line to ~/.claude/settings.json (ask Zach first)")
+    parser.add_argument("--dry-run", action="store_true", help="print every command it would run; change nothing")
+    parser.add_argument("--python", help="use this interpreter instead of ~/.vibetracks/venv (tests, unusual layouts)")
+    return parser.parse_args(argv)
+
+
+def main(argv: list[str] | None = None) -> int:
+    try:
+        # WHY: a cp1252 console without PYTHONIOENCODING=utf-8 must print '?' for ✓, not crash the setup.
+        sys.stdout.reconfigure(errors="replace")
+    except (AttributeError, ValueError):
+        pass
+    args = parse_args(argv)
+    return Setup(args, detect_platform()).run_all()
+
+
+if __name__ == "__main__":
+    sys.exit(main())

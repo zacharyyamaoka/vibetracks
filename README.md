@@ -26,6 +26,31 @@ dispatch agent coordinate: the agent lays out features and dependencies, the
 human rewires edges, flips statuses, and drops feedback — all through the same
 files.
 
+## Set up this machine (agents: start here)
+
+Two repos, like Obsidian and a vault: **this repo** (`zacharyyamaoka/vibetracks`) is the app, public code;
+**`zacharyyamaoka/vibetracks-share`** is the database, private, small synced files with one folder per machine. One
+command installs the app, clones the database and starts syncing. If `~/vibetracks` is not a clone of this repo yet:
+
+```bash
+git clone https://github.com/zacharyyamaoka/vibetracks ~/vibetracks
+```
+
+Then, with the lower-case hostname or the name Zach gives (e.g. `win-a`). Windows (Git Bash), then Linux/macOS:
+
+```bash
+PYTHONIOENCODING=utf-8 /c/Users/BAM/miniconda3/python ~/vibetracks/scripts/setup-machine --host win-a
+```
+
+```bash
+python3 ~/vibetracks/scripts/setup-machine --host <name>
+```
+
+Each step prints `✓` (done now) or `·` (already done); a summary to paste back to Zach ends the run. It stops at
+one question, the shared hook line in `~/.claude/settings.json`: **ask Zach before rerunning with `--install-hook`**.
+To update later: `git -C ~/vibetracks pull`, then the same command again. Details and the manual fallback:
+[`docs/remote/WORKER_SETUP.md`](docs/remote/WORKER_SETUP.md); how it works: [`docs/remote/DESIGN.md`](docs/remote/DESIGN.md).
+
 ## Quick start
 
 ```bash

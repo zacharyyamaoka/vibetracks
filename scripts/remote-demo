@@ -8,12 +8,14 @@ Builds, under --dir:
 - ``origin.git``: a bare repo standing in for GitHub, and its clones ``hub/``, ``win-a/``, ``win-b/``.
 - ``win-a-local/bam_curriculum/``: a copy (copy2, so the real mtimes) of the kinsim loop's ``status.json``,
   ``loop_events.jsonl`` and ``runs.jsonl`` from ~/.local/share/bam_curriculum (read only). win-a's sync loop mirrors
-  them as ``kinsim_status``, ``kinsim_events``, ``kinsim_runs`` (interval 2 s, heartbeat 10 s).
+  them as ``kinsim_status``, ``kinsim_events``, ``kinsim_runs`` (interval 2 s, heartbeat 10 s), and pokes the hub's
+  ``/api/poke`` after every push.
 - win-b: one sync of a tiny file under a key no track reads, dated 3 h ago, then nothing: an offline machine.
 - a session card on win-a for the kinsim track whose link is ``session_DEMO_not_a_real_link`` and which carries
   ``"demo": true``, so the app labels it a demo link.
-- the hub on --port over this repo's real ``workspace/`` with ``--data-home <dir>/data-home``: every other track reads
-  this workstation's real files; kinsim reads the copies that came from win-a.
+- the hub on --port over this repo's real ``workspace/`` with ``--data-home <dir>/data-home`` and its default adaptive
+  checks (5 s for 2 min after a change, else 60 s): every other track reads this workstation's real files; kinsim
+  reads the copies that came from win-a, which reach the hub through win-a's poke.
 
 Every --tick-every seconds a simulated win-a agent appends one line to win-a's loop_events.jsonl (the last real event,
 its timestamp set to now, plus ``"demo_tick": n``) and touches its session card. Ctrl-C or --duration stops every
@@ -163,10 +165,11 @@ def main(argv: list[str] | None = None) -> int:
     notes.append(f"win-a: seeded {local} from {KINSIM_HOME} (copy2)")
 
     win_a_cfg = {"host": "win-a", "share": str(clones["win-a"]), "interval_s": 2, "heartbeat_s": 10,
+                 "poke_url": f"http://127.0.0.1:{args.port}/api/poke",
                  "mirror": [{"key": key, "path": str(local / name)} for key, name in KINSIM_FILES.items()]}
     (root / "win-a.json").write_text(json.dumps(win_a_cfg, indent=1) + "\n")
     write_card(root, clones["win-a"], "UserPromptSubmit")
-    first = sync.sync_once(win_a_cfg)
+    first = sync.sync_once({**win_a_cfg, "poke_url": None})  # the hub is not up yet; it reads this at startup
     if first["error"]:
         sys.exit(f"remote-demo: win-a's first sync failed: {first['error']}")
     notes.append(f"win-a: first sync pushed {len(first['copied'])} files and the demo session card")
@@ -204,7 +207,7 @@ def main(argv: list[str] | None = None) -> int:
         hub = subprocess.Popen(
             [sys.executable, "-m", "vibetracks.remote.hub", "--share", str(clones["hub"]),
              "--workspace", str(REPO / "workspace"), "--data-home", str(root / "data-home"),
-             "--port", str(args.port), "--pull-interval", "2"],
+             "--port", str(args.port)],
             cwd=REPO, env=env, stdout=subprocess.PIPE, text=True)
         children.append(hub)
         line = hub.stdout.readline().strip()

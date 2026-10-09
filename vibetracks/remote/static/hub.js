@@ -1,12 +1,17 @@
 // Vibe Tracks hub app: three hash routes (#/ tracks, #/track/<id>, #/machines) over /api/state and /api/track/<id>,
 // kept live by Server-Sent Events (/api/events) with a 10 s poll as the fallback. Plain DOM, no build step.
+// Refresh (the header button, or the r key) POSTs /api/refresh: the hub checks the share and rebuilds now.
 // Truthful rendering: titles and labels go in as textContent, never trimmed; an ellipsis is CSS only, with the full
 // text in the title attribute.
 "use strict";
 
 const view = document.getElementById("view");
 const liveBadge = document.getElementById("live");
+const refreshButton = document.getElementById("refresh");
+const checkedLine = document.getElementById("checked");
 const POLL_MS = 10000;
+let checking = false;
+let refreshFailed = null;
 
 let state = null;
 let detail = null;
@@ -154,7 +159,12 @@ function renderHome() {
   const parts = [`${tracks.length} ${tracks.length === 1 ? "track" : "tracks"}`];
   parts.push(`${online} of ${total} ${total === 1 ? "machine" : "machines"} online`);
   if (needing) parts.push(`${needing} ${needing === 1 ? "needs" : "need"} you`);
-  const out = [el("p", { class: "status", text: parts.join(" · ") })];
+  const status = el("p", { class: "status", text: parts.join(" · ") });
+  const agentsLive = liveAgents();
+  if (agentsLive) {
+    status.append(" · ", el("a", { href: "#/machines", text: `${agentsLive} ${agentsLive === 1 ? "agent" : "agents"} live` }));
+  }
+  const out = [status];
   out.push(...hubAlerts());
 
   if (!tracks.length) {
@@ -192,6 +202,11 @@ function renderHome() {
   lastSignatures = next;
   out.push(list);
   return out;
+}
+
+function liveAgents() {
+  // Every session card counts, with or without a track: they come per machine (hosts[].sessions).
+  return ((state && state.hosts) || []).reduce((n, h) => n + (h.sessions || []).filter((s) => s.live).length, 0);
 }
 
 function hubAlerts() {
@@ -290,9 +305,44 @@ function renderMachines() {
       main.append(el("div", { class: "row-meta", title: skip.path || "", text: `skipped ${skip.key}: ${skip.reason}` }));
     }
     if (host.error) main.append(el("div", { class: "alert", text: `error: ${host.error}` }));
+    const agents = machineAgents(host);
+    if (agents.length) main.append(el("div", { class: "m-agents" }, ...agents));
     out.push(el("div", { class: "machine" }, el("span", { class: "dot" + (bad ? " bad" : ""), title: host.status }), main));
   }
   return out;
+}
+
+function machineAgents(host) {
+  // Live first, then up to 5 recent others under a faint "Earlier" (the hub sends live + at most 10 others).
+  const cards = host.sessions || [];
+  const live = cards.filter((c) => c.live);
+  const earlier = cards.filter((c) => !c.live).slice(0, 5);
+  const out = live.map((c) => machineAgent(c, true));
+  if (earlier.length) {
+    out.push(el("div", { class: "earlier", text: "Earlier" }));
+    earlier.forEach((c) => out.push(machineAgent(c, false)));
+  }
+  return out;
+}
+
+function machineAgent(card, live) {
+  // One line: project · track (if any) · model · account · last seen; then how to reach it.
+  const what = [card.project || "no folder", card.track, card.model || "model unknown", card.account].filter(Boolean);
+  const seen = card.ended ? "ended " : live ? "seen " : "last seen ";
+  const node = el("div", { class: "m-agent" + (live ? "" : " m-agent-earlier") },
+    el("div", { class: "m-agent-line", title: card.cwd || "" }, what.join(" · "), " · ",
+      el("span", { class: "muted" }, ageSpan(card.last_seen, seen, "never seen"))));
+  if (card.url && card.demo) {
+    node.append(el("span", { class: "demo-link", title: card.url, text: "demo link" }));
+  } else if (card.url && live) {
+    node.append(el("a", { class: "talk", href: card.url, target: "_blank", rel: "noopener noreferrer" }, "Talk to agent ↗"));
+  } else if (card.url && !card.ended) {
+    // WHY still offered: a session idle for 30 min is not "live" but its Remote Control link may well still answer.
+    node.append(el("a", { class: "talk-quiet", href: card.url, target: "_blank", rel: "noopener noreferrer" }, "Talk to agent ↗"));
+  } else if (!card.url && live) {
+    node.append(el("div", { class: "agent-line faint", text: "no Remote Control link" }));
+  }
+  return node;
 }
 
 // ------------------------------------------------------------------------------------------------ routing + data
@@ -305,7 +355,17 @@ function route() {
   return { name: "home" };
 }
 
+function paintChecked() {
+  if (refreshFailed) {
+    checkedLine.replaceChildren(el("span", { class: "exception", title: refreshFailed, text: "refresh failed" }));
+    return;
+  }
+  const iso = state && state.hub && state.hub.last_check;
+  checkedLine.replaceChildren(iso ? ageSpan(iso, "checked ") : "");
+}
+
 function paint() {
+  paintChecked();
   const r = route();
   for (const tab of document.querySelectorAll("[data-tab]")) {
     const current = (r.name === "machines") === (tab.dataset.tab === "machines");
@@ -356,6 +416,30 @@ async function refresh() {
   return refreshing;
 }
 
+async function refreshNow() {
+  // The hub answers when its check (and rebuild) is done; a second press while one runs is ignored here and joined
+  // on the server.
+  if (checking) return;
+  checking = true;
+  refreshButton.disabled = true;
+  refreshButton.querySelector(".refresh-label").textContent = "Checking…";
+  try {
+    const response = await fetch("/api/refresh", {
+      method: "POST", cache: "no-store", headers: { "Content-Type": "application/json" }, body: "{}",
+    });
+    const reply = await response.json().catch(() => ({}));
+    refreshFailed = response.ok ? null : (reply.error || `HTTP ${response.status}`);
+  } catch (error) {
+    refreshFailed = "the hub did not answer";
+  } finally {
+    checking = false;
+    refreshButton.disabled = false;
+    refreshButton.querySelector(".refresh-label").textContent = "Refresh";
+  }
+  await refresh();
+  paintChecked();
+}
+
 function setLive(mode) {
   liveBadge.dataset.state = mode;
   liveBadge.textContent = mode === "live" ? "live" : mode === "reconnecting" ? "reconnecting…" : "connecting…";
@@ -381,6 +465,14 @@ function connect() {
     setLive("live");
     if (!state || event.data !== state.revision) refresh();
   });
+  source.addEventListener("check", (event) => {
+    // A check that found nothing keeps the revision; only "checked … ago" moves.
+    if (state && state.hub) {
+      state.hub.last_check = event.data || null;
+      refreshFailed = null;
+      paintChecked();
+    }
+  });
   source.addEventListener("error", () => {
     // EventSource retries by itself; the poll keeps the page current meanwhile.
     setLive("reconnecting");
@@ -393,6 +485,15 @@ window.addEventListener("hashchange", () => {
   window.scrollTo(0, 0);
   paint();
   refresh();
+});
+
+refreshButton.addEventListener("click", refreshNow);
+document.addEventListener("keydown", (event) => {
+  if (event.key !== "r" || event.metaKey || event.ctrlKey || event.altKey || event.repeat) return;
+  const target = event.target;
+  if (target && (target.isContentEditable || /^(INPUT|TEXTAREA|SELECT)$/.test(target.tagName))) return;
+  event.preventDefault();
+  refreshNow();
 });
 
 setInterval(tickAges, 1000);

@@ -1,0 +1,123 @@
+#!/usr/bin/env bash
+# Start (or reuse) the Vibe Tracks hub on this workstation and print its URL.
+#
+#   /home/bam/vibetracks/scripts/open-hub [--port 4470] [--share ~/vibetracks-share] [--open] [--stop]
+#
+# - If http://127.0.0.1:<port>/api/health answers: print the URL (and open it with --open). Nothing is started.
+# - Otherwise start the hub detached (setsid nohup) from this checkout (PYTHONPATH=<this repo>) with
+#   --workspace <repo>/workspace --data-home ~/.local/share/vibetracks/hub, log to
+#   ~/.local/state/vibetracks/hub-<port>.log, pid in ~/.local/state/vibetracks/hub-<port>.pid, wait up to 25 s
+#   for /api/health, then print the URL (and open it with --open).
+# - --stop stops only the pid in this port's pid file, and only when that process is a vibetracks.remote.hub.
+#
+# Constructive and idempotent without --stop: pressing it twice reuses the running hub.
+# Overrides: PYTHON (default python3), VIBETRACKS_HUB_DATA_HOME (the hub's --data-home), OPENER.
+# WHY /home/bam/.local/bin/open: xdg-open and gio open are blocked by the no-focus-steal hook, and the shim detaches
+# the browser so this script returns at once.
+set -euo pipefail
+
+ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+PYTHON="${PYTHON:-python3}"
+OPENER="${OPENER:-/home/bam/.local/bin/open}"
+DATA_HOME="${VIBETRACKS_HUB_DATA_HOME:-$HOME/.local/share/vibetracks/hub}"
+STATE_DIR="$HOME/.local/state/vibetracks"
+
+port=4470
+share="$HOME/vibetracks-share"
+open_url=0
+stop=0
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --port) port="${2:?--port needs a number}"; shift 2 ;;
+    --share) share="${2:?--share needs a path}"; shift 2 ;;
+    --open) open_url=1; shift ;;
+    --stop) stop=1; shift ;;
+    -h|--help) sed -n '2,17p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'; exit 0 ;;
+    *) echo "open-hub: unknown argument $1 (try --help)" >&2; exit 2 ;;
+  esac
+done
+if ! [[ "$port" =~ ^[0-9]+$ ]]; then
+  echo "open-hub: --port must be a number, not $port" >&2
+  exit 2
+fi
+
+url="http://127.0.0.1:${port}/"
+pid_file="$STATE_DIR/hub-${port}.pid"
+log_file="$STATE_DIR/hub-${port}.log"
+
+is_our_hub() {
+  local pid="$1"
+  [[ "$pid" =~ ^[0-9]+$ ]] && [[ -r "/proc/$pid/cmdline" ]] \
+    && tr '\0' ' ' < "/proc/$pid/cmdline" | grep -q 'vibetracks\.remote\.hub'
+}
+
+if [[ "$stop" == 1 ]]; then
+  if [[ ! -f "$pid_file" ]]; then
+    echo "open-hub: no pid file $pid_file; nothing to stop"
+    exit 0
+  fi
+  pid="$(cat "$pid_file")"
+  if ! is_our_hub "$pid"; then
+    echo "open-hub: pid ${pid:-?} from $pid_file is not a running vibetracks.remote.hub; not stopping anything" >&2
+    rm -f "$pid_file"
+    exit 1
+  fi
+  kill "$pid"
+  for _ in $(seq 1 40); do
+    kill -0 "$pid" 2>/dev/null || break
+    sleep 0.25
+  done
+  if kill -0 "$pid" 2>/dev/null; then
+    echo "open-hub: hub pid $pid did not stop within 10 s" >&2
+    exit 1
+  fi
+  rm -f "$pid_file"
+  echo "open-hub: stopped the hub on port $port (pid $pid)"
+  exit 0
+fi
+
+healthy() { curl -fsS --max-time 2 -o /dev/null "${url}api/health" 2>/dev/null; }
+
+finish() {
+  echo "$url"
+  if [[ "$open_url" == 1 ]]; then
+    "$OPENER" "$url"
+  fi
+  exit 0
+}
+
+if healthy; then
+  finish
+fi
+
+share="${share/#\~/$HOME}"
+if ! top="$(git -C "$share" rev-parse --show-toplevel 2>/dev/null)" || [[ "$(realpath "$top")" != "$(realpath "$share")" ]]; then
+  echo "open-hub: $share is not a git clone of the share (clone it there first, or pass --share)" >&2
+  exit 1
+fi
+if ! PYTHONPATH="$ROOT${PYTHONPATH:+:$PYTHONPATH}" "$PYTHON" -c 'import vibetracks.remote.hub' 2>/dev/null; then
+  echo "open-hub: $PYTHON cannot import vibetracks.remote.hub from $ROOT (is PyYAML installed?)" >&2
+  exit 1
+fi
+
+mkdir -p "$STATE_DIR" "$DATA_HOME"
+PYTHONPATH="$ROOT${PYTHONPATH:+:$PYTHONPATH}" setsid nohup "$PYTHON" -m vibetracks.remote.hub \
+  --workspace "$ROOT/workspace" --data-home "$DATA_HOME" --share "$share" --port "$port" \
+  >>"$log_file" 2>&1 </dev/null &
+pid=$!
+echo "$pid" > "$pid_file"
+
+for _ in $(seq 1 50); do
+  if healthy; then
+    finish
+  fi
+  if ! kill -0 "$pid" 2>/dev/null; then
+    rm -f "$pid_file"
+    echo "open-hub: the hub exited before answering; last lines of $log_file:" >&2
+    tail -n 5 "$log_file" >&2
+    exit 1
+  fi
+  sleep 0.5
+done
+echo "open-hub: the hub (pid $pid) did not answer ${url}api/health within 25 s; see $log_file" >&2
+exit 1

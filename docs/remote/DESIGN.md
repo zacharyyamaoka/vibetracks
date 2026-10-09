@@ -8,20 +8,73 @@ The dashboard's adapters read loop files (`status.json`, `loop_events.jsonl`, `r
 
 ```
 worker machine (win-a)                          share (a git repo on GitHub)            hub (this workstation)
-  agents write their own loop files               hosts/win-a/host.json                   git pull every 3 s
-  vibetracks.remote.sync (every 3 s):  ──push──▶  hosts/win-a/sources.json   ──pull──▶    restore mtimes from commits
-    copy changed files into the clone             hosts/win-a/files/<key>/...             merge every sources.json
-    commit hosts/win-a/ only                      hosts/win-a/sessions/<id>.json          run vibetracks.dashboard.build
-  session_hook (Claude Code hook)                 hosts/win-b/...                         serve the phone app on :4470
-    writes a session card into the clone
+  agents write their own loop files               hosts/win-a/host.json                   ls-remote: 5 s after news, else 60 s
+  vibetracks.remote.sync (every 3 s, local):      hosts/win-a/sources.json   ──pull──▶    pull only when the remote moved
+    copy changed files into the clone             hosts/win-a/files/<key>/...             restore mtimes from commits
+    only if something changed:         ──push──▶  hosts/win-a/sessions/<id>.json          merge every sources.json
+      commit hosts/win-a/ only, push              hosts/win-b/...                         run vibetracks.dashboard.build
+      ──poke (POST /api/poke)─────────────────────────────────────────────────────────▶   serve the phone app on :4470
+  session hook (Claude Code) writes a session card into the clone
 ```
 
 - **`vibetracks/remote/share.py`**: the layout (above) and its helpers.
   `hosts/<host>/host.json` is the heartbeat `{host, platform, python, vt_sync_version, last_sync, interval_s, mirrors, skipped, error}`; `sources.json` maps each source key to a path inside the host folder; `files/<key>/` holds the copies (a mirrored directory keeps its tree); `sessions/<session_id>.json` are session cards.
 - **One writer per host folder.** A machine only ever stages `hosts/<its name>/`, so two machines never touch the same path: every pull is a fast-forward or a trivial rebase, and a conflict means something wrote where it must not (sync then aborts the rebase, keeps its local commit, and reports the error; it never forces).
-- **`sync.py`** (per machine): mirror, heartbeat, commit, `git pull --rebase`, `git push`, every `interval_s`. It only reads the agents' files.
+- **`sync.py`** (per machine): every `interval_s`, mirror and (when due) heartbeat, locally; only when something is there to send: commit, `git pull --rebase --autostash`, `git push`, poke. It only reads the agents' files. `init` and `hook-config` set a machine up (docs/remote/WORKER_SETUP.md).
 - **`session_hook.py`**: a Claude Code hook that records `{session_id, host, account, agent, model, cwd, track, url, …}`. The `url` is `https://claude.ai/code/<CLAUDE_CODE_BRIDGE_SESSION_ID>`, which exists only when the session has Remote Control on (`remoteControlAtStartup` in settings); otherwise the card says so and the app shows "no Remote Control link".
-- **`hub.py`**: pulls, writes `<data-home>/remote-sources.json` (this machine's own `sources.json` if any, then every key the share supplies pointed into `hosts/<host>/files/`, then `dashboard_data_home` = the hub's `--data-home`), runs the ordinary `python -m vibetracks.dashboard.build` with `$VIBETRACKS_SOURCES` naming that file, and serves `/api/state`, `/api/track/<id>`, `/api/events` (SSE), `/api/health` and the app. A track is attributed to the hosts that supply at least one of its declared `vibe-sources` keys; a track none of whose keys come from the share is on the hub machine. Two hosts supplying the same key: the newer `last_sync` wins and a `duplicate_key` problem is listed.
+- **`hub.py`**: checks the share (below), pulls when it moved, writes `<data-home>/remote-sources.json` (this machine's own `sources.json` if any, then every key the share supplies pointed into `hosts/<host>/files/`, then `dashboard_data_home` = the hub's `--data-home`), runs the ordinary `python -m vibetracks.dashboard.build` with `$VIBETRACKS_SOURCES` naming that file, and serves `/api/state`, `/api/track/<id>`, `/api/events` (SSE), `/api/health`, the JSON POSTs `/api/refresh` and `/api/poke`, and the app. `/api/state` lists every session card under its machine (`hosts[].sessions`: live first, then up to 10 others), with or without a track, so the Machines page answers "which agents run on win-a, and how do I talk to them". A track is attributed to the hosts that supply at least one of its declared `vibe-sources` keys; a track none of whose keys come from the share is on the hub machine. Two hosts supplying the same key: the newer `last_sync` wins and a `duplicate_key` problem is listed.
+
+## The refresh model: push on change, poke, adaptive checks, Refresh now
+
+- **A worker sends only when it has something.** Each round decides locally, with no network, whether there is
+  anything to send: an uncommitted change under `hosts/<host>/` (`git status --porcelain -- hosts/<host>`: the mirror,
+  a due heartbeat, or a card the session hook wrote straight into the clone) or a local commit the upstream lacks
+  (`git rev-list --count @{u}..HEAD`). Nothing: the round ends, no fetch, no pull, no push. WHY: the prototype pulled
+  and pushed every 3 s, ~2,400 GitHub round trips an hour per idle machine. Something: commit, pull --rebase, push.
+  `receive_interval_s` (default 0, never) makes an idle worker pull at that period too, for files the hub may one day
+  send back.
+- **Poke is the interrupt.** After a push the worker POSTs `{"host": …}` to `poke_url` (the hub's `/api/poke`, 3 s
+  timeout; a failure is logged, never an error). The hub answers 202 at once and checks within a second.
+- **Adaptive checks are the safety net** (a missed poke, a worker without `poke_url`). A check is one
+  `git ls-remote <remote> <branch>` compared with the local remote-tracking ref; fetch + merge + mtime restore only
+  when they differ. Checks run every `--check-fast` (5 s) for `--fast-window` (120 s) after any change, Refresh or poke,
+  else every `--check-slow` (60 s). The hub's own loops change too: on every fast tick it stats the projection's local
+  source files (and a source directory's direct children) and rebuilds when an `(mtime_ns, size)` moved, plus a safety
+  rebuild every `--rebuild-interval` (300 s).
+- **Refresh now.** The app's Refresh button (or `r`) POSTs `/api/refresh`: check + pull + rebuild, answered when done
+  (`{ok, revision, changed, took_s}`); a second press joins the one in flight. The header shows "checked N s ago" from
+  `hub.last_check`, kept current by an SSE `check` event.
+- **The POSTs are guarded** because they make the hub run git and a build: an allowed Host (403, the same DNS-rebinding
+  guard as the GETs), `Content-Type: application/json` (415, which a cross-site form cannot send) and a body of at most
+  4 KB (413).
+
+**Request budget.** An idle worker: one push per heartbeat (`heartbeat_s`, 300 s: 12 an hour), nothing else. A busy
+worker: one pull + one push per round that has news. The hub on a quiet share: one `ls-remote` a minute (60 an hour);
+for two minutes after news, one every 5 s. A poke is one small local HTTP request.
+
+## The session hook on a settings.json that every machine shares
+
+Zach's `~/.claude/settings.json` is a symlink into his vault, identical on every machine, so it cannot name one
+machine's python, share or host. `python -m vibetracks.remote.sync hook-config` writes two machine-local files instead:
+
+- `~/.vibetracks/remote.json`: `{"python", "share", "host", "tracks_map"}`;
+- `~/.vibetracks/hook`: a two-line POSIX sh launcher, `exec "<this machine's python>" "<…>/vibetracks_session.py"`.
+
+settings.json gets one line, the same on every machine, under `UserPromptSubmit`, `Stop` and `SessionEnd`:
+
+```bash
+[ ! -x "$HOME/.vibetracks/hook" ] || exec "$HOME/.vibetracks/hook"
+```
+
+- A machine that never ran hook-config has no launcher, so the line is a silent no-op there (exit 0, no output). The
+  hub workstation and every other machine are unaffected, and a second or third worker needs no edit to the shared
+  file: running hook-config on it is what switches the hook on there.
+- `vibetracks_session.py` is stdlib only. It runs `<python from remote.json> -m vibetracks.remote.session_hook
+  --share … --host …` with the hook's stdin and environment (`CLAUDE_CODE_BRIDGE_SESSION_ID` is how the card gets its
+  Remote Control link), a 5 s timeout and stdout discarded (a UserPromptSubmit hook's stdout would land in the
+  prompt), and always exits 0.
+- On Windows the hook shell is Git Bash, which runs the sh launcher; the launcher names the venv's python by absolute
+  path, so a missing `python3` there does not matter. `tests/test_remote_units.py` runs the exact line through `sh`.
 
 ## Why git for v1, and the mtime restore
 
@@ -41,76 +94,51 @@ worker machine (win-a)                          share (a git repo on GitHub)    
 
 ## Run it
 
-The two-machine sandbox (a bare origin standing in for GitHub, win-a syncing a copy of the real kinsim loop, an offline win-b, a demo session card, the hub on :4471):
+The two-machine sandbox (a bare origin standing in for GitHub, win-a syncing a copy of the real kinsim loop and poking
+the hub, an offline win-b, a demo session card, the hub on :4471):
 
 ```bash
-/home/bam/vibetracks-remote/scripts/remote-demo --dir /tmp/vt-remote-demo --port 4471
+/home/bam/vibetracks/scripts/remote-demo --dir /tmp/vt-remote-demo --port 4471
 ```
 
-The hub on this workstation over a real share clone:
+The hub on this workstation over the real share clone `~/vibetracks-share`, started or reused (log and pid under
+`~/.local/state/vibetracks/`, data home `~/.local/share/vibetracks/hub`, never the dashboard's own data home):
 
 ```bash
-PYTHONPATH=/home/bam/vibetracks-remote python3 -m vibetracks.remote.hub --share /home/bam/vt-share --workspace /home/bam/vibetracks-remote/workspace --data-home /home/bam/.local/share/vibetracks-remote --port 4470
+/home/bam/vibetracks/scripts/open-hub --port 4470
 ```
 
-(Its `--data-home` is its own folder, never the dashboard's `~/.local/share/vibetracks/`. Tests: `python3 -m pytest -q /home/bam/vibetracks-remote/tests/test_remote_acceptance.py /home/bam/vibetracks-remote/tests/test_remote_units.py`.)
+Stop it yourself with `/home/bam/vibetracks/scripts/open-hub --port 4470 --stop` (it stops only the pid in its own pid
+file). Reaching it from a phone or a worker's poke: `tailscale serve` in front of it, plus `--allow-host <the MagicDNS
+name>` on the hub.
 
-A worker on Linux, with this config at `/home/bam/vt-sync.json`:
+Tests:
+
+```bash
+python3 -m pytest -q /home/bam/vibetracks/tests/test_remote_acceptance.py /home/bam/vibetracks/tests/test_remote_v1_acceptance.py /home/bam/vibetracks/tests/test_remote_units.py
+```
+
+## Setting up a machine
+
+Two repos: `zacharyyamaoka/vibetracks` is the app (code), `zacharyyamaoka/vibetracks-share` the database (one folder
+per machine), as Obsidian is to a vault. On a new machine Zach tells its agent "install the vibe tracks repo"; the
+agent clones this repo to `~/vibetracks`, reads the README, and runs one idempotent command,
+`python ~/vibetracks/scripts/setup-machine --host <name>`: a home-folder venv with an editable install of the clone,
+the share clone, `sync init`, one `--once` round that must reach origin, Task Scheduler or a systemd user unit for the
+loop, `hook-config`, and a summary to paste back. The one question it leaves for Zach is the shared hook line
+(`--install-hook`). Updating a machine is `git pull` in the clone and the same command again. Details and the manual
+fallback: docs/remote/WORKER_SETUP.md; the script's own tests: `tests/test_remote_setup.py`.
+
+A config `init` writes (the keys are `vibetracks/sources.py` keys, the ones a track's `vibe-sources` declares; a key
+the share supplies overrides the hub's own path for it):
 
 ```json
-{"host": "laptop", "share": "/home/bam/vt-share", "interval_s": 3, "heartbeat_s": 300,
- "mirror": [{"key": "kinsim_status", "path": "/home/bam/.local/share/bam_curriculum/status.json"},
-            {"key": "kinsim_events", "path": "/home/bam/.local/share/bam_curriculum/loop_events.jsonl"},
-            {"key": "rig_loop_dir", "path": "/home/bam/rig/loop", "include": ["*.json", "*.jsonl"]}]}
+{"host": "win-a", "share": "C:/Users/BAM/vibetracks-share", "interval_s": 3, "heartbeat_s": 300, "receive_interval_s": 0,
+ "poke_url": "http://hub.tailnet.ts.net:4470/api/poke",
+ "mirror": [{"key": "kinsim_events", "path": "C:/Users/BAM/.local/share/bam_curriculum/loop_events.jsonl"},
+            {"key": "rig_loop_dir", "path": "D:/rig/loop", "include": ["*.json", "*.jsonl"]}]}
 ```
 
-```bash
-PYTHONPATH=/home/bam/vibetracks-remote python3 -m vibetracks.remote.sync --config /home/bam/vt-sync.json
-```
-
-The keys are `vibetracks/sources.py` keys (the ones a track's `vibe-sources` declares). A key the share supplies overrides the hub's own path for it.
-
-## Adding a real Windows machine
-
-1. **Clone two repos with GitHub Desktop** (File → Clone repository): the share (e.g. `zacharyyamaoka/vt-share`, private) into `C:\Users\BAM\vt-share`, and Vibe Tracks into `C:\Users\BAM\vibetracks`. GitHub Desktop's Git Credential Manager then authenticates the clone's `git push`; do not use `gh` or SSH keys on that box.
-2. **Python once** (PowerShell 5.1). `vibetracks/__init__.py` imports PyYAML, so the worker needs it even though sync itself is stdlib:
-
-   ```powershell
-   py -3 -m pip install --user PyYAML
-   ```
-
-3. **Write the config** `C:\Users\BAM\vt-sync.json` (forward slashes are fine in JSON):
-
-   ```json
-   {"host": "win-a", "share": "C:/Users/BAM/vt-share", "interval_s": 3, "heartbeat_s": 300,
-    "mirror": [{"key": "kinsim_events", "path": "C:/Users/BAM/.local/share/bam_curriculum/loop_events.jsonl"}]}
-   ```
-
-4. **Try one round** (prints `{"committed": …, "pushed": …, "pulled": […], "error": null}`):
-
-   ```powershell
-   $env:PYTHONPATH = "C:\Users\BAM\vibetracks"; py -3 -m vibetracks.remote.sync --config C:\Users\BAM\vt-sync.json --once
-   ```
-
-5. **Run it at logon with Task Scheduler** (one line; `pyw` runs it without a console window):
-
-   ```powershell
-   schtasks /Create /F /SC ONLOGON /TN "Vibe Tracks sync" /TR "cmd /c set PYTHONPATH=C:\Users\BAM\vibetracks& pyw -3 -m vibetracks.remote.sync --config C:\Users\BAM\vt-sync.json"
-   ```
-
-   Start it now without logging out: `schtasks /Run /TN "Vibe Tracks sync"`. The machine appears on the hub's Machines tab within one pull.
-
-6. **Add the session hook** to that account's Claude Code `settings.json` (`%USERPROFILE%\.claude\settings.json`, or the account's `CLAUDE_CONFIG_DIR`). It writes a card on every prompt, after every turn and at session end; sync commits it on its next round. Turn on Remote Control at startup if you want the hub's "Talk to agent ↗" link to work:
-
-   ```json
-   {
-     "remoteControlAtStartup": true,
-     "hooks": {
-       "UserPromptSubmit": [{"hooks": [{"type": "command", "command": "cmd /c set PYTHONPATH=C:\\Users\\BAM\\vibetracks& py -3 -m vibetracks.remote.session_hook --share C:\\Users\\BAM\\vt-share --host win-a --tracks-map C:\\Users\\BAM\\vt-tracks.json"}]}],
-       "Stop":             [{"hooks": [{"type": "command", "command": "cmd /c set PYTHONPATH=C:\\Users\\BAM\\vibetracks& py -3 -m vibetracks.remote.session_hook --share C:\\Users\\BAM\\vt-share --host win-a --tracks-map C:\\Users\\BAM\\vt-tracks.json"}]}],
-       "SessionEnd":       [{"hooks": [{"type": "command", "command": "cmd /c set PYTHONPATH=C:\\Users\\BAM\\vibetracks& py -3 -m vibetracks.remote.session_hook --share C:\\Users\\BAM\\vt-share --host win-a --tracks-map C:\\Users\\BAM\\vt-tracks.json"}]}]
-     }
-   }
-   ```
-
-   `C:\Users\BAM\vt-tracks.json` maps a track to the folders its agents work in, first match wins (put the more specific folder first): `{"kinsim": ["C:\\Users\\BAM\\bam_ws\\src\\dev\\bam_curriculum"], "rig": ["C:\\Users\\BAM\\bam_ws"]}`. Use `--track <id>` instead when a whole account works on one track. On Linux the command is `PYTHONPATH=/home/bam/vibetracks-remote python3 -m vibetracks.remote.session_hook --share /home/bam/vt-share --host bam-GPU --track kinsim`. The hook never fails a session: bad input writes nothing and exits 0.
+A `--tracks-map` for hook-config maps a track to the folders its agents work in, first match wins (put the more
+specific folder first): `{"kinsim": ["C:/Users/BAM/bam_ws/src/dev/bam_curriculum"], "rig": ["C:/Users/BAM/bam_ws"]}`.
+A session in no listed folder still gets a card (track `null`) and shows under its machine.
