@@ -52,7 +52,7 @@ h2 { font-size: 15px; font-weight: 600; margin: 0; }
 /* the group header: 12 px / 16 px text-muted, 12 px above, the caret shown on hover and turned when open */
 .sgroup { margin-top: 8px; }
 .sgh-row { display: flex; align-items: center; height: var(--row-h); margin-bottom: var(--row-stack-gap); padding-top: 0; }
-.sgh { flex: 1; min-width: 0; display: flex; align-items: center; gap: 4px; height: 100%; padding: 0 var(--row-px) 0 calc(var(--row-px) + 6px);
+.sgh { flex: 1; min-width: 0; display: flex; align-items: center; gap: 4px; height: 100%; padding: 0 var(--row-px) 0 calc(var(--row-px) + var(--label-inset));
   color: var(--ink-3); font-size: var(--group-font); line-height: 16px; font-weight: 400; border-radius: var(--radius); }
 .sgh .nm { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .sgh:hover { color: var(--ink-2); }

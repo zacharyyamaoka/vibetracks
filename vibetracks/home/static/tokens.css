@@ -21,7 +21,10 @@
   /* the sidebar's geometry, default density (.dframe-sidebar): row 26 px + 2 px stack gap = 28 px pitch */
   --side-w: 288px; --side-inset: 8px;
   --row-h: 26px; --row-px: 2px; --row-gap: 4px; --row-font: 13px; --row-stack-gap: 2px; --row-pad-end: 8px;
-  --group-font: 12px; --group-pt: 12px; --leading-slot: 24px; --icon: 16px; --foot-btn-h: 28px;
+  --group-font: 12px; --group-pt: 12px;
+  /* observed (Zach's screenshot at its 1.286 scale): the dot centres 16 px and the text starts 34 px into the row, which
+     is a 28 px leading slot (the token default is 24); the header text starts ~11 px in. */
+  --leading-slot: 28px; --label-inset: 9px; --icon: 16px; --foot-btn-h: 28px;
 
   /* light (.cds-root, Oct build) */
   --page: #fcfcfb;               /* --cds-gray-10 */
