@@ -38,6 +38,8 @@ from ..sources import load_sources
 from .files import RoadmapForbidden, RoadmapNotFound, art_entries, read_art, read_evidence
 from .projector import gitinfo, project_kinsim, project_rig, schema_check
 from .projector.detection import project_detection
+from .projector.features import project_features
+from .projector.files import ProjectionError
 from .projector.grasping import project_grasping
 from .projector.validate import validate_document
 
@@ -163,7 +165,54 @@ DETECTION = LiveProjector(
     project=lambda sources, now: project_detection(Path(sources["detection_dir"]), now=now),
     claims=lambda sources: [RootClaim("repo", Path(sources["detection_dir"]), exact=False, entry="ladder_data.py")],
 )
-PROJECTORS: dict[str, LiveProjector] = {"kinsim": KINSIM, "rig": RIG, "grasping": GRASPING, "detection": DETECTION}
+
+
+def _features_descriptor(sources: Mapping[str, str]) -> Path | None:
+    """The one ``.vibetrack`` / ``.base`` descriptor in ``features_project_dir``; None when there is none or several."""
+
+    from vibetracks.scaffold import find_descriptors
+
+    folder = sources.get("features_project_dir")
+    found = find_descriptors(Path(folder)) if folder and Path(folder).is_dir() else []
+    return found[0] if len(found) == 1 else None
+
+
+def _features_inputs(sources: Mapping[str, str]) -> list[Path]:
+    from vibetracks.descriptor import load_descriptor
+    from vibetracks.errors import VibeTracksError
+
+    descriptor = _features_descriptor(sources)
+    if descriptor is None:
+        return [Path(sources["features_project_dir"])]
+    # WHY every note in the descriptor's source folder, not a fixed list: a new or edited feature note is a new or
+    # changed rung, and it moves no HEAD until it is committed.
+    try:
+        folder = load_descriptor(descriptor).source
+    except VibeTracksError:
+        return [descriptor]
+    return [descriptor, *(sorted(folder.rglob("*.md")) if folder.is_dir() else [])]
+
+
+def _project_features(sources: Mapping[str, str], now: str) -> dict:
+    descriptor = _features_descriptor(sources)
+    if descriptor is None:
+        raise ProjectionError(f"no single .vibetrack or .base descriptor in {sources['features_project_dir']}")
+    return project_features(descriptor, now=now)
+
+
+#: A file-first Vibe Tracks project's own plan (its descriptor + feature notes), e.g. this repo's VT-0xx roadmap.
+#: WHY sources.get: ``features_project_dir`` exists only where a track maps it (``{features_project_dir: <key>}``).
+FEATURES = LiveProjector(
+    name="features", loop="features", title="Feature roadmap",
+    present=lambda sources: _features_descriptor(sources) is not None,
+    keys=frozenset({"features_project_dir"}), inputs=_features_inputs,
+    checkout=lambda sources: Path(sources["features_project_dir"]),
+    project=_project_features,
+    claims=lambda sources: [RootClaim("repo", Path(sources["features_project_dir"]), exact=False,
+                                      entry=getattr(_features_descriptor(sources), "name", None))],
+)
+PROJECTORS: dict[str, LiveProjector] = {"kinsim": KINSIM, "rig": RIG, "grasping": GRASPING, "detection": DETECTION,
+                                        "features": FEATURES}
 
 
 def _registry_roadmap(track: str) -> tuple[bool, dict | None]:
@@ -185,7 +234,36 @@ def _registry_roadmap(track: str) -> tuple[bool, dict | None]:
     for entry in load_registry(workspace):
         if entry.id == track:
             return True, entry.roadmap
-    return True, None
+    return True, _activity_roadmap(workspace, track)
+
+
+def _activity_roadmap(workspace: str, track: str) -> dict | None:
+    """``vibe-roadmap`` of the home-only note (``vibe-track: activity``) whose ``vibe-id`` is ``track``, else None.
+
+    WHY activity notes too (2026-10-09): a track with sessions but no KPI adapter (vibetracks itself) is not a registry
+    row, yet the home draws a page for it; the home already takes a key a work track lacks from the activity note of
+    the same id (``home/compose.py``), and this is the same rule for the roadmap. A work track of that id wins.
+    """
+
+    from vibetracks.dashboard.registry import _worktrack_properties, find_registry
+    from vibetracks.descriptor import load_descriptor
+    from vibetracks.edits import read_note_exact
+    from vibetracks.notes import parse_frontmatter
+
+    descriptor = find_registry(workspace)
+    if descriptor is None:
+        return None
+    config = load_descriptor(descriptor)
+    key = _worktrack_properties(config)["roadmap"]
+    for path in sorted(config.source.rglob("*.md")):
+        try:
+            frontmatter = parse_frontmatter(read_note_exact(path))[0]
+        except Exception:  # noqa: BLE001 - one unreadable note is the home's problem to report, not a 500 here
+            continue
+        if str(frontmatter.get("vibe-track", "")) == "activity" and frontmatter.get("vibe-id") == track:
+            roadmap = frontmatter.get(key)
+            return roadmap if isinstance(roadmap, dict) else None
+    return None
 
 
 def _resolve(track: str) -> tuple[bool, tuple[LiveProjector, Mapping[str, str]] | None]:

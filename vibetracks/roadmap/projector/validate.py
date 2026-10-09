@@ -152,6 +152,9 @@ def reproject(document: Mapping[str, Any], *, head: str | None = None, verdict_f
     if document.get("loop") == "detection":
         from .detection import project_detection
         return project_detection(located("ladder").parent, now=now, head=head)
+    if document.get("loop") == "features":
+        from .features import project_features
+        return project_features(located("descriptor"), now=now, head=head)
     return project_rig(located("ladder").parent, now=now, head=head)
 
 

@@ -96,6 +96,10 @@ DEFAULT_SOURCES: dict[str, str] = {
     "dashboard_data_home": "~/.local/share/vibetracks/dashboard",
     "roadmap_docs_dir": "~/.local/share/vibetracks/roadmap",
     "roadmap_art_dir": "~/.local/share/vibetracks/roadmap/art",
+    # The Vibe Tracks repo's own plan (Project.vibetrack + features/), projected by the roadmap's ``features`` projector
+    # for the vibetracks track. WHY the main clone and not this package's folder: Stable runs from a release snapshot
+    # with no .git, and the plan's proof is commits in a checkout's history.
+    "vibetracks_project_dir": "~/vibetracks",
 }
 
 
