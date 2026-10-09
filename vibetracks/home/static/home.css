@@ -44,7 +44,7 @@ html.vt-resizing, html.vt-resizing * { cursor: col-resize !important; user-selec
    2 px stack gap (pitch 28) */
 .srow { display: flex; align-items: center; gap: var(--row-gap); height: var(--row-h); padding: 0 var(--row-pad-end) 0 var(--row-px); margin-bottom: var(--row-stack-gap);
   width: 100%; border-radius: var(--radius); color: var(--ink-2); font-size: var(--row-font); font-weight: 400; white-space: nowrap; }
-.srow:hover { background: var(--hover); }
+.srow:hover { background: var(--side-hover); }
 .srow.sel { background: var(--selected); color: var(--ink); }
 .srow.sel:hover { background: var(--selected); }
 .srow .t { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
@@ -82,7 +82,7 @@ a[data-rename], button[data-rename] { cursor: pointer; }
 .sgh.static:hover { color: var(--ink-3); }
 .sgh-go { flex: none; width: 22px; height: 22px; display: inline-grid; place-items: center; border-radius: var(--radius); color: var(--ink-3); opacity: .7; }
 .sgh-go svg.i { width: 13px; height: 13px; }
-.sgh-go:hover, .sgh-go.sel { background: var(--hover); color: var(--ink); opacity: 1; }
+.sgh-go:hover, .sgh-go.sel { background: var(--side-hover); color: var(--ink); opacity: 1; }
 /* the account button: 28 px, avatar, 13 px name text-secondary with a muted suffix */
 .side-foot { display: flex; align-items: center; gap: 4px; border-top: 1px solid var(--line); margin: 6px calc(-1 * var(--side-inset)) 0; padding: 8px var(--side-inset) 0; }
 .acct { display: flex; align-items: center; gap: var(--row-gap); height: var(--foot-btn-h); max-width: 100%; padding: 0 8px 0 var(--row-px); border-radius: var(--radius); color: var(--ink-2); font-size: var(--row-font); white-space: nowrap; }
