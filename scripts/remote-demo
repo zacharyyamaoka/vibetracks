@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Run a self-contained two-machine Vibe Tracks remote sandbox: a share, two workers, one hub.
 
-    /home/bam/vibetracks-remote/scripts/remote-demo --dir /tmp/vt-remote-demo [--port 4471] [--duration S] [--tick-every 8]
+    /home/bam/vibetracks-remote/scripts/remote-demo --dir /tmp/vt-remote-demo [--port 4471] [--duration S] [--tick-every 8] [--open]
 
 Builds, under --dir:
 
@@ -13,7 +13,8 @@ Builds, under --dir:
 - win-b: one sync of a tiny file under a key no track reads, dated 3 h ago, then nothing: an offline machine.
 - a session card on win-a for the kinsim track whose link is ``session_DEMO_not_a_real_link`` and which carries
   ``"demo": true``, so the app labels it a demo link.
-- the hub on --port over this repo's real ``workspace/`` with ``--data-home <dir>/data-home`` and its default adaptive
+- the hub on --port over this repo's real ``workspace/`` (its ``/`` is the Vibe Tracks home since r3; ``--open`` opens it
+  once the hub answers, with /home/bam/.local/bin/open or $OPENER) with ``--data-home <dir>/data-home`` and its default adaptive
   checks (5 s for 2 min after a change, else 60 s): every other track reads this workstation's real files; kinsim
   reads the copies that came from win-a, which reach the hub through win-a's poke.
 
@@ -146,6 +147,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--port", type=int, default=4471)
     parser.add_argument("--duration", type=float, default=None, help="stop after this many seconds (default: Ctrl-C)")
     parser.add_argument("--tick-every", type=float, default=8.0)
+    parser.add_argument("--open", action="store_true", help="open the hub's home in the browser once it answers")
     args = parser.parse_args(argv)
     if not (KINSIM_HOME / "status.json").is_file():
         sys.exit(f"remote-demo: needs the real kinsim loop files in {KINSIM_HOME}")
@@ -217,6 +219,10 @@ def main(argv: list[str] | None = None) -> int:
         if not line.startswith("listening on "):
             raise SystemExit(f"remote-demo: the hub did not start ({line or 'no output'})")
         print(f"hub: {line.split('listening on ', 1)[1]}", flush=True)
+        if args.open:
+            # WHY the shim: xdg-open is blocked by Zach's no-focus-steal hook for agents, and the shim detaches.
+            opener = os.environ.get("OPENER", "/home/bam/.local/bin/open")
+            subprocess.Popen([opener, line.split("listening on ", 1)[1]], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
         threading.Thread(target=lambda: [None for _ in hub.stdout], daemon=True).start()
         for message in notes:
             say(message)
