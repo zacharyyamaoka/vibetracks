@@ -211,7 +211,7 @@
   function sessions(p) {
     const byLive = (a, b) => (b.live - a.live) || ((b.last_action ? Date.parse(b.last_action.ts) : 0) - (a.last_action ? Date.parse(a.last_action.ts) : 0));
     const onTracks = [];
-    for (const t of p.tracks) for (const s of t.sessions) if (s.live) onTracks.push([s, t]);
+    for (const t of p.tracks) for (const s of t.sessions) if (s.live || (s.remote && s.remote.current)) onTracks.push([s, t]);
     onTracks.sort((a, b) => byLive(a[0], b[0]));
     const loose = (p.sessions_unpinned || []).slice().sort(byLive);
     let h = `<div class="pg-tbl pg-sess" data-testid="vt-project-sessions"><div class="pg-th"><div>Session</div><div>State</div><div class="pg-x">Last action</div><div class="pg-x">Open</div></div>`;

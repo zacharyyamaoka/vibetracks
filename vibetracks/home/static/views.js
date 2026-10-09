@@ -74,16 +74,26 @@
   }
   function kids(t) {
     if (!S.subs) return [];
-    return t.sessions.filter((s) => s.live || (S.ended && s.last_action && VT.secondsSince(s.last_action.ts) < 86400));
+    const recent = (s) => (s.last_action && VT.secondsSince(s.last_action.ts) < 86400) || (s.remote && s.remote.last_event_ts && VT.secondsSince(s.remote.last_event_ts) < 86400);
+    return t.sessions.filter((s) => s.live || (s.remote && s.remote.current) || (S.ended && recent(s)));
   }
   function sessionRow(s, depth, trackId) {
     const title = s.title || s.id.slice(0, 8);
     const join = s.join.by ? `matched by ${s.join.by}: ${s.join.value}` : (s.projects && s.projects.length ? `in this project's folders · no track rule matches` : 'no track rule matches');
     // WHY no account chip: which Claude account runs an agent is agent detail (the track page's Agents tab).
-    return `<div class="tr sess" data-testid="vt-home-session" data-session-id="${esc(s.id)}" data-track="${esc(trackId || '')}">
-      <div class="nm">${indent(depth)}${VT.sd(VT.sessionDot(s), s.live ? 'live · ' + (s.status || 'unknown status') : 'ended')}
-        <span class="t2" style="flex:1"><span class="t" title="${esc(title + ' · ' + (s.branch || 'no branch') + ' · ' + (s.cwd || '') + ' · ' + s.account)}">${esc(title)}</span><small title="${esc(join)}">${esc(join)}${s.subagent_files ? ' · ' + s.subagent_files + ' subagent file' + (s.subagent_files > 1 ? 's' : '') : ''}</small></span><span class="opens">${VT.openPrimary(s)}</span></div>
-      ${cells({ state: `<span class="stw ${s.state.word}" title="${esc(s.live ? 'live · ' + (s.status || 'unknown status') + (s.waiting_for ? ' (' + s.waiting_for + ')' : '') : 'ended (no live process)')}">${VT.WORD[s.state.word] || s.state.word}${s.live && s.status && s.status !== (VT.WORD[s.state.word] || '').toLowerCase() ? ' · ' + esc(s.status) : ''}</span>`, work: workCell(s, false) })}</div>`;
+    const remote = s.remote;
+    const status = remote ? VT.remoteTitle(s) : s.live ? 'live · ' + (s.status || 'unknown status') + (s.waiting_for ? ' (' + s.waiting_for + ')' : '') : 'ended (no live process)';
+    const where = remote ? `<span class="hostchip" title="${esc(VT.remoteTitle(s))}">${esc(remote.host)}</span>` : '';
+    const state = remote
+      ? `<span class="stw ${s.state.word}" title="${esc(status)}">${VT.WORD[s.state.word] || s.state.word}<small class="asof"> · ${esc(VT.asOf(s))}</small></span>`
+      : `<span class="stw ${s.state.word}" title="${esc(status)}">${VT.WORD[s.state.word] || s.state.word}${s.live && s.status && s.status !== (VT.WORD[s.state.word] || '').toLowerCase() ? ' · ' + esc(s.status) : ''}</span>`;
+    const work = remote
+      ? `<span class="wk" title="${esc(status)}"><span>on ${esc(remote.host)}</span><small>${remote.last_event_ts ? 'last event ' + VT.ago(remote.last_event_ts) : 'no event time'}</small></span>`
+      : workCell(s, false);
+    return `<div class="tr sess${remote ? ' remote' : ''}" data-testid="vt-home-session" data-session-id="${esc(s.id)}" data-track="${esc(trackId || '')}"${remote ? ` data-host="${esc(remote.host)}"` : ''}>
+      <div class="nm">${indent(depth)}${VT.sd(VT.sessionDot(s), status)}
+        <span class="t2" style="flex:1"><span class="t" title="${esc(title + ' · ' + (s.branch || 'no branch') + ' · ' + (s.cwd || '') + ' · ' + (s.account || 'unknown account'))}">${where}${esc(title)}</span><small title="${esc(join)}">${esc(join)}${s.subagent_files ? ' · ' + s.subagent_files + ' subagent file' + (s.subagent_files > 1 ? 's' : '') : ''}</small></span><span class="opens">${VT.openPrimary(s)}</span></div>
+      ${cells({ state, work })}</div>`;
   }
   function trackRow(t, depth) {
     const ks = kids(t);
@@ -91,7 +101,7 @@
     const href = `#/track/${encodeURIComponent(t.id)}`;
     let h = `<div class="tr ${VT.ACTIVE(t) ? '' : 'muted'}" id="row-${esc(t.id)}" data-testid="vt-home-track" data-track-id="${esc(t.id)}" data-state="${esc(t.state.word)}" data-act="track" data-id="${esc(t.id)}">
       <div class="nm">${indent(depth)}${ks.length ? `<button class="chev ${open ? '' : 'closed'}" data-act="fold" data-id="t:${esc(t.id)}" aria-label="Show sessions">${VT.ic('chev')}</button>` : '<span class="chev-sp"></span>'}
-        <span class="t2"><a class="t" href="${href}" title="Open the ${esc(t.title)} track page">${esc(t.title)}</a><small title="${esc(t.state.why)}">${esc(t.state.why)}</small></span></div>
+        <span class="t2"><span class="tl"><a class="t" href="${href}" title="Open the ${esc(t.title)} track page">${esc(t.title)}</a>${VT.hostChips(t)}</span><small title="${esc(t.state.why)}">${esc(t.state.why)}</small></span></div>
       ${cells({ target: t.target ? `<span class="num" title="from the note's vibe-target">${esc(VT.fmtDate(t.target))}</span>` : '<span class="faint" title="no target written in the note">—</span>',
         health: VT.health(t.health.color), prog: progressCell(t), state: VT.stateWord(t), agents: agentsCell(t), work: workCell(t, true) })}</div>`;
     if (open) for (const s of ks) h += sessionRow(s, depth + 1, t.id);
@@ -187,6 +197,12 @@
     if (s.stale) parts.push(`${s.stale} stale`);
     if (s.working) parts.push(`${s.working} working`);
     parts.push(`${s.sessions_live} agent${s.sessions_live === 1 ? '' : 's'} live (${s.sessions_matched} on tracks, ${s.sessions_other} on no track)`);
+    const remote = VT.doc.remote;
+    if (remote && remote.hosts.length) {
+      // Other machines: counted apart, and each as of its own last report (never added to "live").
+      const hosts = remote.hosts.map((h) => `${h.host} ${h.last_sync ? 'as of ' + VT.ago(h.last_sync) : 'never synced'}`).join(', ');
+      parts.push(`<span data-testid="vt-home-remote-summary" title="${esc(remote.rule)}">${s.sessions_remote || 0} on other machines (${esc(hosts)})</span>`);
+    }
     return parts.join(' · ');
   }
   function displayPop() {

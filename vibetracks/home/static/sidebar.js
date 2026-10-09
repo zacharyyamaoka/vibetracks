@@ -114,16 +114,24 @@
     const d = VT.doc, t = VT.S.theme;
     const seg = (k, l) => `<button class="${t === k ? 'on' : ''}" data-act="theme" data-id="${k}" aria-pressed="${t === k}">${l}</button>`;
     return `<div class="menu acctmenu" data-pop data-testid="vt-home-settings" role="menu">
-      <div class="mh">Claude Code accounts on this machine</div>
+      ${machines(d)}<div class="mh">Claude Code accounts on this machine</div>
       ${d.accounts.map((a) => `<div class="mi">${VT.sd(a.sessions_live ? 'running' : 'idle')}<span class="ell" title="${esc(a.home)}">${esc(a.id)}</span><span class="r">${a.sessions_live} live</span></div>`).join('')}
       <div class="sep"></div>
       <div class="mh">Settings</div>
       <div class="mi"><span class="sd">${VT.ic('sun')}</span><span>Theme</span><span class="seg r">${seg('system', 'System')}${seg('light', 'Light')}${seg('dark', 'Dark')}</span></div>
-      <a class="mi" href="${esc(d.links.workbench)}" title="Clank: the older dashboard, its track pages and files (a deep-dive)"><span class="sd">${VT.ic('grid')}</span><span>Open Clank workbench</span></a>
+      ${d.links.workbench ? `<a class="mi" href="${esc(d.links.workbench)}" title="Clank: the older dashboard, its track pages and files (a deep-dive)"><span class="sd">${VT.ic('grid')}</span><span>Open Clank workbench</span></a>` : ''}
+      ${d.links.machines ? `<a class="mi" href="${esc(d.links.machines)}" title="The hub's machine view: every machine's sync and session cards"><span class="sd">${VT.ic('grid')}</span><span>Open the machine view</span></a>` : ''}
       <div class="sep"></div>
       <div class="mh">Keys</div>
       <div class="mi keys"><span><kbd>1</kbd>–<kbd>4</kbd> home views · <kbd>K</kbd> KPI cards / rows · <kbd>Esc</kbd> close</span></div>
     </div>`;
+  }
+
+  // Other machines (r3): each one's status as of its own last sync; never "live".
+  function machines(d) {
+    if (!d.remote) return '';
+    const rows = d.remote.hosts.map((h) => `<div class="mi" data-testid="vt-machine" data-host="${esc(h.host)}">${VT.sd(h.status === 'online' ? 'ready' : 'idle')}<span class="ell" title="${esc(`${h.host}: ${h.status}; last sync ${h.last_sync || 'never'}${h.platform ? ' · ' + h.platform : ''}${h.error ? ' · error: ' + h.error : ''}`)}">${esc(h.host)}</span><span class="r">${h.sessions_current} · ${h.last_sync ? esc(VT.ago(h.last_sync)) : 'never'}</span></div>`).join('');
+    return `<div class="mh">Other machines in the share</div>${rows || '<div class="mi faint">None has synced yet</div>'}<div class="sep"></div>`;
   }
 
   // ------------------------------------------------------------------ New project (Codex-style)

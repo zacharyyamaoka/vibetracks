@@ -92,6 +92,7 @@
 .sd.awaiting i { background: var(--warn); }
 .sd.ready i { background: var(--accent); }
 .sd.running i { background: var(--ink-3); animation: 1.2s ease-in-out infinite dframe-dot-blink; }
+.sd.asof i { background: var(--ink-3); opacity: .75; }  /* r3: working on another machine, as of its last report (no blink) */
 .sd.idle i { background: none; border: 1px solid currentColor; color: var(--ink-3); opacity: .5; }
 .sd.done i { background: none; border: 1px dashed var(--ink-3); opacity: .5; }
 .sd.error { color: var(--warn-ink); }

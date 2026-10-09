@@ -160,8 +160,11 @@ def main(argv: list[str] | None = None) -> int:
     local.mkdir(parents=True)
     for name in KINSIM_FILES.values():
         shutil.copy2(KINSIM_HOME / name, local / name)
-    (root / "win-a-local" / "demo-transcript.jsonl").write_text(
-        json.dumps({"type": "assistant", "message": {"model": "claude-opus-5-5", "content": []}}) + "\n")
+    # WHY a title and a branch line: the hook records both (r3), so the demo card reads like a real session on the home.
+    (root / "win-a-local" / "demo-transcript.jsonl").write_text("\n".join(json.dumps(row) for row in (
+        {"type": "custom-title", "customTitle": "Kinsim wave on win-a (demo)", "sessionId": DEMO_SESSION},
+        {"type": "assistant", "gitBranch": "claude/kinsim-win-a-demo", "cwd": str(root / "win-a-local"),
+         "message": {"model": "claude-opus-5-5", "content": []}})) + "\n")
     notes.append(f"win-a: seeded {local} from {KINSIM_HOME} (copy2)")
 
     win_a_cfg = {"host": "win-a", "share": str(clones["win-a"]), "interval_s": 2, "heartbeat_s": 10,

@@ -178,8 +178,10 @@
   // account and model, and how each was joined to this track is read here.
   const PROVIDERS = { 'claude-code': 'Claude Code', claude: 'Claude Code', codex: 'Codex' };
   function provider(s, info) {
-    const raw = (info && info.provider) || (s.remote && s.remote.agent) || 'claude-code';
-    const name = PROVIDERS[String(raw).toLowerCase()] || raw;
+    const raw = String((info && info.provider) || (s.remote && s.remote.agent) || 'claude-code');
+    const key = raw.toLowerCase();
+    const extra = raw.includes('(') ? ' ' + raw.slice(raw.indexOf('(')) : '';
+    const name = PROVIDERS[key] || (key.startsWith('claude') ? 'Claude Code' + extra : key.startsWith('codex') ? 'Codex' + extra : raw);
     const via = s.entrypoint ? String(s.entrypoint).replace(/^claude-/, '') : null;
     return `<span>${esc(name)}</span>${via ? `<small>${esc(via)}</small>` : ''}`;
   }

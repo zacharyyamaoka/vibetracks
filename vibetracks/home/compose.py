@@ -525,13 +525,14 @@ def _remote_entry(card: Any, join: dict[str, Any], now: float) -> dict[str, Any]
         "cwd": card.text("cwd"), "transcript": None, "subagent_files": 0, "open_questions": 0,
         "last_action": None, "last_error": None, "worked": {"h24_s": None, "d7_s": None}, "join": dict(join),
         "pid": None, "live": False, "status": None, "waiting_for": None, "status_since": None,
-        "entrypoint": card.text("agent"),
+        "entrypoint": None,
         "state": {"word": word, "label": "Ended" if word == "ended" else LABELS[word]},
         "open": {"desktop": None, "remote_control": card.text("url"), "resume": None},
         "remote": {"host": card.host, "current": card.current, "as_of": harness.iso(card.as_of),
-                   "as_of_age_s": _ago(now, card.as_of), "host_status": card.host_status,
+                   "as_of_age_s": max(0, _ago(now, card.as_of)) if card.as_of is not None else None,
+                   "host_status": card.host_status,
                    "host_last_sync": harness.iso(card.host_last_sync), "last_event": card.text("event"),
-                   "last_event_ts": harness.iso(seen), "last_event_age_s": _ago(now, seen),
+                   "last_event_ts": harness.iso(seen), "last_event_age_s": max(0, _ago(now, seen)) if seen is not None else None,
                    "agent": card.text("agent"), "model": card.text("model"), "demo": card.data.get("demo") is True,
                    "card": card.path},
     }
@@ -894,4 +895,5 @@ def build_home(workspace: str | os.PathLike[str], *, claude_homes: Iterable[str 
         doc["capabilities"] = {"rename": False}
     if not workbench:
         doc["links"]["workbench"] = None
+        doc["links"]["machines"] = "../hub/"  # the hub's own machine view, beside the home it serves
     return doc

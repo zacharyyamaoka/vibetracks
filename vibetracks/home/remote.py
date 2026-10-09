@@ -162,7 +162,7 @@ def read_share(share: str | os.PathLike[str], now: float, own: Iterable[str]) ->
                              current=current))
         cards += mine
         hosts.append({"host": name, "status": status, "last_sync": beat.get("last_sync") if last_sync is not None else None,
-                      "age_s": None if last_sync is None else int(now - last_sync), "platform": beat.get("platform"),
+                      "age_s": None if last_sync is None else max(0, int(now - last_sync)), "platform": beat.get("platform"),
                       "error": beat.get("error"), "sessions_current": sum(1 for c in mine if c.current),
                       "sessions_seen": len(mine)})
     from ..remote.hub import _merge  # noqa: PLC0415 - the hub's own manifest reader, so both agree on every key
