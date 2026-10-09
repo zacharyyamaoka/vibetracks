@@ -1,0 +1,11 @@
+filters:
+  and:
+    - 'note["vibe-track"] == "worktrack"'
+    - 'file.inFolder("tracks")'
+vibetracks:
+  version: 1
+  id: work-tracks
+  title: Work tracks
+  vaultRoot: .
+  source: tracks
+  statuses: [running, paused, archived]

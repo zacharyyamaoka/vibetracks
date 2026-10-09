@@ -11,6 +11,13 @@ vibe-roadmap:
   projector: detection
   sources: [detection_dir]
 vibe-children: []
+vibe-project: BAM Robotics
+vibe-sessions:
+  branches: [claude/hyperspectral-*]
+  cwds: [/home/bam/spectralwaste-segmentation]
+  titles: [hyperspectral, object database, object db]
+# Codex audit rounds of this track (the track page's Auditor tab; vibetracks/home/detail.py).
+vibe-audits: ["/home/bam/bam_ws/reports/media/audits/*-hyperspectral-*.md"]
 ---
 
 # Object Detection & Hyperspectral

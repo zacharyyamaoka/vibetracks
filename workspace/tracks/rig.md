@@ -11,6 +11,14 @@ vibe-roadmap:
   projector: rig
   sources: [rig_loop_dir]
 vibe-children: [can12, can16]
+vibe-project: BAM Robotics
+vibe-target: 2026-10-22
+vibe-sessions:
+  branches: [claude/rig-loop-work-continue-*, claude/traj-tracking-sim-to-real-*, claude/one-dof-agent-plan-*]
+  cwds: []
+  titles: [traj tracking, trajectory tracking, sim to real]
+# Codex audit rounds of this track (the track page's Auditor tab; vibetracks/home/detail.py).
+vibe-audits: ["/home/bam/bam_ws/reports/media/audits/*-rig-*.md"]
 ---
 
 # Sim to Real & Trajectory Tracking

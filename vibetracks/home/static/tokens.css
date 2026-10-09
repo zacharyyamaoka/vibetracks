@@ -1,0 +1,96 @@
+/* Claude Desktop's own design tokens, copied (Zach, Oct 9: "the same visual language as the Claude sidebar…
+   I don't want to relearn a new sidebar"). Every value below is read from Claude's real stylesheets in this
+   machine's Desktop HTTP cache (claude.ai shared-styles / c6a992d55 sheets, decoded 2026-10-09), unless a line says
+   "observed": those few come from Zach's own dark screenshot where no token matched (Sources/Images/Pasted image
+   20261009071254.png). The report lists every delta. Do not retune these by eye: change them only from a new
+   extraction.
+
+   Theme: light by default, dark under prefers-color-scheme (as Claude Desktop does), and Settings can pin either
+   (html[data-theme="light"|"dark"]). Zach runs dark, and his Desktop renders the "darker" dark (sidebar #111). */
+
+@font-face { font-family: "anthropic-sans"; src: url("../font/anthropic-sans.woff2") format("woff2"); font-weight: 300 800; font-style: normal; font-display: swap; }
+@font-face { font-family: "anthropic-sans"; src: url("../font/anthropic-sans-italic.woff2") format("woff2"); font-weight: 300 800; font-style: italic; font-display: swap; }
+
+:root {
+  color-scheme: light;
+  /* --cds-* scalars (both modes) */
+  --font: "anthropic-sans", system-ui, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+  --mono: "anthropic-mono", ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  --fs-caption: 11px; --fs-footnote: 12px; --fs-body: 13px;
+  --radius: 6px;
+  /* the sidebar's geometry, default density (.dframe-sidebar): row 26 px + 2 px stack gap = 28 px pitch */
+  --side-w: 288px; --side-inset: 8px;
+  --row-h: 26px; --row-px: 2px; --row-gap: 4px; --row-font: 13px; --row-stack-gap: 2px; --row-pad-end: 8px;
+  --group-font: 12px; --group-pt: 12px;
+  /* observed (Zach's screenshot at its 1.286 scale): the dot centres 16 px and the text starts 34 px into the row, which
+     is a 28 px leading slot (the token default is 24); the header text starts ~11 px in. */
+  --leading-slot: 28px; --label-inset: 9px; --icon: 16px; --foot-btn-h: 28px;
+
+  /* light (.cds-root, Oct build) */
+  --page: #fcfcfb;               /* --cds-gray-10 */
+  --surface: #ffffff;            /* cards, popovers */
+  --side: #ffffff;               /* --df-sidebar-bg: white */
+  --ink: #0b0b0b;                /* --cds-text-primary */
+  --ink-2: #52514e;              /* --cds-text-secondary */
+  --ink-3: #898781;              /* --cds-text-muted */
+  --alpha-1: rgba(11, 11, 11, .05);   /* --cds-alpha-1: hover */
+  --alpha-2: rgba(11, 11, 11, .10);   /* --cds-alpha-2: border, selected:hover */
+  --alpha-3: rgba(11, 11, 11, .20);   /* --cds-border-strong */
+  --hover: var(--alpha-1);
+  --selected: var(--alpha-2);
+  --line: var(--alpha-2);
+  --accent: #2a78d6;             /* --cds-fill-accent: the "ready" dot */
+  --accent-ink: #184f95;         /* --cds-text-accent */
+  --warn: #fab219;               /* --cds-fill-warning: the "awaiting" dot */
+  --warn-ink: #734500;           /* --cds-text-warning: the error glyph, "needs you" words */
+  --danger: #d03b3b; --danger-ink: #8e2626;
+  --success-ink: #2f7a4a;        /* not a sidebar token: the health "on track" word, kept muted */
+  --shadow: 0 0 0 1px var(--alpha-2), 0 4px 24px rgba(11, 11, 11, .06);
+}
+
+/* dark: the "darker" variant Zach's Desktop renders ([data-mode=dark][data-darker] .dframe-root) */
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    color-scheme: dark;
+    --page: #0d0d0d;             /* --df-bg-page: --_gray-890 (0 0% 5%) */
+    --surface: #1a1a1a;          /* --df-z1 (10.2%) */
+    --side: #121212;             /* --df-sidebar-bg: hsl(0 0% 7% / .95) over the page; observed #111111 */
+    --ink: #f0efec; --ink-2: #c3c2b7; --ink-3: #898781;
+    --alpha-1: rgba(255, 255, 255, .05); --alpha-2: rgba(255, 255, 255, .10); --alpha-3: rgba(255, 255, 255, .20);
+    --hover: rgba(255, 255, 255, .06);   /* --df-hover, dark web variant */
+    --selected: #343434;         /* observed: Zach's selected row; no token found (alpha-2 would give #2a2a2a) */
+    --line: #252525;             /* --panel-hairline, darker */
+    --accent: #2a78d6; --accent-ink: #6da7ec;
+    --warn: #fab219; --warn-ink: #db9300;
+    --danger: #d03b3b; --danger-ink: #ec7e7e;
+    --success-ink: #6fbf8b;
+    --shadow: inset 0 0 0 1px rgba(255, 255, 255, .06), 0 4px 24px rgba(0, 0, 0, .4);
+  }
+}
+:root[data-theme="dark"] {
+  color-scheme: dark;
+  --page: #0d0d0d; --surface: #1a1a1a; --side: #121212;
+  --ink: #f0efec; --ink-2: #c3c2b7; --ink-3: #898781;
+  --alpha-1: rgba(255, 255, 255, .05); --alpha-2: rgba(255, 255, 255, .10); --alpha-3: rgba(255, 255, 255, .20);
+  --hover: rgba(255, 255, 255, .06); --selected: #343434; --line: #252525;
+  --accent: #2a78d6; --accent-ink: #6da7ec;
+  --warn: #fab219; --warn-ink: #db9300;
+  --danger: #d03b3b; --danger-ink: #ec7e7e;
+  --success-ink: #6fbf8b;
+  --shadow: inset 0 0 0 1px rgba(255, 255, 255, .06), 0 4px 24px rgba(0, 0, 0, .4);
+}
+
+/* ---- Claude's status dots (.status-dot, 6 px), the same meaning everywhere on this page:
+   awaiting = amber (waits on you) · running = muted grey, blinking (working) · ready = blue (new since you last
+   looked) · idle = hollow ring at 50 % · error = a warning glyph, not a dot. */
+.sd { display: inline-grid; place-items: center; width: var(--leading-slot); height: 16px; flex: none; }
+.sd i { display: block; width: 6px; height: 6px; border-radius: 50%; position: relative; }
+.sd.awaiting i { background: var(--warn); }
+.sd.ready i { background: var(--accent); }
+.sd.running i { background: var(--ink-3); animation: 1.2s ease-in-out infinite dframe-dot-blink; }
+.sd.idle i { background: none; border: 1px solid currentColor; color: var(--ink-3); opacity: .5; }
+.sd.done i { background: none; border: 1px dashed var(--ink-3); opacity: .5; }
+.sd.error { color: var(--warn-ink); }
+.sd.error svg { width: 12px; height: 12px; fill: currentColor; stroke: none; }
+@keyframes dframe-dot-blink { 0%, to { opacity: .3 } 50% { opacity: 1 } }
+@media (prefers-reduced-motion: reduce) { .sd.running i { animation: none; } }

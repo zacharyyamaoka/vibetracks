@@ -22,4 +22,5 @@ packages = {find = {include = ["vibetracks*"]}}
 [tool.setuptools.package-data]
 vibetracks = ["static/*", "AGENT.md"]
 "vibetracks.roadmap" = ["*.json"]
+"vibetracks.home" = ["static/*"]
 "vibetracks.roadmap.projector" = ["schemas/*.json", "README.md"]

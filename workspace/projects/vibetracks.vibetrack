@@ -1,0 +1,6 @@
+# A project (Codex model): one root, so its name is the folder's name. Its lanes (/home/bam/vibetracks-home, ...)
+# are git worktrees of this root, so their sessions count here. No north star declared yet.
+vibetracks:
+  version: 1
+  kind: project
+  roots: [/home/bam/vibetracks]

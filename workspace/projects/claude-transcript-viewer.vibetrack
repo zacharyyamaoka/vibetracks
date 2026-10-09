@@ -1,0 +1,5 @@
+# A project (Codex model): one root, so its name is the folder's name. No north star declared yet.
+vibetracks:
+  version: 1
+  kind: project
+  roots: [/home/bam/claude-transcript-viewer]

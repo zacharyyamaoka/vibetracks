@@ -9,6 +9,13 @@ vibe-adapter: pyblocks
 vibe-sources: [pyblocks_board_dir, pyblocks_windows]
 vibe-roadmap: null
 vibe-children: []
+vibe-project: pyblocks
+vibe-sessions:
+  branches: []
+  cwds: [/home/bam/pyblocks]
+  titles: [pyblocks, ultracode, sf handoff]
+# Codex audit rounds of this track (the track page's Auditor tab; vibetracks/home/detail.py).
+vibe-audits: ["/home/bam/pyblocks/reports/media/audits/*.md"]
 ---
 
 # Pyblocks
