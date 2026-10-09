@@ -195,8 +195,12 @@
   function otherRows() {
     if (S.tabset === 'done' || !doc.other_sessions.length) return '';
     const n = doc.other_sessions.length;
+    // WHY say how many wait: a waiting session with no track is still a person-blocked agent; the row stays folded
+    // (Zach's default: nothing distracts) but never hides that someone is waiting.
+    const waiting = doc.other_sessions.filter((s) => s.state.word === 'needs_you').length;
+    const state = waiting ? `<span class="stw needs_you"><span class="dot"></span>${waiting} waiting</span>` : '';
     let h = `<div class="tr proj other" data-testid="vt-home-other-toggle" data-act="other"><div class="nm"><button class="chev ${S.otherOpen ? '' : 'closed'}" data-act="other" aria-label="Show other sessions">${ic('chev')}</button><span class="pico" style="background:#b9b8b4">·</span>
-      <span class="t2"><span class="t">Other sessions (${n})</span><small>live sessions no track's vibe-sessions rule matches · shown so none disappears</small></span></div>${cells({})}</div>`;
+      <span class="t2"><span class="t">Other sessions (${n})</span><small>live sessions no track's vibe-sessions rule matches · shown so none disappears</small></span></div>${cells({ state })}</div>`;
     if (S.otherOpen) for (const s of doc.other_sessions) h += sessionRow(s, 1, '');
     return h;
   }
