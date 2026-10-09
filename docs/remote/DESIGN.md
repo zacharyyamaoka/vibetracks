@@ -118,11 +118,16 @@ Tests:
 python3 -m pytest -q /home/bam/vibetracks/tests/test_remote_acceptance.py /home/bam/vibetracks/tests/test_remote_v1_acceptance.py /home/bam/vibetracks/tests/test_remote_units.py
 ```
 
-## Adding a worker machine
+## Setting up a machine
 
-docs/remote/WORKER_SETUP.md is a paste-ready prompt for a Claude Code session on that machine (Windows, with a Linux
-variant): clone the share, `pip install` Vibe Tracks, `python -m vibetracks.remote.sync init`, one `--once` round,
-Task Scheduler (or a systemd user unit) for the loop, `hook-config`, then Zach decides on the hook line.
+Two repos: `zacharyyamaoka/vibetracks` is the app (code), `zacharyyamaoka/vibetracks-share` the database (one folder
+per machine), as Obsidian is to a vault. On a new machine Zach tells its agent "install the vibe tracks repo"; the
+agent clones this repo to `~/vibetracks`, reads the README, and runs one idempotent command,
+`python ~/vibetracks/scripts/setup-machine --host <name>`: a home-folder venv with an editable install of the clone,
+the share clone, `sync init`, one `--once` round that must reach origin, Task Scheduler or a systemd user unit for the
+loop, `hook-config`, and a summary to paste back. The one question it leaves for Zach is the shared hook line
+(`--install-hook`). Updating a machine is `git pull` in the clone and the same command again. Details and the manual
+fallback: docs/remote/WORKER_SETUP.md; the script's own tests: `tests/test_remote_setup.py`.
 
 A config `init` writes (the keys are `vibetracks/sources.py` keys, the ones a track's `vibe-sources` declares; a key
 the share supplies overrides the hub's own path for it):
