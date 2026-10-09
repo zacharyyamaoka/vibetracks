@@ -53,8 +53,9 @@ ORIGIN_KEY = "vibe-origin"
 CLAIM_OF_STATUS = {"done": "done", "running": "partial", "review": "partial"}
 #: Statuses that have left the backlog: an unblocked feature in one of these is on the frontier.
 SCHEDULED = ("ready", "frontier", "running", "waiting", "review")
-#: Open work first in this order within one axis (then dependency order, then id).
+#: Open work within one axis: scheduled before backlog, then by priority, then in this order (then dependency order, id).
 OPEN_ORDER = {"running": 0, "review": 1, "waiting": 2, "ready": 3, "frontier": 3, "backlog": 5}
+PRIORITY_ORDER = {"high": 0, "medium": 1, "low": 2}
 
 
 def project_features(descriptor: Path, *, now: str, head: str | None = None) -> dict[str, Any]:
@@ -153,7 +154,7 @@ class _FeaturesProjector:
                 for order, axis in enumerate(axis_ids)]
         rungs = []
         for axis in axis_ids:
-            mine = sorted((rung for rung in self.derived.values() if rung["axis"] == axis), key=self._sort_key)
+            mine = self._axis_order([rung for rung in self.derived.values() if rung["axis"] == axis])
             for order, rung in enumerate(mine):
                 rung["order"] = order
             rungs += mine
@@ -184,12 +185,31 @@ class _FeaturesProjector:
             "scopes": {},
         }
 
-    def _sort_key(self, rung: Mapping[str, Any]) -> tuple:
-        # WHY done first: where_rows reads "here" as the end of an axis's leading run of satisfied rungs, so the banked
-        # features lead and "next" is the first open one, in the order the plan can build them.
-        done = rung["claimed_status"] == "done"
-        rank = 0 if done else 1 + OPEN_ORDER.get(rung["x"]["vibe_status"], 4)
-        return (0 if done else 1, self.topo[rung["id"]] if not done else 0, rank, rung["id"])
+    def _axis_order(self, rungs: list[dict[str, Any]]) -> list[dict[str, Any]]:
+        """One axis's rungs: done first, then open work, prerequisites always before what needs them.
+
+        WHY done first: where_rows reads "here" as the end of an axis's leading run of satisfied rungs, so the banked
+        features lead. WHY scheduled work next (anything out of backlog), by vibe-priority, whenever its prerequisites
+        allow: "next" is then the most important thing the plan has scheduled, not an old backlog idea.
+        """
+
+        def rank(rung: Mapping[str, Any]) -> tuple:
+            if rung["claimed_status"] == "done":
+                return (0, 0, self.topo[rung["id"]], rung["id"])
+            status = rung["x"]["vibe_status"]
+            return (1, 0 if status in SCHEDULED else 1, PRIORITY_ORDER.get(rung["x"]["priority"], 3),
+                    OPEN_ORDER.get(status, 4), self.topo[rung["id"]], rung["id"])
+
+        here = {rung["id"]: rung for rung in rungs}
+        placed: list[dict[str, Any]] = []
+        waiting = dict(here)
+        while waiting:
+            ready = [rung for rung in waiting.values()
+                     if all(parent not in waiting for parent in rung["depends_on"] if parent in here)]
+            chosen = min(ready, key=rank)
+            placed.append(chosen)
+            del waiting[chosen["id"]]
+        return placed
 
     def _phase(self, rungs: list[dict[str, Any]]) -> str:
         done = sum(1 for rung in rungs if rung["claimed_status"] == "done")

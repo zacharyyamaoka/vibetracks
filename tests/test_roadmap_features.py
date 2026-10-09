@@ -151,6 +151,17 @@ class ProjectionTests(FeaturesRepo):
         self.assertEqual(document["where"][0]["here"], "DM-2")
         self.assertEqual(document["where"][0]["next"], "DM-3")
 
+    def test_scheduled_work_leads_the_open_part_but_never_jumps_its_prerequisite(self) -> None:
+        self.write("DM-1 - Old idea", note("DM-1", "Old idea", "backlog", ["home"]))
+        self.write("DM-2 - Needs it", note("DM-2", "Needs it", "ready", ["home"], depends=["DM-3 - Parked base"]))
+        self.write("DM-3 - Parked base", note("DM-3", "Parked base", "backlog", ["home"]))
+        self.write("DM-4 - Scheduled", note("DM-4", "Scheduled", "running", ["home"]))
+        document = self.project()
+        order = [rung["id"] for rung in document["rungs"]]
+        self.assertEqual(order[0], "DM-4")                                # scheduled and free: first
+        self.assertLess(order.index("DM-3"), order.index("DM-2"))         # a prerequisite stays ahead of its user
+        self.assertEqual(document["where"][0]["next"], "DM-4")
+
     def test_archived_notes_are_left_out_and_named(self) -> None:
         self.write("DM-1 - Gone", note("DM-1", "Gone", "archived", ["home"]))
         self.write("DM-2 - Kept", note("DM-2", "Kept", "ready", ["home"], depends=["DM-1 - Gone"]))
