@@ -9,8 +9,12 @@ Rule order (the accepted mock's, Oct 6, as the 2026-10-09 integration report sta
 3. **error**: the track's newest agent entry is an API error (rate limit, auth, overload, prompt too long), OR its
    adapter cannot read its files (``reporting: false`` in the projection).
 4. **stale**: no agent entry and no loop write for longer than the track's stall rule (``vibe-stall-hours``, 24 h).
-5. **working**: a live session is busy, OR the newest agent entry is at most 15 minutes old.
+5. **working**: a live session is busy, OR a session on another machine is working as of its host's last report
+   (r3: never "live", see vibetracks/home/remote.py), OR the newest agent entry is at most 15 minutes old.
 6. **idle**: otherwise.
+
+Another machine's last session event also counts as activity for the stall rule (4). With no share both are empty,
+and every rule reads exactly as before.
 
 Health: red for error or stale, yellow for needs_you, green for working or idle, none for done or archived.
 
@@ -123,6 +127,10 @@ class Facts:
     last_error: tuple[float, str, str, float | None] | None = None          # (ts, kind, text, resets)
     not_reporting: str | None = None
     last_loop_write: float | None = None
+    #: other machines (r3): sessions working as of their host's last report, (host, as_of); and the newest current
+    #: session event there, (ts, host)
+    remote_busy: list[tuple[str, float]] = field(default_factory=list)
+    last_remote: tuple[float, str] | None = None
 
 
 def track_state(facts: Facts) -> dict[str, str]:
@@ -166,7 +174,8 @@ def track_state(facts: Facts) -> dict[str, str]:
     if facts.not_reporting:
         return out("error", "not_reporting", facts.not_reporting)
 
-    newest = max([t for t in (facts.last_agent[0] if facts.last_agent else None, facts.last_loop_write) if t is not None],
+    remote_ts = facts.last_remote[0] if facts.last_remote else None
+    newest = max([t for t in (facts.last_agent[0] if facts.last_agent else None, facts.last_loop_write, remote_ts) if t is not None],
                  default=None)
     stall_s = facts.stall_hours * 3600
     if newest is None:
@@ -176,10 +185,19 @@ def track_state(facts: Facts) -> dict[str, str]:
                                      f"(stall rule {facts.stall_hours:g} h)")
     if facts.busy:
         return out("working", "busy", f"{facts.busy} live session{'s' if facts.busy > 1 else ''} busy")
+    if facts.remote_busy:
+        hosts = sorted({host for host, _ in facts.remote_busy})
+        count = len(facts.remote_busy)
+        as_of = max(when for _, when in facts.remote_busy)
+        return out("working", "remote", f"{count} session{'s' if count > 1 else ''} on {', '.join(hosts)} working, "
+                                        f"as of {fmt_duration(now - as_of)} ago")
     if facts.last_agent is not None and now - facts.last_agent[0] <= GAP_S:
         return out("working", "recent", f"last {facts.last_agent[1]} {fmt_duration(now - facts.last_agent[0])} ago")
     if facts.last_agent is not None:
         return out("idle", "idle", f"last agent entry {fmt_duration(now - facts.last_agent[0])} ago · nothing open")
+    if facts.last_remote is not None and newest == facts.last_remote[0]:
+        return out("idle", "idle", f"no agent entry here in 7 d; last session event on {facts.last_remote[1]} "
+                                   f"{fmt_duration(now - facts.last_remote[0])} ago · nothing open")
     return out("idle", "idle", f"no agent entry in 7 d; last loop write {fmt_duration(now - newest)} ago · nothing open")
 
 

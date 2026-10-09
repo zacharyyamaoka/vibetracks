@@ -44,6 +44,10 @@ def iso(epoch: float) -> str:
     return datetime.fromtimestamp(epoch, timezone.utc).isoformat(timespec="seconds").replace("+00:00", "Z")
 
 
+def ts(text: str) -> float:
+    return datetime.fromisoformat(text.replace("Z", "+00:00")).timestamp()
+
+
 def write(path: Path, payload: dict) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(json.dumps(payload), encoding="utf-8")
@@ -169,7 +173,7 @@ class RemoteHome(unittest.TestCase):
         self.assertIsNone(a["pid"])
         self.assertEqual(a["remote"]["host"], "win-a")
         self.assertTrue(a["remote"]["current"])
-        self.assertEqual(a["remote"]["as_of"], iso(NOW - 60), "as of the newer of last_sync and the card's last event")
+        self.assertEqual(ts(a["remote"]["as_of"]), NOW - 60, "as of the newer of last_sync and the card's last event")
         self.assertEqual(a["state"]["word"], "working")
         self.assertEqual(a["join"]["by"], "card")
         self.assertEqual(a["title"], "Stale work on win-a")
@@ -177,7 +181,7 @@ class RemoteHome(unittest.TestCase):
         self.assertIsNone(a["open"]["desktop"])
         b = next(s for s in tracks["t-claim"]["sessions"] if s["id"] == "bbbb0002")
         self.assertEqual((b["join"]["by"], b["state"]["word"], b["remote"]["current"]), ("branch", "idle", True))
-        self.assertEqual(b["remote"]["as_of"], iso(NOW - 120))
+        self.assertEqual(ts(b["remote"]["as_of"]), NOW - 120)
 
     def test_only_current_remote_sessions_count_and_reach_other(self) -> None:
         doc = self.build(share=self.share)

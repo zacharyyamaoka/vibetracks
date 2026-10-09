@@ -73,6 +73,8 @@ class HomeTrack:
     problems: list[str] = field(default_factory=list)
     #: the note's revision (``notes.note_revision`` of its exact text): the fence a rename is sent with
     revision: str | None = None
+    #: the registry's ``vibe-sources`` keys (adapter tracks): which machine supplies them names the track's hosts
+    sources: list[str] = field(default_factory=list)
 
 
 # ------------------------------------------------------------------------------------------------ the notes
@@ -198,6 +200,7 @@ def read_tracks_uncached(workspace: str | os.PathLike[str]) -> tuple[list[HomeTr
         out.append(build(work_track.id, frontmatter, body, path, "adapter", title=work_track.title,
                          status=work_track.status, priority=work_track.priority, adapter=work_track.adapter,
                          stall=work_track.stall_hours, purpose=work_track.purpose))
+        out[-1].sources = [str(key) for key in work_track.sources or []]
     seen = {track.id for track in out}
     for track_id, (frontmatter, body, path) in activity.items():
         if track_id in seen:
@@ -230,14 +233,26 @@ def transcript_index(homes: list[Path], cache_dir: str | os.PathLike[str] | None
         return index
 
 
-def live_projection(workspace: str | os.PathLike[str]) -> dict[str, Any]:
+def live_projection(workspace: str | os.PathLike[str], share: str | os.PathLike[str] | None = None,
+                    own: Iterable[str] = ()) -> dict[str, Any]:
+    """LiveBuilder's projection, rebuilt at most every PROJECTION_TTL_S. With a share, its sources are this machine's
+    map with other machines' keys on top (remote.merged_sources: the hub's rule), so a loop running elsewhere feeds
+    its track here too."""
+
     from ..dashboard.build import LiveBuilder  # noqa: PLC0415 - heavy; only the live path needs it
 
-    key = str(Path(workspace).resolve())
+    key = str(Path(workspace).resolve()) + (f"|{Path(share).resolve()}" if share is not None else "")
     with _LOCK:
         entry = _BUILDERS.get(key)
         if entry is None:
-            entry = _BUILDERS[key] = [LiveBuilder(workspace), 0.0, None]
+            if share is None:
+                builder = LiveBuilder(workspace)
+            else:
+                from .remote import merged_sources  # noqa: PLC0415
+
+                mine = sorted(own)
+                builder = LiveBuilder(workspace, sources=lambda: merged_sources(share, mine))
+            entry = _BUILDERS[key] = [builder, 0.0, None]
     if entry[2] is None or time.monotonic() - entry[1] > PROJECTION_TTL_S:
         entry[2] = entry[0].build()
         entry[1] = time.monotonic()
@@ -499,6 +514,46 @@ def _session_entries(record: Record, now: float) -> list[dict[str, Any]]:
     return out
 
 
+def _remote_entry(card: Any, join: dict[str, Any], now: float) -> dict[str, Any]:
+    """A session card from another machine, in the shape of a local session entry (so every list renders it), plus
+    ``remote``. Never ``live``: no pid here can be checked; ``remote.current`` says whether it counts, as of when."""
+
+    seen = card.last_seen
+    word = card.word
+    return {
+        "id": card.session, "account": card.text("account"), "title": card.text("title"), "branch": card.text("branch"),
+        "cwd": card.text("cwd"), "transcript": None, "subagent_files": 0, "open_questions": 0,
+        "last_action": None, "last_error": None, "worked": {"h24_s": None, "d7_s": None}, "join": dict(join),
+        "pid": None, "live": False, "status": None, "waiting_for": None, "status_since": None,
+        "entrypoint": card.text("agent"),
+        "state": {"word": word, "label": "Ended" if word == "ended" else LABELS[word]},
+        "open": {"desktop": None, "remote_control": card.text("url"), "resume": None},
+        "remote": {"host": card.host, "current": card.current, "as_of": harness.iso(card.as_of),
+                   "as_of_age_s": _ago(now, card.as_of), "host_status": card.host_status,
+                   "host_last_sync": harness.iso(card.host_last_sync), "last_event": card.text("event"),
+                   "last_event_ts": harness.iso(seen), "last_event_age_s": _ago(now, seen),
+                   "agent": card.text("agent"), "model": card.text("model"), "demo": card.data.get("demo") is True,
+                   "card": card.path},
+    }
+
+
+def _track_hosts(track: HomeTrack, view: Mapping[str, Any], current: list[Any]) -> list[dict[str, Any]]:
+    """The other machines a track runs on: those supplying one of its declared sources, and those with a current
+    session on it. Each says how (``via``) and how fresh its last report is."""
+
+    rows = {row["host"]: row for row in view["hosts"]}
+    via: dict[str, set[str]] = {}
+    for key in track.sources:
+        host = view["owners"].get(key)
+        if host:
+            via.setdefault(host, set()).add("sources")
+    for card in current:
+        via.setdefault(card.host, set()).add("sessions")
+    return [{"host": host, "via": sorted(kinds), "status": (rows.get(host) or {}).get("status"),
+             "last_sync": (rows.get(host) or {}).get("last_sync"), "age_s": (rows.get(host) or {}).get("age_s")}
+            for host, kinds in sorted(via.items())]
+
+
 def _records(files: Mapping[str, harness.FileState], live: list[harness.LiveSession],
              index: harness.TranscriptIndex, rules: list[SessionRules]) -> dict[tuple[str, str], Record]:
     records: dict[tuple[str, str], Record] = {}
@@ -543,12 +598,18 @@ def _folder_matches(folder: str) -> list[str]:
 def build_home(workspace: str | os.PathLike[str], *, claude_homes: Iterable[str | os.PathLike[str]] | None = None,
                proc_root: str | os.PathLike[str] = "/proc", now: float | None = None,
                projection: Mapping[str, Any] | None = None, needs: Mapping[str, Mapping[str, Any]] | None = None,
-               cache_dir: str | os.PathLike[str] | None = None) -> dict[str, Any]:
+               cache_dir: str | os.PathLike[str] | None = None, share: str | os.PathLike[str] | None = None,
+               own_hosts: Iterable[str] | None = None, writable: bool = True, workbench: bool = True) -> dict[str, Any]:
     """The ``vibetracks-home/1`` document for ``workspace``.
 
     ``projection`` and ``needs`` default to the live ones (LiveBuilder, needs.py); tests pass their own. ``claude_homes``
     defaults to every ``~/.claude-*``; ``proc_root`` is where pids are checked; ``cache_dir`` persists the transcript
     index between processes (None: memory only).
+
+    ``share`` (r3): the share clone other machines publish into (vibetracks/home/remote.py); None reads no other
+    machine and the document is exactly the single-machine one. ``own_hosts`` are this machine's host names (its own
+    folder is skipped). ``writable`` False (the hub) adds ``capabilities.rename: false``; ``workbench`` False (no
+    Clank there) drops the links into Clank.
     """
 
     clock = time.perf_counter()
@@ -564,9 +625,14 @@ def build_home(workspace: str | os.PathLike[str], *, claude_homes: Iterable[str 
     homes = [Path(h) for h in claude_homes] if claude_homes is not None else harness.claude_homes()
     tracks, problems, descriptor = read_tracks(workspace)
     lap("notes")
+    own = {name.lower() for name in (own_hosts or ())}
+    if share is not None and own_hosts is None:
+        from .remote import this_host_names  # noqa: PLC0415
+
+        own = this_host_names()
     if projection is None:
         try:
-            projection = live_projection(workspace)
+            projection = live_projection(workspace, share, own)
         except Exception as error:  # noqa: BLE001 - the home still answers; the problem says why
             traceback.print_exc()
             problems.append({"path": "projection", "error": f"live build failed · {type(error).__name__}: {error}"})
@@ -590,11 +656,36 @@ def build_home(workspace: str | os.PathLike[str], *, claude_homes: Iterable[str 
     records = _records(files, live, index, rules)
     lap("join")
 
-    vtdash = _vtdash_name(workspace)
+    vtdash = _vtdash_name(workspace) if workbench else None
     by_track: dict[str, list[Record]] = {t.id: [] for t in tracks}
     for record in records.values():
         if record.track in by_track:
             by_track[record.track].append(record)
+
+    # Other machines (r3): their cards join tracks like local sessions (the card's own track first), never as live.
+    view = None
+    remote_by_track: dict[str, list[tuple[Any, dict[str, Any]]]] = {t.id: [] for t in tracks}
+    remote_unmatched: list[tuple[Any, dict[str, Any]]] = []
+    if share is not None:
+        from .remote import read_share  # noqa: PLC0415
+
+        view = read_share(share, now, own)
+        problems += view["problems"]
+        local_ids = {record.session for record in records.values()}
+        for card in view["cards"]:
+            if card.session in local_ids:
+                continue  # WHY: this machine saw the session itself; its own files beat any copy
+            pinned = card.text("track")
+            if pinned in remote_by_track:
+                track_id, join = pinned, {"by": "card", "value": f"{pinned} (the session hook's tracks-map on {card.host})"}
+            else:
+                track_id, join = match(rules, branch=card.text("branch"), cwd=card.text("cwd"), title=card.text("title"))
+            pair = (card, _remote_entry(card, join, now))
+            if track_id in remote_by_track:
+                remote_by_track[track_id].append(pair)
+            else:
+                remote_unmatched.append(pair)
+    lap("remote")
 
     track_docs: list[dict[str, Any]] = []
     for track in tracks:
@@ -619,12 +710,20 @@ def build_home(workspace: str | os.PathLike[str], *, claude_homes: Iterable[str 
                       triage_open=counts.get("open"), triage_blocking=counts.get("blocking"),
                       last_agent=tuple(last) if last else None, last_error=tuple(error) if error else None,
                       not_reporting=not_reporting, last_loop_write=harness.parse_ts(loop["ts"]) if loop else None)
+        theirs = remote_by_track[track.id]
+        current = [card for card, _ in theirs if card.current]
+        facts.remote_busy = [(card.host, card.as_of) for card in current if card.word == "working"]
+        newest_remote = max(((card.last_seen, card.host) for card in current if card.last_seen is not None), default=None)
+        facts.last_remote = newest_remote
         state = track_state(facts)
         oldest, unknown_ages = _needs_age(needs.get(track.id), now)
         sessions = [entry for record in mine for entry in _session_entries(record, now)]
         rank = {"needs_you": 0, "error": 1, "working": 2, "idle": 3, "ended": 4}
         sessions.sort(key=lambda s: (not s["live"], rank.get(s["state"]["word"], 5),
                                      -(harness.parse_ts((s["last_action"] or {}).get("ts")) or 0)))
+        # other machines' sessions after this machine's: current first, then by their last event
+        sessions += [entry for _, entry in sorted(theirs, key=lambda pair: (not pair[0].current, rank.get(pair[0].word, 5),
+                                                                              -(pair[0].last_seen or 0)))]
         track_link = f"/?vtdash={quote(vtdash)}#vt?track={quote(track.id)}" if vtdash and track.kind == "adapter" and proj else None
         review_link = f"{track_link}&needs=1" if track_link and counts.get("open") else None
         track_docs.append({
@@ -660,6 +759,8 @@ def build_home(workspace: str | os.PathLike[str], *, claude_homes: Iterable[str 
             },
             "problems": track.problems,
         })
+        if view is not None:
+            track_docs[-1]["hosts"] = _track_hosts(track, view, current)
     lap("derive")
 
     descriptors, project_problems = read_projects(workspace)
@@ -683,7 +784,15 @@ def build_home(workspace: str | os.PathLike[str], *, claude_homes: Iterable[str 
             other.append(entry)
             for name in owners:
                 unpinned[name].append(entry)
-    other.sort(key=lambda s: (s["account"], (s["title"] or "").casefold()))
+    for card, entry in remote_unmatched:
+        if not card.current:
+            continue  # like a local session that is not live: on no track and not current, it is not listed
+        owners = [name for name, project in descriptors.items() if project.owns(entry["cwd"])]
+        entry["projects"] = [descriptors[name].id for name in owners]
+        other.append(entry)
+        for name in owners:
+            unpinned[name].append(entry)
+    other.sort(key=lambda s: (s["account"] or "", (s["title"] or "").casefold()))
     ended_other = sum(1 for r in records.values() if r.track is None and not r.live)
 
     projects: dict[str, dict[str, Any]] = {name: {"tracks": []} for name in descriptors}
@@ -700,7 +809,7 @@ def build_home(workspace: str | os.PathLike[str], *, claude_homes: Iterable[str 
         health = "red" if "red" in colors else "yellow" if "yellow" in colors else "green" if colors else "none"
         targets = sorted((t["target"], t["id"]) for t in active if t["target"])
         descriptor = descriptors.get(name)
-        loose = sorted(unpinned.get(name, []), key=lambda s: (s["account"], (s["title"] or "").casefold()))
+        loose = sorted(unpinned.get(name, []), key=lambda s: (s["account"] or "", (s["title"] or "").casefold()))
         project_docs.append({
             "id": slug(name),
             "revision": descriptor.revision if descriptor else None,
@@ -718,7 +827,7 @@ def build_home(workspace: str | os.PathLike[str], *, claude_homes: Iterable[str 
             "descriptor": descriptor.path if descriptor else None,
             "north_star": descriptor.north_star if descriptor else None,
             "sessions_unpinned": loose,
-            "sessions_live": sum(1 for t in mine for s in t["sessions"] if s["live"]) + len(loose),
+            "sessions_live": sum(1 for t in mine for s in t["sessions"] if s["live"]) + sum(1 for s in loose if s["live"]),
             "tracks": mine,
         })
 
@@ -735,7 +844,7 @@ def build_home(workspace: str | os.PathLike[str], *, claude_homes: Iterable[str 
     lap("compose")
     LAST[str(workspace.resolve())] = {"now": now, "records": records, "tracks": tracks, "projected": projected,
                                       "needs": needs, "homes": homes, "built": time.monotonic()}
-    return {
+    doc = {
         "schema": SCHEMA,
         "generated_at": harness.iso(now),
         "window": {"days": harness.WINDOW_S // DAY_S, "gap_s": GAP_S},
@@ -773,3 +882,16 @@ def build_home(workspace: str | os.PathLike[str], *, claude_homes: Iterable[str 
         },
         "problems": problems,
     }
+    if view is not None:
+        current_remote = [s for t in track_docs for s in t["sessions"] if (s.get("remote") or {}).get("current")] + \
+            [s for s in other if (s.get("remote") or {}).get("current")]
+        doc["summary"]["sessions_remote"] = len(current_remote)
+        doc["remote"] = {"share": str(Path(share)), "this_machine": sorted(own), "hosts": view["hosts"],
+                         "sessions_current": len(current_remote),
+                         "rule": "a session on another machine is never live here; it is current as of its host's last "
+                                 "report (host online or stale, card not ended, last hook event within 30 min of it)"}
+    if not writable:
+        doc["capabilities"] = {"rename": False}
+    if not workbench:
+        doc["links"]["workbench"] = None
+    return doc
