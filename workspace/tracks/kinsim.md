@@ -16,6 +16,8 @@ vibe-sessions:
   branches: [claude/kinematic-simulator-waste-sorting-*, claude/wave-3-handoff-*, claude/kinematic-simulator-loop-*, claude/roadmap-curriculum-viz-*]
   cwds: []
   titles: [Kinematic Sim (AGENT), Traj Gen and Kinematic Sim]
+# Codex audit rounds of this track (the track page's Auditor tab; vibetracks/home/detail.py).
+vibe-audits: ["/home/bam/bam_ws/reports/media/audits/*-kinsim-*.md", "/home/bam/bam_ws/reports/media/audits/*-w[0-9]-*.md"]
 ---
 
 # Kinematic Sim

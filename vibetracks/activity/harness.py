@@ -123,6 +123,9 @@ class LiveSession:
     started_at: float | None
     status_since: float | None
     file: str
+    #: Claude Desktop's own id for the session (``hostSessionId``, ``local_<uuid>``): the handoff URI
+    #: ``claude://code/continue?session=<it>`` opens that session in the Desktop (the 200x sidebar's route).
+    host_session: str | None = None
 
 
 def live_sessions(homes: Iterable[Path], proc_root: str | os.PathLike[str] = "/proc") -> tuple[list[LiveSession], dict[str, int]]:
@@ -157,7 +160,8 @@ def live_sessions(homes: Iterable[Path], proc_root: str | os.PathLike[str] = "/p
                 kind=data.get("kind") if isinstance(data.get("kind"), str) else None,
                 started_at=started / 1000 if isinstance(started, (int, float)) else None,
                 status_since=status_since / 1000 if isinstance(status_since, (int, float)) else None,
-                file=str(path)))
+                file=str(path),
+                host_session=data.get("hostSessionId") if isinstance(data.get("hostSessionId"), str) else None))
     return live, counts
 
 

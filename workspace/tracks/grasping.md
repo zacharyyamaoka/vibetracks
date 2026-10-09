@@ -16,6 +16,8 @@ vibe-sessions:
   branches: [claude/grasping-agent-roadmap-*, claude/grasp-bench-*]
   cwds: []
   titles: [grasping agent roadmap, grasp bench]
+# Codex audit rounds of this track (the track page's Auditor tab; vibetracks/home/detail.py).
+vibe-audits: ["/home/bam/bam_ws/reports/media/audits/*-grasp*.md"]
 ---
 
 # Grasping

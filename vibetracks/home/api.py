@@ -5,6 +5,10 @@
     GET /home/doc            -> the same document (the page fetches this, relative to itself)
     GET /home/               -> the page (static/index.html)
     GET /home/static/<file>  -> the page's CSS and JS (an allowlist: the files in static/, nothing else)
+    GET /home/track?id=<id>  -> vibetracks-home-track/1 (KPIs and gates, activity timeline, audits; detail.py)
+    GET /home/project?id=<id> -> vibetracks-home-project/1 (north star, leading KPIs, worked per day; detail.py)
+    GET /home/audit?track=<id>&name=<file> -> one audit file of that track, text/plain (only what its globs list)
+    GET /home/font/<name>    -> Anthropic Sans, read from this machine's Claude Desktop extraction (see FONT_DIRS)
 
 Through Clank the page is ``/api/plugins/vibetracks/home/`` on every channel (Stable, Preview, a lane), same origin
 as Clank itself, so its links into Clank's track pages and review are plain ``/?vtdash=...#vt?...`` hrefs.
@@ -26,13 +30,21 @@ import traceback
 from pathlib import Path
 from typing import Any, Iterable, Mapping
 
-from .compose import build_home
+from . import detail
+from .compose import LAST, build_home
 
 STATIC = Path(__file__).resolve().parent / "static"
 DEFAULT_WORKSPACE = Path(__file__).resolve().parents[2] / "workspace"
 TYPES = {".html": "text/html; charset=utf-8", ".css": "text/css; charset=utf-8", ".js": "text/javascript; charset=utf-8",
          ".svg": "image/svg+xml", ".json": "application/json"}
 _LOCK = threading.Lock()
+#: Where Anthropic Sans is read from, first hit wins. WHY never committed: the face is Anthropic's, extracted from
+#: Claude Desktop on this machine by the claude-hub / transcript-viewer work; this page uses it locally (so its
+#: sidebar reads exactly like Claude's) and falls back to system-ui where no copy exists. $VIBETRACKS_HOME_FONT_DIR
+#: overrides.
+FONT_DIRS = [os.environ.get("VIBETRACKS_HOME_FONT_DIR", ""), str(Path.home() / ".local/share/vibetracks/fonts"),
+             "/home/bam/claude-transcript-viewer/web/public/fonts", "/home/bam/claude-hub-sidebar/app/public/fonts"]
+FONTS = {"anthropic-sans.woff2": "cc27851ad-DDVos-BJ.woff2", "anthropic-sans-italic.woff2": "c9d3a3a49-CJtkx3-S.woff2"}
 
 
 def workspace() -> Path:
@@ -93,6 +105,19 @@ def _static(name: str) -> tuple[int, dict[str, str], Iterable[bytes]]:
     return 200, {"Content-Type": TYPES[path.suffix], "Content-Length": str(len(body)), "Cache-Control": "no-cache"}, [body]
 
 
+def _font(name: str) -> tuple[int, dict[str, str], Iterable[bytes]]:
+    real = FONTS.get(name)
+    for folder in FONT_DIRS:
+        if not folder or real is None:
+            continue
+        for candidate in (Path(folder) / name, Path(folder) / real):
+            if candidate.is_file():
+                body = candidate.read_bytes()
+                return 200, {"Content-Type": "font/woff2", "Content-Length": str(len(body)),
+                             "Cache-Control": "max-age=86400"}, [body]
+    return _json(404, {"error": f"no local copy of {name}; the page falls back to system-ui"})
+
+
 def handle(method: str, subpath: str, query: Mapping[str, list[str]], headers: Mapping[str, str]):
     if method != "GET":
         return _json(501, {"error": "the home is read-only"})
@@ -109,6 +134,23 @@ def handle(method: str, subpath: str, query: Mapping[str, list[str]], headers: M
             return _json(500, {"error": "the home could not be built", "detail": f"{type(error).__name__}: {error}"})
         doc["sources"]["timing_ms"]["total"] = round((time.perf_counter() - started) * 1000, 1)
         return _json(200, doc)
+    if subpath in ("/track", "/project"):
+        key = (query.get("id") or [""])[0]
+        try:
+            doc = document()
+            last = LAST.get(str(workspace().resolve()))
+            built = (detail.build_track if subpath == "/track" else detail.build_project)(doc, last, key) if last else None
+        except Exception as error:  # noqa: BLE001 - the page shows the reason
+            traceback.print_exc()
+            return _json(500, {"error": f"the {subpath[1:]} page could not be built", "detail": f"{type(error).__name__}: {error}"})
+        if built is None:
+            return _json(404, {"error": f"no {subpath[1:]} {key!r}"})
+        return _json(200, built)
+    if subpath == "/audit":
+        served = detail.serve_audit(document(), (query.get("track") or [""])[0], (query.get("name") or [""])[0])
+        return served if served else _json(404, {"error": "not an audit file of that track"})
+    if subpath.startswith("/font/"):
+        return _font(subpath[len("/font/"):])
     if subpath in ("/", "/index.html"):
         return _static("index.html")
     if subpath.startswith("/static/"):

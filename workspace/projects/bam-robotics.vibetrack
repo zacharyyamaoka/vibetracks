@@ -1,0 +1,11 @@
+# A project (Codex model, Zach Oct 6): a name and 1..N source folders. Read by vibetracks/home/projects.py.
+# A session belongs to this project when its cwd is under any root (worktrees included).
+vibetracks:
+  version: 1
+  kind: project
+  name: BAM Robotics
+  roots: [/home/bam/bam_ws, /home/bam/clank-workbench, /home/bam/viser-3d-viewer]
+  # The lagging measure: the rig loop's own roadmap milestone ("pick up a single piece of real waste", due Oct 22).
+  # No real-pick count is recorded anywhere yet, so the project page shows the milestone and says it is unmeasured.
+  north-star:
+    milestone-of: rig

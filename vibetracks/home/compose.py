@@ -41,6 +41,7 @@ from ..descriptor import load_descriptor
 from ..edits import read_note_exact
 from ..notes import first_paragraph, parse_frontmatter
 from ..sources import _resolve_worktree
+from .projects import read_projects, slug
 
 SCHEMA = "vibetracks-home/1"
 ACTIVITY_MARKER = "activity"
@@ -310,6 +311,18 @@ def _progress(track: HomeTrack, projected: Mapping[str, Any] | None) -> dict[str
     return {**base, "value": last.get("value"), "of": last.get("of"), "iteration": last.get("iteration"), "unknown": None}
 
 
+def _mode(track: HomeTrack, projected: Mapping[str, Any] | None) -> dict[str, str]:
+    """Discover or Optimize, a label only (Zach, Oct 9: "shown only as a mode label for now"). Derived: a track whose
+    loop reports a north-star KPI is optimizing it; a track with no KPI adapter, or none reported, is discovering what
+    to measure."""
+
+    if track.kind == "adapter" and projected and projected.get("north_star"):
+        return {"word": "optimize", "why": f"its loop reports a north-star KPI ({projected.get('north_star')})"}
+    if track.kind == "activity":
+        return {"word": "discover", "why": "no KPI adapter yet: nothing is measured, so it is still finding what to measure"}
+    return {"word": "discover", "why": "no north-star KPI is reported"}
+
+
 def _needs_age(doc: Mapping[str, Any] | None, now: float) -> tuple[int | None, int]:
     """(age in seconds of the oldest question that wants you, how many of them have no recorded ask time)."""
 
@@ -471,7 +484,10 @@ def _session_entries(record: Record, now: float) -> list[dict[str, Any]]:
             "status_since": harness.iso(live.status_since) if live and live.status_since else None,
             "entrypoint": live.entrypoint if live else None,
             "state": {"word": word, "label": "Ended" if word == "ended" else LABELS[word]},
-            "open": {"remote_control": f"https://claude.ai/code/{live.bridge}" if live and live.bridge else None,
+            # WHY desktop first: claude://code/continue?session=<hostSessionId> is Claude Desktop's own deep link (the
+            # 200x sidebar's handoff route); the system handler (claude-url-router) gives it to the primary profile.
+            "open": {"desktop": f"claude://code/continue?session={live.host_session}" if live and live.host_session else None,
+                     "remote_control": f"https://claude.ai/code/{live.bridge}" if live and live.bridge else None,
                      "resume": resume},
         })
         out.append(entry)
@@ -506,6 +522,17 @@ def _records(files: Mapping[str, harness.FileState], live: list[harness.LiveSess
 
 
 # ------------------------------------------------------------------------------------------------ the document
+
+#: The last document's inputs per workspace, for the detail routes (detail.py): records by track, the projection,
+#: the needs documents and the clock, so a track or project page never re-reads the transcripts.
+LAST: dict[str, dict[str, Any]] = {}
+
+
+def _folder_matches(folder: str) -> list[str]:
+    import glob as _glob  # noqa: PLC0415
+
+    return _glob.glob(folder) if any(ch in folder for ch in "*?[") else [folder]
+
 
 
 def build_home(workspace: str | os.PathLike[str], *, claude_homes: Iterable[str | os.PathLike[str]] | None = None,
@@ -602,6 +629,7 @@ def build_home(workspace: str | os.PathLike[str], *, claude_homes: Iterable[str 
             "state": {**state, "since": None},
             "health": health_of(state),
             "progress": _progress(track, proj),
+            "mode": _mode(track, proj),
             "worked": {"h24_s": worked(track_files, now - DAY_S, now), "d7_s": worked(track_files, now - harness.WINDOW_S, now)},
             "last_action": None if last is None else {"ts": harness.iso(last[0]), "age_s": _ago(now, last[0]),
                                                        "type": last[1], "body": last[2]},
@@ -629,25 +657,41 @@ def build_home(workspace: str | os.PathLike[str], *, claude_homes: Iterable[str 
         })
     lap("derive")
 
-    other = [entry for record in records.values() if record.track is None and record.live
-             for entry in _session_entries(record, now)]
+    descriptors, project_problems = read_projects(workspace)
+    problems += project_problems
+    # Session -> project (Codex model): an unpinned live session (no track rule matched it) belongs to EVERY project
+    # whose roots hold its cwd; a pinned one belongs to its track's project only, and stays under its track.
+    other = []
+    unpinned: dict[str, list[dict[str, Any]]] = {name: [] for name in descriptors}
+    for record in records.values():
+        if record.track is not None or not record.live:
+            continue
+        owners = [name for name, project in descriptors.items() if project.owns(record.cwd)]
+        for entry in _session_entries(record, now):
+            entry["projects"] = [descriptors[name].id for name in owners]
+            other.append(entry)
+            for name in owners:
+                unpinned[name].append(entry)
     other.sort(key=lambda s: (s["account"], (s["title"] or "").casefold()))
     ended_other = sum(1 for r in records.values() if r.track is None and not r.live)
 
-    projects: dict[str, dict[str, Any]] = {}
+    projects: dict[str, dict[str, Any]] = {name: {"tracks": []} for name in descriptors}
     for doc in track_docs:
         name = doc["project"] or "No project"
         projects.setdefault(name, {"tracks": []})["tracks"].append(doc)
     project_docs = []
-    ordered = sorted(projects.items(), key=lambda kv: (min((t["priority"] or 10**6) for t in kv[1]["tracks"]), kv[0].casefold()))
+    ordered = sorted(projects.items(), key=lambda kv: (min([(t["priority"] or 10**6) for t in kv[1]["tracks"]] or [10**7]),
+                                                       kv[0].casefold()))
     for position, (name, group) in enumerate(ordered):
         mine = group["tracks"]
         active = [t for t in mine if t["state"]["word"] not in PERSON_STATUSES]
         colors = [t["health"]["color"] for t in active]
         health = "red" if "red" in colors else "yellow" if "yellow" in colors else "green" if colors else "none"
         targets = sorted((t["target"], t["id"]) for t in active if t["target"])
+        descriptor = descriptors.get(name)
+        loose = sorted(unpinned.get(name, []), key=lambda s: (s["account"], (s["title"] or "").casefold()))
         project_docs.append({
-            "id": "".join(ch if ch.isalnum() else "-" for ch in name.casefold()).strip("-") or f"p{position}",
+            "id": slug(name),
             "name": name, "color": PROJECT_COLORS[position % len(PROJECT_COLORS)],
             "target": targets[0][0] if targets else None, "target_from": targets[0][1] if targets else None,
             "health": health,
@@ -656,6 +700,13 @@ def build_home(workspace: str | os.PathLike[str], *, claude_homes: Iterable[str 
                           "open": sum(t["needs_you"]["open"] or 0 for t in active),
                           "tracks": sum(1 for t in active if t["state"]["word"] == "needs_you")},
             "worked": {"h24_s": sum(t["worked"]["h24_s"] for t in active), "d7_s": sum(t["worked"]["d7_s"] for t in active)},
+            # WHY roots and not "folders" only: Zach's Codex model (Oct 6), a project IS a named set of 1..N roots.
+            "roots": [{"path": root, "exists": any(os.path.isdir(m) for m in _folder_matches(root))}
+                      for root in (descriptor.roots if descriptor else [])],
+            "descriptor": descriptor.path if descriptor else None,
+            "north_star": descriptor.north_star if descriptor else None,
+            "sessions_unpinned": loose,
+            "sessions_live": sum(1 for t in mine for s in t["sessions"] if s["live"]) + len(loose),
             "tracks": mine,
         })
 
@@ -670,6 +721,8 @@ def build_home(workspace: str | os.PathLike[str], *, claude_homes: Iterable[str 
         accounts.append({"id": account, "home": str(home),
                          "sessions_live": sum(1 for s in live if s.account == account)})
     lap("compose")
+    LAST[str(workspace.resolve())] = {"now": now, "records": records, "tracks": tracks, "projected": projected,
+                                      "needs": needs, "homes": homes, "built": time.monotonic()}
     return {
         "schema": SCHEMA,
         "generated_at": harness.iso(now),

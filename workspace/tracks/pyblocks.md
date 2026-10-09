@@ -14,6 +14,8 @@ vibe-sessions:
   branches: []
   cwds: [/home/bam/pyblocks]
   titles: [pyblocks, ultracode, sf handoff]
+# Codex audit rounds of this track (the track page's Auditor tab; vibetracks/home/detail.py).
+vibe-audits: ["/home/bam/pyblocks/reports/media/audits/*.md"]
 ---
 
 # Pyblocks

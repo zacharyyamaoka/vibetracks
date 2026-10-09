@@ -1,0 +1,8 @@
+# A project (Codex model): one root, so its name is the folder's name.
+vibetracks:
+  version: 1
+  kind: project
+  roots: [/home/bam/pyblocks]
+  # One track; its loop's north star (runnable goldens green) is the project's lagging measure.
+  north-star:
+    kpi: pyblocks/runnable_green
