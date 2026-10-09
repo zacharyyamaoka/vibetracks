@@ -202,6 +202,31 @@ class RemoteHome(unittest.TestCase):
         for key in ("sessions_live", "sessions_matched", "sessions_other"):
             self.assertEqual(doc["summary"][key], plain["summary"][key], f"{key} counts this machine's live sessions only")
 
+    def test_a_windows_cwd_is_never_read_as_a_path_here(self) -> None:
+        """Found on the sandbox hub: "C:/Users/BAM/scratch" is not absolute on Linux, so it was resolved against the hub's
+        own working directory (a git worktree of a project root) and the card landed in that project."""
+
+        import os
+
+        main = self.root / "main"
+        (main / ".git" / "worktrees" / "lane").mkdir(parents=True)
+        lane = self.root / "lane"
+        lane.mkdir()
+        (lane / ".git").write_text(f"gitdir: {main / '.git' / 'worktrees' / 'lane'}\n", encoding="utf-8")
+        projects = self.workspace / "projects"
+        projects.mkdir(exist_ok=True)
+        (projects / "main.vibetrack").write_text(f"vibetracks:\n  version: 1\n  kind: project\n  roots: [{main}]\n", encoding="utf-8")
+        here = os.getcwd()
+        os.chdir(lane)
+        try:
+            doc = self.build(share=self.share)
+        finally:
+            os.chdir(here)
+        other = {s["id"]: s for s in doc["other_sessions"]}
+        self.assertEqual(other["cccc0003"]["projects"], [], "a Windows cwd belongs to no project on this machine")
+        main_project = next(p for p in doc["projects"] if p["name"] == "main")
+        self.assertNotIn("cccc0003", [s["id"] for s in main_project["sessions_unpinned"]])
+
     def test_this_machine_wins_over_any_card(self) -> None:
         doc = self.build(share=self.share)
         remote = self.remote_sessions(doc)
