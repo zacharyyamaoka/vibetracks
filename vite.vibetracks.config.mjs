@@ -3,8 +3,11 @@
 // config that a direct `vite` run gets for free (restartWhenChanged below).
 //
 // Copied from bam_ws src/dev/bam_kinsim_dashboard/vite.kinsim.config.mjs (wave 3), names changed only.
-// stable-preview.json's Preview (and so every `sps dev` lane) runs Clank's unmodified vite.js with
-// `--config {checkout}/vite.vibetracks.config.mjs`.
+// stable-preview.json's Preview (and so every `sps dev` lane) runs Clank's unmodified Vite with this file as its
+// config, through the switcher's own dev server: `{assets}/vite/serve.mjs --root {checkout} --vite-root
+// /home/bam/clank-workbench --config {checkout}/vite.vibetracks.config.mjs`. WHY serve.mjs and not Clank's vite.js
+// (docs/peps/0004): only the switcher's server answers /__sps and injects the Stable/Preview chip, so Preview and the
+// lanes had no chip at all; nothing in this file knows about the chip.
 //
 // WHY a cache per checkout (measured 2026-10-01 in the kinsim lane): Clank's vite.config.ts sets no cacheDir, so a
 // lane's Vite optimized its dependencies into /home/bam/clank-workbench/node_modules/.vite, the cache Zach's own Clank
