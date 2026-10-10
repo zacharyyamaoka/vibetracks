@@ -287,7 +287,7 @@ class W04DestinationKeyTest(_WithRegistry):
     def test_each_projector_declares_the_keys_it_reads(self) -> None:
         self.assertEqual({name: projector.keys for name, projector in api.PROJECTORS.items()},
                          {"kinsim": {"kinsim_curriculum_dir", "kinsim_home"}, "rig": {"rig_loop_dir"},
-                          "grasping": {"grasp_bench_dir"}, "detection": {"detection_dir"}})
+                          "grasping": {"grasp_bench_dir", "grasp_bench_out"}, "detection": {"detection_dir"}})
         self.assertEqual({name: projector.loop for name, projector in api.PROJECTORS.items()},
                          {"kinsim": "kinsim", "rig": "rig", "grasping": "grasping", "detection": "detection"})
 

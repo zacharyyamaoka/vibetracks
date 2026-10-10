@@ -464,7 +464,7 @@ def test_the_default_verdict_is_the_bridge_with_its_default_cache(tmp_path, monk
     gitinfo.clear_cache()
     with pytest.raises(ProjectionError, match="^bench verdict unavailable: bench venv missing"):
         project_grasping(bench, now=NOW)
-    assert asked == [((bench.resolve(),), {})]
+    assert asked == [((bench.resolve(),), {"out_dir": bench.resolve() / "out"})]   # the out root of the ledger it read
 
 
 def test_the_bridges_inputs_are_declared_sources(tmp_path):
@@ -811,7 +811,14 @@ def real_grasp_bench_dir() -> Path:
     return Path(named).expanduser() if named else REAL_GRASP_BENCH_DIR
 
 
-def gallery_beaten(bench: Path) -> list[str] | None:
+def real_grasp_bench_out(bench: Path) -> Path:
+    """The live out root (``grasp_bench_out``, the bench's ``$GRASP_BENCH_OUT``; ``BAM_GRASP_BENCH_OUT`` overrides)."""
+
+    named = os.environ.get("BAM_GRASP_BENCH_OUT") or load_sources().get("grasp_bench_out")
+    return Path(named).expanduser() if named else bench / "out"
+
+
+def gallery_beaten(bench: Path, out: Path) -> list[str] | None:
     """The loop's own answer (``gallery.env_verdict`` over its ledger), run read-only in its venv; None without one."""
 
     python = bench / ".venv" / "bin" / "python"
@@ -821,6 +828,7 @@ def gallery_beaten(bench: Path) -> list[str] | None:
               "heads = gallery.headline_runs(ledger.Ledger().load_runs())\n"
               "print(__import__('json').dumps(sorted(e for e in curriculum.GATES if gallery.env_verdict(e, heads)[0])))\n")
     environment = {key: value for key, value in os.environ.items() if key not in ("VIRTUAL_ENV", "GRASP_BENCH_OUT")}
+    environment["GRASP_BENCH_OUT"] = str(out)
     environment["PYTHONDONTWRITEBYTECODE"] = "1"
     completed = subprocess.run([str(python), "-B", "-c", script], capture_output=True, text=True, timeout=120,
                                cwd=str(bench), env=environment, check=True)
@@ -834,12 +842,16 @@ def test_the_live_grasping_loop_projects_and_validates():
         pytest.skip(f"the grasping loop is not on this machine ({bench})")
     if not (bench / ".venv" / "bin" / "python").is_file():
         pytest.skip(f"the grasping loop has no venv to run its gallery in ({bench})")
-    grasp_bench_bridge.verdict(bench)  # warm the shared cache: the timing below is the projection, not the bench's subprocess
+    out = real_grasp_bench_out(bench)
+    ledger = out / "ledger" / "runs.jsonl"
+    if not ledger.is_file():
+        pytest.skip(f"the grasping loop has no ledger yet ({ledger}; the Oct 10 evidence rebuild writes it)")
+    grasp_bench_bridge.verdict(bench, out_dir=out)  # warm the shared cache: the timing below is the projection, not the bench's subprocess
     for _attempt in range(2):  # WHY twice: the live loop appends rows; a row landing between oracle and projection is it moving
-        oracle = gallery_beaten(bench)
+        oracle = gallery_beaten(bench, out)
         gitinfo.clear_cache()
         started = time.perf_counter()
-        document = project_grasping(bench, now=NOW)
+        document = project_grasping(bench, now=NOW, ledger_path=ledger)
         elapsed = time.perf_counter() - started
         beaten = [rung(document, rung_id)["x"]["env"] for rung_id in document["summary"]["beaten"]]
         if oracle is None or sorted(beaten) == oracle:
@@ -864,7 +876,7 @@ def test_the_live_grasping_loop_projects_and_validates():
         assert sorted(beaten) == oracle
     # The loop's claim is the bench's verdict, and only what the bench calls beaten may be proven (Oct 4 2026: the
     # projector's own copy of the rule called provisional envs claimed). Read through the bridge, not recomputed.
-    bridge = grasp_bench_bridge.verdict(bench)
+    bridge = grasp_bench_bridge.verdict(bench, out_dir=out)
     assert bridge["error"] is None
     bridge_beaten = {env_id for env_id, said in bridge["envs"].items() if said["beaten"]}
     proven = {item["x"]["env"] for item in document["rungs"] for entry in item["criteria"]

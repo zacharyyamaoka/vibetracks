@@ -13,15 +13,20 @@ from unittest import mock
 
 from tests.test_grasp_bench_bridge_deps import ROWS, Counting, make_bench
 from vibetracks.benches import grasp_bench_bridge
+from vibetracks.sources import load_sources
 
-LIVE_BENCH = Path("/home/bam/bam_ws/.claude/worktrees/grasping-agent-roadmap-ab12d8/src/core/mdp/agent/actor/policy/grasp_bench")
+# WHY from the sources map and not a pinned path: the pinned worktree (grasping-agent-roadmap-ab12d8) was swept on
+# Oct 6-10 and every live check here skipped silently; the map is what the dashboard itself reads.
+LIVE_BENCH = Path(load_sources()["grasping_bench_dir"])
 LIVE_PYTHON = LIVE_BENCH / ".venv" / "bin" / "python"
+LIVE_OUT = Path(load_sources()["grasping_out_dir"])
+LIVE_LEDGER = LIVE_OUT / "ledger" / "runs.jsonl"
 
 REPORT_BY_THE_BENCH_ITSELF = r'''
 import json
 from grasp_bench import curriculum, gallery
 from grasp_bench.ledger import Ledger
-runs = Ledger("out/ledger").load_runs()
+runs = Ledger(__import__("sys").argv[1]).load_runs()
 heads = gallery.headline_runs(runs)
 print(json.dumps({"beaten": sorted(env for env in curriculum.GATES if gallery.env_verdict(env, heads)[0]),
                   "rows": len(runs), "headline": sorted(heads)}))
@@ -45,6 +50,46 @@ class WithoutABenchTest(unittest.TestCase):
             result = grasp_bench_bridge.verdict(folder, cache_dir=Path(folder) / "cache")
         self.assertIn("ledger missing", result["error"])
         self.assertEqual(result["envs"], {})
+
+
+class OutRootTest(unittest.TestCase):
+    """verdict(out_dir=...): the bench judges the out root's ledger, is told that root as $GRASP_BENCH_OUT, and the cache
+    keys on it. WHY (2026-10-10): the ledger moved out of the bench checkout after a swept worktree took it along."""
+
+    def test_the_out_root_is_the_ledger_judged_and_the_bench_is_told_so(self) -> None:
+        with tempfile.TemporaryDirectory() as folder:
+            bench = make_bench(Path(folder) / "grasp_bench")
+            out = Path(folder) / "data" / "out"
+            (out / "ledger").mkdir(parents=True)
+            (out / "ledger" / "runs.jsonl").write_text(json.dumps(ROWS[0]) + "\n", encoding="utf-8")
+            seen = []
+            real = subprocess.run
+
+            def spy(args, *rest, **kwargs):
+                if "-c" in args:
+                    seen.append((kwargs["env"].get("GRASP_BENCH_OUT"), json.loads(kwargs["input"])))
+                return real(args, *rest, **kwargs)
+
+            cache = Path(folder) / "cache"
+            with mock.patch("vibetracks.benches.grasp_bench_bridge.subprocess.run", side_effect=spy):
+                moved = grasp_bench_bridge.verdict(bench, out_dir=out, cache_dir=cache)
+                again = grasp_bench_bridge.verdict(bench, out_dir=out, cache_dir=cache)
+                self.assertEqual(len(seen), 1, "the same out root is a cache hit")
+                old = grasp_bench_bridge.verdict(bench, cache_dir=cache)
+        self.assertIsNone(moved["error"], moved["error"])
+        self.assertEqual(len(moved["runs"]), 1)              # the out root's one row, not the bench's own out/ ledger
+        self.assertEqual(again["runs"], moved["runs"])
+        self.assertEqual(len(old["runs"]), len(ROWS))        # without out_dir: <bench>/out, as before
+        self.assertEqual(len(seen), 2, "another out root is another cache key: the first answer is never reused for it")
+        self.assertEqual(seen[0][0], str(out))
+        self.assertEqual(seen[0][1]["ledger_root"], str(out / "ledger"))
+        self.assertEqual(seen[1][0], str(bench / "out"))
+
+    def test_a_missing_out_root_ledger_is_an_error_naming_it(self) -> None:
+        with tempfile.TemporaryDirectory() as folder:
+            bench = make_bench(Path(folder) / "grasp_bench")
+            result = grasp_bench_bridge.verdict(bench, out_dir=Path(folder) / "nowhere", cache_dir=Path(folder) / "cache")
+        self.assertEqual(result["error"], f"ledger missing: {Path(folder) / 'nowhere' / 'ledger' / 'runs.jsonl'}")
 
 
 class StandaloneTest(unittest.TestCase):
@@ -262,17 +307,17 @@ class SubsetsTest(unittest.TestCase):
             self.assertEqual(counter.runs, 2, "the projector's whole-ledger entry survives a subset request")
 
 
-@unittest.skipUnless(LIVE_PYTHON.exists(), f"no bench venv at {LIVE_PYTHON}")
+@unittest.skipUnless(LIVE_PYTHON.exists() and LIVE_LEDGER.is_file(), f"no bench venv at {LIVE_PYTHON} or ledger at {LIVE_LEDGER}")
 class LiveBenchTest(unittest.TestCase):
     def test_the_verdict_is_what_the_bench_reports_itself(self) -> None:
         with tempfile.TemporaryDirectory() as folder:
             cache = Path(folder) / "cache"
-            result = grasp_bench_bridge.verdict(LIVE_BENCH, cache_dir=cache)
+            result = grasp_bench_bridge.verdict(LIVE_BENCH, out_dir=LIVE_OUT, cache_dir=cache)
             self.assertIsNone(result["error"], result["error"])
 
             env = {name: value for name, value in os.environ.items()
                    if name not in ("VIRTUAL_ENV", "PYTHONPATH", "PYTHONHOME")}
-            done = subprocess.run([str(LIVE_PYTHON), "-I", "-c", REPORT_BY_THE_BENCH_ITSELF], cwd=LIVE_BENCH, env=env,
+            done = subprocess.run([str(LIVE_PYTHON), "-I", "-c", REPORT_BY_THE_BENCH_ITSELF, str(LIVE_OUT / "ledger")], cwd=LIVE_BENCH, env=env,
                                   capture_output=True, text=True, check=True)
             own = json.loads(done.stdout.strip().splitlines()[-1])
             self.assertEqual(sorted(env_id for env_id, env_row in result["envs"].items() if env_row["beaten"]),
@@ -289,7 +334,7 @@ class LiveBenchTest(unittest.TestCase):
             self.assertTrue(all(run_id in result["runs"] for run_id in result["headline"].values()))
 
             # WHY read after the call and compare only indices that existed: the ledger is append-only and live.
-            lines = raw_lines(LIVE_BENCH / "out" / "ledger" / "runs.jsonl")
+            lines = raw_lines(LIVE_LEDGER)
             checked = 0
             for run_id, run in result["runs"].items():
                 if int(run_id) < len(lines):
@@ -298,7 +343,7 @@ class LiveBenchTest(unittest.TestCase):
             self.assertEqual(checked, len(result["runs"]), "every judged row was still in the file")
 
             self.assertTrue((cache / grasp_bench_bridge.VERDICT_CACHE_NAME).is_file())
-            again = grasp_bench_bridge.verdict(LIVE_BENCH, cache_dir=cache)
+            again = grasp_bench_bridge.verdict(LIVE_BENCH, out_dir=LIVE_OUT, cache_dir=cache)
             self.assertEqual(again, result)
 
 

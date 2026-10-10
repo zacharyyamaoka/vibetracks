@@ -336,11 +336,13 @@ def _bench_head(bench_dir: Path) -> str | None:
     return head if done.returncode == 0 and head else None
 
 
-def verdict(bench_dir: str | Path, *, cache_dir: str | Path | None = None, timeout: float = TIMEOUT_S,
-            subsets: dict[str, list[str]] | None = None, info: dict[str, Any] | None = None) -> dict[str, Any]:
+def verdict(bench_dir: str | Path, *, out_dir: str | Path | None = None, cache_dir: str | Path | None = None,
+            timeout: float = TIMEOUT_S, subsets: dict[str, list[str]] | None = None,
+            info: dict[str, Any] | None = None) -> dict[str, Any]:
     """The bench's verdict over its whole ledger, computed by its own code in its own venv (grasp-bench-verdict/2).
 
-    ``bench_dir`` is the grasp_bench package root. Never a replica: when the bench cannot run, ``error`` says why and
+    ``bench_dir`` is the grasp_bench package root; ``out_dir`` the bench's out root (its ``$GRASP_BENCH_OUT``: the
+    ledger is ``<out_dir>/ledger``), default ``<bench_dir>/out``. Never a replica: when the bench cannot run, ``error`` says why and
     ``envs``/``runs``/``headline`` are empty. Every ``runs[run_id]`` carries ``line_sha256``: the sha256 hex of that
     ledger row's exact bytes in runs.jsonl, without its one line terminator (``\\n`` or ``\\r\\n``), computed in the
     bench subprocess from the one byte snapshot the bench's own Ledger parsed for the judgement. When the bench's parse
@@ -369,21 +371,26 @@ def verdict(bench_dir: str | Path, *, cache_dir: str | Path | None = None, timeo
     bench = Path(bench_dir)
     head = _bench_head(bench)
     python = bench / ".venv" / "bin" / "python"
-    ledger_root = bench / "out" / "ledger"
+    # WHY an explicit out root (2026-10-10): the bench's ledger, checkpoints and episodes lived in the gitignored out/ of
+    # an agent worktree and were deleted with it; the bench now keeps them outside every checkout. The bridge names that
+    # root itself and hands it to the subprocess as $GRASP_BENCH_OUT, so the bench's own out_dir() default can move
+    # without this verdict silently reading a different ledger.
+    out_root = Path(out_dir) if out_dir is not None else bench / "out"
+    ledger_root = out_root / "ledger"
     code = bench / "src" / "grasp_bench"
     if not python.is_file():
         return done_(_verdict_failure(f"bench venv missing: {python}", head))
     if not (ledger_root / "runs.jsonl").is_file():
         return done_(_verdict_failure(f"ledger missing: {ledger_root / 'runs.jsonl'}", head))
 
-    request: dict[str, Any] = {"ledger_root": str(ledger_root), "unaligned": LEDGER_UNALIGNED}
+    request: dict[str, Any] = {"ledger_root": str(ledger_root), "out_dir": str(out_root), "unaligned": LEDGER_UNALIGNED}
     if subsets is not None:
         request["subsets"] = {str(name): sorted(set(digests)) for name, digests in subsets.items()}
     # WHY a second cache file for subset requests: the projector (whole ledger) and the dashboard (subsets) share the
     # cache folder, and one file would make each evict the other on every build.
     cache_name = VERDICT_CACHE_NAME if subsets is None else VERDICT_SUBSETS_CACHE_NAME
-    # WHY these and not the module list: runs.jsonl, attestations.jsonl (stamped absent when missing) and the venv
-    # python are known before the run; every grasp_bench module the verdict imports is checked from the cache entry.
+    # WHY these and not the module list: the out root's runs.jsonl, attestations.jsonl (stamped absent when missing) and
+    # the venv python are known before the run (the out root itself is in ``request``, so another root is another key); every grasp_bench module the verdict imports is checked from the cache entry.
     watched = [ledger_root / "runs.jsonl", ledger_root / "attestations.jsonl", python]
     blob = json.dumps({"script": VERDICT_SCRIPT, "schema": VERDICT_CACHE_SCHEMA, "request": request,
                        "stamps": [_stamp(str(path)) for path in watched]}, sort_keys=True)
@@ -395,6 +402,7 @@ def verdict(bench_dir: str | Path, *, cache_dir: str | Path | None = None, timeo
         return done_({**hit["doc"], "bench_head": head})
 
     env = {name: value for name, value in os.environ.items() if name not in _SCRUB}
+    env["GRASP_BENCH_OUT"] = str(out_root)
     before = _package_stamps(code)
     run_started = time.monotonic()
     try:

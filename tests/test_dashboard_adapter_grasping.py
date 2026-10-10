@@ -28,6 +28,7 @@ from vibetracks.dashboard import registry
 from vibetracks.benches import grasp_bench_bridge
 from vibetracks.dashboard.adapters import base, grasping
 from vibetracks.dashboard.registry import WorkTrack
+from vibetracks.home import detail
 from vibetracks.sources import load_sources
 
 REPO = Path(__file__).resolve().parents[1]
@@ -171,32 +172,37 @@ class FakeBridge:
     """Stands in for grasp_bench_bridge.verdict: a canned verdict over the ledger bytes it finds, or a canned error."""
 
     def __init__(self, test: unittest.TestCase, reason: str | None = None) -> None:
-        self.test, self.reason, self.calls = test, reason, []
+        self.test, self.reason, self.calls, self.out_dirs = test, reason, [], []
 
-    def __call__(self, bench: Path, *, cache_dir: str, subsets: dict, info: dict) -> dict:
+    def __call__(self, bench: Path, *, out_dir: Path, cache_dir: str, subsets: dict, info: dict) -> dict:
         self.calls.append(subsets)
+        self.out_dirs.append(out_dir)
         info.update(cached=False, seconds=0.0, bench_seconds=0.0, computed_at=None)
         if self.reason is not None:
             return {"schema": grasp_bench_bridge.VERDICT_SCHEMA, "envs": {}, "runs": {}, "headline": {},
                     "bench_head": None, "error": self.reason}
         # The adapter must ask the bench about exactly the cumulative rows of each phase, named by their digests.
         self.test.assertEqual(subsets, {pid: [_digest(i) for i in spec["rows"]] for pid, spec in PHASES.items()})
-        ledger = Path(bench) / "out" / "ledger" / "runs.jsonl"
+        ledger = Path(out_dir) / "ledger" / "runs.jsonl"
         present = {hashlib.sha256(line).hexdigest() for line in ledger.read_bytes().splitlines()}
         return fixture_doc(present, subsets)
 
 
-def bench_sources(root: Path) -> dict[str, str]:
-    """Every sources.py key the adapter declares, laid out as the bench lays them out under ``root``."""
+def bench_sources(root: Path, out: Path | None = None) -> dict[str, str]:
+    """Every sources.py key the adapter declares: the bench's code under ``root``, its data under ``out`` (the out root,
+    ``$GRASP_BENCH_OUT``; default ``root/out``, the bench's old in-checkout layout)."""
 
     code = root / "src" / "grasp_bench"
-    return {"grasping_ledger": str(root / "out" / "ledger" / "runs.jsonl"),
-            "grasping_curriculum": str(code / "curriculum.py"), "grasping_out_dir": str(root / "out"),
+    out = root / "out" if out is None else out
+    return {"grasping_ledger": str(out / "ledger" / "runs.jsonl"),
+            "grasping_curriculum": str(code / "curriculum.py"), "grasping_out_dir": str(out),
             "grasping_bench_python": str(root / ".venv" / "bin" / "python"),
-            "grasping_attestations": str(root / "out" / "ledger" / "attestations.jsonl"),
+            "grasping_attestations": str(out / "ledger" / "attestations.jsonl"),
             "grasping_gallery_py": str(code / "gallery.py"), "grasping_ledger_py": str(code / "ledger.py"),
             "grasping_runner_py": str(code / "runner.py"), "grasping_contracts_py": str(code / "contracts.py"),
-            "grasping_bench_src": str(code), "grasping_verdict_cache": str(root / "cache")}
+            "grasping_bench_src": str(code), "grasping_verdict_cache": str(root / "cache"),
+            "grasping_record": str(out / "record" / "report_record_2026-10-06.json"),
+            "grasping_rebuild_status": str(out / "loop" / "STATUS.md")}
 
 
 def work_track() -> WorkTrack:
@@ -209,15 +215,17 @@ class FixtureTest(unittest.TestCase):
     def setUp(self) -> None:
         self.tmp = tempfile.TemporaryDirectory()
         root = Path(self.tmp.name)
+        # WHY the out root apart from the bench (2026-10-10): the bench's data now lives outside its checkout, and the
+        # adapter must read the ledger, and have the bench judge it, from there and not from <bench>/out.
+        self.out = root / "data" / "grasp_bench" / "out"
         (root / "src" / "grasp_bench").mkdir(parents=True)
-        (root / "out" / "ledger").mkdir(parents=True)
+        (self.out / "ledger").mkdir(parents=True)
         self.curriculum = root / "src" / "grasp_bench" / "curriculum.py"
         self.curriculum.write_text(CURRICULUM, encoding="utf-8")
-        self.ledger = root / "out" / "ledger" / "runs.jsonl"
+        self.ledger = self.out / "ledger" / "runs.jsonl"
         self.ledger.write_text("".join(json.dumps(r) + "\n" for r in ROWS) + "not json\n", encoding="utf-8")
-        self.out = root / "out"
         self.root = root
-        self.sources = bench_sources(root)
+        self.sources = bench_sources(root, self.out)
 
     def tearDown(self) -> None:
         self.tmp.cleanup()
@@ -254,40 +262,59 @@ class FixtureTest(unittest.TestCase):
         self.assertEqual(self.kpi(track, "envs_beaten")["values"][0]["of"], 3)
         self.assertEqual(self.kpi(track, "envs_beaten")["target"]["kind"], "scope")
         self.assertEqual(track["north_star"], "envs_beaten")
-        mujoco = self.kpi(track, "mujoco_beaten")["values"]
-        self.assertEqual([v["value"] for v in mujoco], [None, 1.0, 1.0])
-        self.assertFalse(mujoco[0]["measured"])
-        self.assertTrue(mujoco[0]["note"])
-        self.assertIn("stage1", mujoco[1]["note"])
+        self.assertEqual(self.bridge.out_dirs, [self.out])   # the bench judged the out root's ledger, not <bench>/out
+
+    def test_each_gated_env_is_a_hard_gate_whose_pass_is_the_bench_verdict(self) -> None:
+        track = self.build()
+        gates = [k for k in track["kpis"] if (k["target"] or {}).get("kind") == "gate"]
+        self.assertEqual([k["id"] for k in gates], ["gate_toy_x", "gate_mujoco_stage0", "gate_mujoco_stage1"])
+        verdicts = {k["label"]: detail.gate_verdict(k) for k in gates}
+        self.assertEqual({env: v["pass"] for env, v in verdicts.items()},
+                         {"toy/x": True, "mujoco/stage0": True, "mujoco/stage1": False})
+        # stage1's best run (the 20-episode smoke) has LB 95 >= gate 93: value-against-target would say pass; the bench
+        # says provisional, and the page shows the bench's word.
+        self.assertEqual(verdicts["mujoco/stage1"]["value"], 95.0)
+        self.assertTrue(verdicts["mujoco/stage1"]["why"].startswith("provisional"), verdicts["mujoco/stage1"])
+        self.assertTrue(verdicts["toy/x"]["why"].startswith("beaten"))
+        stage0 = next(k for k in gates if k["id"] == "gate_mujoco_stage0")
+        self.assertEqual([v["value"] for v in stage0["values"]], [None, 93.6, 93.6])
+        self.assertNotIn("verdict", stage0["values"][0])   # not in the ledger yet: no verdict claimed for T1
+        self.assertEqual(stage0["target"]["gate"], 93.0)
 
     def test_missing_is_null_with_a_note_never_zero(self) -> None:
         track = self.build()
-        for point in self.kpi(track, "dataset_ap")["values"]:
-            self.assertIsNone(point["value"])
-            self.assertFalse(point["measured"])
-            self.assertIn("no graspnet1b/seen/realsense row", point["note"])
-        self.assertEqual(self.kpi(track, "dataset_ap")["target"]["value"], 75.2)
-        self.assertEqual(self.kpi(track, "dataset_ap")["status"]["word"], "not measured yet")
+        for kpi_id, words in (("dataset_ap_graspnet1b", "no graspnet1b/seen/realsense row"),
+                              ("dataset_p1_graspnet1b", "no graspnet1b/seen/realsense row with precision_at_1")):
+            for point in self.kpi(track, kpi_id)["values"]:
+                self.assertIsNone(point["value"])
+                self.assertFalse(point["measured"])
+                self.assertIn(words, point["note"])
+            self.assertEqual(self.kpi(track, kpi_id)["status"]["word"], "not measured yet")
+        self.assertEqual(self.kpi(track, "dataset_ap_graspnet1b")["target"]["value"], 75.2)
 
-    def test_hardest_env_lb_and_margin(self) -> None:
+    def test_tier_best_is_the_best_executed_top1_on_the_tiers_hardest_env(self) -> None:
         track = self.build()
-        # hardest gated env = mujoco/stage1. The best non-privileged headline is the smoke (1.0, LB 0.95).
-        lb = self.kpi(track, "hardest_lb")
-        self.assertEqual([v["value"] for v in lb["values"]], [None, 95.0, 95.0])
-        self.assertEqual(lb["target"]["gate"], 93.0)
-        self.assertEqual(lb["values"][1]["n"], 20)
-        margin = self.kpi(track, "hardest_margin")["values"]
-        self.assertEqual(margin[1]["value"], 98.0)       # bandit 100 % - uniform 2 %
-        self.assertIn("oracle M1.oracle", margin[1]["note"])
+        # The fixture has tiers 1 and 2 only, so there is no sim-camera or claw KPI (never an empty one).
+        self.assertEqual([k["id"] for k in track["kpis"] if k["id"].startswith("tier_best_")],
+                         ["tier_best_toy", "tier_best_mujoco"])
+        # tier 2's hardest env is mujoco/stage1; its best non-privileged headline is the smoke (1.0), not the oracle.
+        mujoco = self.kpi(track, "tier_best_mujoco")
+        self.assertEqual([v["value"] for v in mujoco["values"]], [None, 100.0, 100.0])
+        self.assertIn("M3.bandit 100.0% [95.0, 100.0] on eval-20 (not the frozen protocol)", mujoco["values"][1]["note"])
+        self.assertEqual(mujoco["values"][1]["n"], 20)
+        self.assertEqual(mujoco["target"]["kind"], "reference")   # its gate is the hard gate, never a second one
+        self.assertEqual(self.series(track, "tier_best_toy"), [100.0, 100.0, 100.0])
 
     def test_cells_latency_seeds_and_dirty(self) -> None:
         track = self.build()
         self.assertEqual(self.series(track, "wave1_cells"), [3.0, 7.0, 7.0])   # the stage1 smoke is not frozen
         self.assertIn("1 more measured only off the frozen protocol", self.kpi(track, "wave1_cells")["values"][1]["note"])
-        latency = self.kpi(track, "latency_p95")
-        self.assertEqual(latency["values"][1]["value"], 1500.0)
-        self.assertEqual(latency["status"]["tone"], "warn")
+        # decision time is the p95 of the run the tier-best KPI shows, never the slowest floor's (row 7, 1.5 s)
+        latency = self.kpi(track, "latency_mujoco")
+        self.assertEqual([v["value"] for v in latency["values"]], [None, 5.0, 5.0])
+        self.assertEqual(latency["status"], {"word": "within 1 s · 5 ms", "tone": "ok"})
         self.assertEqual(latency["target"], {"value": 1000.0, "kind": "limit", "label": "< 1 s (Zach's deck; BAM KPIs)"})
+        self.assertEqual(latency["direction"], "lower")
         seeds = self.kpi(track, "seed_rule")
         self.assertEqual([(v["value"], v["of"]) for v in seeds["values"]], [(0.0, 1), (0.0, 1), (0.0, 1)])
         self.assertEqual(seeds["status"]["word"], "unconfirmed · repeat needed")
@@ -378,7 +405,8 @@ class FixtureTest(unittest.TestCase):
         self.assertEqual(north["status"], {"word": "bench verdict unavailable", "tone": "warn"})
         self.assertIn(f"bench verdict unavailable: {reason}", track["source"]["problems"])
         self.assertFalse(track["source"]["bench_verdict"]["ok"])
-        for kpi_id in ("mujoco_beaten", "hardest_lb", "hardest_margin", "dataset_ap", "latency_p95", "wave1_cells"):
+        for kpi_id in ("tier_best_toy", "tier_best_mujoco", "dataset_ap_graspnet1b", "dataset_p1_graspnet1b",
+                       "latency_toy", "latency_mujoco", "wave1_cells"):
             kpi = self.kpi(track, kpi_id)
             self.assertEqual([p["note"] for p in kpi["values"]], ["unconfirmed: bench verdict unavailable"] * 3, kpi_id)
             self.assertTrue(all(p["value"] is None for p in kpi["values"]), kpi_id)
@@ -396,6 +424,9 @@ class FixtureTest(unittest.TestCase):
                     if item["kind"] == "run"}
         self.assertNotIn("pass", statuses)
         self.assertNotIn("provisional", statuses)
+        for gate in (k for k in track["kpis"] if (k["target"] or {}).get("kind") == "gate"):
+            self.assertEqual(detail.gate_verdict(gate)["pass"], None, gate["id"])
+            self.assertEqual(detail.gate_verdict(gate)["why"], grasping.UNCONFIRMED, gate["id"])
 
     def test_the_real_bridge_without_a_venv_says_so(self) -> None:
         track = grasping.build_track(work_track(), self.sources)   # the real verdict(), no fake
@@ -418,6 +449,11 @@ class FixtureTest(unittest.TestCase):
                                      bridge=FakeBridge(self))
         self.assertIn(f"grasping_gallery_py {elsewhere} is not the bench's", track["source"]["problems"][0])
         self.assertIsNone(self.kpi(track, "envs_beaten")["values"][-1]["value"])
+        # the attestations the bench reads are the out root's; a declared copy anywhere else is refused the same way
+        track = grasping.build_track(work_track(), dict(self.sources, grasping_attestations=str(elsewhere)),
+                                     bridge=FakeBridge(self))
+        self.assertIn(f"grasping_attestations {elsewhere} is not the bench's {self.out / 'ledger' / 'attestations.jsonl'}",
+                      track["source"]["problems"][0])
 
     def test_a_verdict_that_misses_rows_is_not_used(self) -> None:
         class Partial(FakeBridge):
@@ -457,6 +493,145 @@ class FixtureTest(unittest.TestCase):
         self.assertEqual(self.series(track, "envs_beaten"), [1.0, 2.0, 2.0])
 
 
+def record_run(model: str, env: str, value: float, ci_lo: float | None, *, metric: str = "top1_success",
+               headline: bool = True, flags: tuple[str, ...] = (), p1: float | None = None, p95: str = "4.20 ms",
+               dirty: bool = False) -> dict:
+    """One run of the recovered report record, in report_record_2026-10-06.json's shape."""
+
+    return {"run_id": f"20261006T120000Z_{model}_{env}_{value}", "cell_id": f"{model}@{env}", "model": model, "env": env,
+            "metric": metric, "value_text": f"{value}", "value": value, "ci_lo": ci_lo,
+            "ci_hi": None if ci_lo is None else min(1.0, value + 0.01) if metric != "ap" else value + 3,
+            "n": 200, "latency_p50_text": "1.00 ms", "latency_p95_text": p95, "lost_in_conversion": "0",
+            "protocol": "eval-200", "eval_seed": "20261004", "started": "2026-10-06 19:41",
+            "git_sha": "747c4fdd dirty" if dirty else "747c4fdd", "flags": list(flags), "precision_at_1": p1,
+            "headline": headline}
+
+
+RECORD = {"source": "/x/grasp-bench-wave1-2026-10-04.html", "note": "fixture", "n_runs": 8, "n_headline_cells": 7,
+          "headlines": {}, "runs": [
+              record_run("M3.bandit", "toy/x", 1.0, 0.998),
+              record_run("M1.oracle", "toy/x", 1.0, 0.999, flags=("privileged",)),
+              record_run("M3.bandit", "mujoco/stage1", 0.97, 0.94, p95="12.5 ms", dirty=True),
+              # superseded (not the headline): higher, but the report did not show it as the cell's result
+              record_run("M0.uniform", "mujoco/stage1", 0.99, 0.98, headline=False, flags=("superseded",)),
+              record_run("M0.uniform", "mujoco/stage1", 0.02, 0.01),
+              # the dataset: AP best and P@1 best are different models, and must stay two KPIs
+              record_run("M3.dense", "graspnet1b/seen/realsense", 34.1, 31.2, metric="ap", p1=0.43),
+              record_run("M2.hill", "graspnet1b/seen/realsense", 24.5, 21.0, metric="ap", p1=0.46),
+              record_run("M1.oracle", "graspnet1b/seen/realsense", 66.2, 63.3, metric="ap", p1=0.65, flags=("privileged",)),
+          ]}
+RECORD_ID = "record-2026-10-06"
+RECORDED = "recorded Oct 6, not yet re-proved"
+
+
+class RecordTest(unittest.TestCase):
+    """The ledger was deleted with its worktree (Oct 6-10); until the rebuild refills it, the recovered record is shown,
+    labelled as recorded and not re-proved, and nothing claims a gate passed or "0 of N beaten"."""
+
+    # FixtureTest's bench and helpers, without re-running its tests here
+    tearDown, build, kpi, series = FixtureTest.tearDown, FixtureTest.build, FixtureTest.kpi, FixtureTest.series
+
+    def setUp(self) -> None:
+        FixtureTest.setUp(self)
+        self.record = self.out / "record" / "report_record_2026-10-06.json"
+        self.record.parent.mkdir(parents=True)
+        self.record.write_text(json.dumps(RECORD), encoding="utf-8")
+
+    def test_no_ledger_yet_shows_the_record_labelled_and_claims_no_verdict(self) -> None:
+        self.ledger.unlink()   # the rebuild has not written ledger/runs.jsonl yet
+        track = self.build()
+        self.assertEqual(self.bridge.calls, [])   # nothing to judge, so the bench is not asked
+        self.assertEqual([i["id"] for i in track["iterations"]], [RECORD_ID])
+        self.assertEqual(track["iterations"][0]["label"], "Oct 6 record · not re-proved")
+        # the north star stays unmeasured: the record has values, not the bench's verdicts; never "0 of 3 beaten"
+        north = self.kpi(track, "envs_beaten")
+        self.assertEqual((north["values"][0]["value"], north["values"][0]["measured"]), (None, False))
+        self.assertIn(RECORDED, north["values"][0]["note"])
+        self.assertEqual(north["status"], {"word": "not yet re-proved", "tone": "muted"})
+        self.assertNotRegex(track["summary"], r"\d+ of \d+ gated envs beaten")
+        self.assertEqual(track["state"]["word"], "Rebuilding evidence")
+        self.assertIn("0 of 7 recorded cells re-run", track["summary"])
+        self.assertIn(f"values are the Oct 6 record, not yet re-proved", track["summary"])
+        self.assertIsNone(track["rung"])
+        # every gate is unknown with the recorded value and its label, never pass on a value nobody re-proved
+        for gate in (k for k in track["kpis"] if (k["target"] or {}).get("kind") == "gate"):
+            verdict = detail.gate_verdict(gate)
+            self.assertIsNone(verdict["pass"], gate["id"])
+            self.assertTrue(verdict["why"].startswith(RECORDED) or verdict["why"] == "not measured yet", verdict)
+        toy = detail.gate_verdict(self.kpi(track, "gate_toy_x"))
+        self.assertEqual((toy["value"], toy["iteration"]), (99.8, RECORD_ID))   # the oracle's 99.9 is privileged
+        self.assertEqual(toy["why"], f"{RECORDED} · M3.bandit")
+        self.assertIn("M3.bandit Wilson LB 99.8 % on eval-200", self.kpi(track, "gate_toy_x")["values"][0]["note"])
+        self.assertEqual(detail.gate_verdict(self.kpi(track, "gate_mujoco_stage0"))["why"], "not measured yet")
+        # soft KPIs carry the recorded values with the label as their status
+        mujoco = self.kpi(track, "tier_best_mujoco")
+        self.assertEqual(self.series(track, "tier_best_mujoco"), [97.0])        # the superseded 99 % is not the headline
+        self.assertEqual(mujoco["status"], {"word": RECORDED, "tone": "muted"})
+        self.assertTrue(mujoco["values"][0]["note"].startswith(RECORDED))
+        self.assertEqual(self.series(track, "latency_mujoco"), [12.5])
+        self.assertEqual(self.kpi(track, "latency_mujoco")["status"]["word"], RECORDED)
+        # AP and label-judged top-1 are separate KPIs, each its own best, the oracle excluded from both
+        self.assertEqual(self.series(track, "dataset_ap_graspnet1b"), [34.1])
+        self.assertEqual(self.series(track, "dataset_p1_graspnet1b"), [46.0])
+        self.assertEqual(self.series(track, "wave1_cells"), [4.0])
+        self.assertEqual(self.series(track, "rebuild_progress"), [0.0])
+        self.assertEqual(self.series(track, "dirty_share"), [12.5])
+        # every point's evidence is an item of its own column
+        items = {item["id"]: item for item in track["evidence"]["by_iteration"][RECORD_ID]}
+        self.assertEqual(len([item for item in items.values() if item["kind"] == "run"]), 7)   # the headline runs
+        for kpi in track["kpis"]:
+            for point in kpi["values"]:
+                for evidence_id in point["evidence"]:
+                    self.assertEqual(items[evidence_id]["status"], "recorded (not re-proved)")
+        self.assertIn({"label": "Recovered record (Oct 6 record)", "kind": "path", "value": str(self.record)},
+                      track["links"])
+
+    def test_the_rebuilt_ledger_follows_the_record_and_its_verdict_wins(self) -> None:
+        track = self.build()
+        self.assertEqual([i["id"] for i in track["iterations"]], [RECORD_ID, "T1", "T2", "T1-s1"])
+        self.assertEqual(self.series(track, "envs_beaten"), [None, 1.0, 2.0, 2.0])
+        self.assertEqual(self.series(track, "rebuild_progress"), [0.0, 2.0, 4.0, 4.0])
+        self.assertEqual(self.kpi(track, "rebuild_progress")["values"][-1]["of"], 7)
+        self.assertIn("evidence rebuild: 4 of 7 recorded cells re-run", track["summary"])
+        self.assertEqual(track["state"]["word"], "Tier 2 · MuJoCo physics")
+        self.assertEqual(detail.gate_verdict(self.kpi(track, "gate_toy_x"))["pass"], True)
+        self.assertEqual(self.series(track, "tier_best_mujoco"), [97.0, None, 100.0, 100.0])
+        self.assertNotEqual(self.kpi(track, "tier_best_mujoco")["status"]["word"], RECORDED)
+        # an env the rebuilt ledger has not reached keeps the record's word, never the bench's empty "not beaten"
+        stage0 = self.kpi(track, "gate_mujoco_stage1")
+        early = dict(stage0, values=stage0["values"][:2])     # the record, then T1 (no stage1 row yet)
+        self.assertEqual(detail.gate_verdict(early)["pass"], None)
+        self.assertTrue(detail.gate_verdict(early)["why"].startswith(RECORDED))
+        self.assertEqual(base.problems(track), [])
+
+    def test_an_unreadable_record_is_a_named_problem_never_a_crash(self) -> None:
+        self.record.write_text("{not json", encoding="utf-8")
+        track = self.build()
+        self.assertEqual([i["id"] for i in track["iterations"]], ["T1", "T2", "T1-s1"])
+        self.assertTrue(any(p.startswith("record unreadable") for p in track["source"]["problems"]))
+        self.ledger.unlink()
+        track = grasping.build_track(work_track(), self.sources, bridge=FakeBridge(self))
+        self.assertEqual(track["state"]["word"], base.NOT_REPORTING)
+        self.assertIn("ledger missing", track["summary"])
+        self.assertIn("record unreadable", track["summary"])
+
+    def test_the_rebuild_status_file_is_linked_when_the_loop_writes_it(self) -> None:
+        self.assertFalse(any(link["label"].startswith("Rebuild status") for link in self.build()["links"]))
+        status = self.out / "loop" / "STATUS.md"
+        status.parent.mkdir(parents=True)
+        status.write_text("# rebuild\n", encoding="utf-8")
+        track = self.build()
+        self.assertIn({"label": "Rebuild status (loop/STATUS.md)", "kind": "path", "value": str(status)}, track["links"])
+        self.assertIn("loop/STATUS.md written", self.kpi(track, "rebuild_progress")["status"]["word"])
+
+    def test_the_lane_is_named_when_the_bench_code_sits_in_an_agent_worktree(self) -> None:
+        self.assertIsNone(grasping.bench_lane(self.root))
+        lane = grasping.bench_lane(Path("/home/bam/bam_ws/.claude/worktrees/grasping-evidence-rebuild-cb787d/src/core/"
+                                        "mdp/agent/actor/policy/grasp_bench"))
+        self.assertEqual(lane, "bench code lives on an agent lane (worktree grasping-evidence-rebuild-cb787d), "
+                               "not on bam_ws main")
+
+
 #: True when every run row the page shows as clearing a gate carries the measurements that clearing needs.
 def gate_claims_have_measurements(test: unittest.TestCase, track: dict) -> None:
     runs = [item for items in track["evidence"]["by_iteration"].values() for item in items if item["kind"] == "run"]
@@ -470,7 +645,9 @@ def gate_claims_have_measurements(test: unittest.TestCase, track: dict) -> None:
             test.assertTrue(beaten, f"{point['value']} beaten with no passing run row beside it: {point}")
 
 
-LIVE_BENCH = Path("/home/bam/bam_ws/.claude/worktrees/grasping-agent-roadmap-ab12d8/src/core/mdp/agent/actor/policy/grasp_bench")
+# WHY from the sources map and not a pinned path: the pinned worktree (grasping-agent-roadmap-ab12d8) was swept on
+# Oct 6-10 and every live check here skipped silently; the map is what the dashboard itself reads.
+LIVE_BENCH = Path(load_sources()["grasping_bench_dir"])
 
 
 @unittest.skipUnless((LIVE_BENCH / ".venv" / "bin" / "python").exists(), f"no bench venv at {LIVE_BENCH}")

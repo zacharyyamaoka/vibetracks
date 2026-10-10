@@ -179,6 +179,10 @@ class V07CodexReproductionTest(unittest.TestCase):
             self.skipTest(f"the grasping loop is not on this machine ({sources.get('grasp_bench_dir')})")
         if not os.path.isfile("/etc/hostname"):
             self.skipTest("/etc/hostname does not exist here")
+        ledger = Path(live[1].get("grasp_bench_out") or Path(live[1]["grasp_bench_dir"]) / "out") / "ledger" / "runs.jsonl"
+        if not (ledger.is_file() and ledger.read_bytes().strip()):
+            # WHY: the injection rides on ledger rows; with none (the Oct 10 evidence rebuild) nothing could reach the doc.
+            self.skipTest(f"the grasping loop's ledger has no rows yet ({ledger})")
         injected = {"path": "/etc/hostname", "abs": "/etc/hostname"}
         real_read = grasping_projector.read_ledger
 

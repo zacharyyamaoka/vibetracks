@@ -122,3 +122,57 @@ class WorktreeResolveTest(unittest.TestCase):
         self.assertTrue(loaded["kinsim_curriculum_dir"].endswith("src/dev/bam_curriculum"))
         self.assertNotIn("roadmap-curriculum-viz", loaded["kinsim_curriculum_dir"])
         self.assertEqual(loaded["kinsim_loop_dir"], loaded["kinsim_curriculum_dir"])
+
+
+class GraspingSplitTest(unittest.TestCase):
+    """The grasp bench's data (ledger, attestations, record) hangs off its out root, never off its code checkout.
+
+    WHY (2026-10-10): the ledger lived in the gitignored out/ of agent worktree grasping-agent-roadmap-ab12d8 and was
+    deleted with it, which blinded the Grasping track. Moving the code must not move where the data is read from.
+    """
+
+    def setUp(self) -> None:
+        sources._WORKTREE_CACHE.clear()
+
+    def test_data_keys_follow_the_out_root_and_code_keys_follow_the_bench(self) -> None:
+        loaded = sources.load_sources(Path("/nonexistent/sources.json"))
+        out = loaded["grasping_out_dir"]
+        self.assertEqual(out, os.path.join(HOME, ".local/share/grasp_bench/out"))
+        for key, rest in (("grasping_ledger", "ledger/runs.jsonl"), ("grasping_attestations", "ledger/attestations.jsonl"),
+                          ("grasping_record", "record/report_record_2026-10-06.json"),
+                          ("grasping_rebuild_status", "loop/STATUS.md")):
+            self.assertEqual(loaded[key], f"{out}/{rest}", key)
+        self.assertEqual(loaded["grasp_bench_out"], out)   # the roadmap projector's name for the same root
+        bench = loaded["grasping_bench_dir"]
+        self.assertTrue(bench.endswith("src/core/mdp/agent/actor/policy/grasp_bench"), bench)
+        self.assertFalse(out.startswith(bench + os.sep), "the out root must not live inside the bench checkout")
+        self.assertNotIn("grasping-agent-roadmap-ab12d8", "".join(loaded.values()))
+        for key in ("grasping_curriculum", "grasping_bench_python", "grasping_gallery_py", "grasping_bench_src"):
+            self.assertTrue(loaded[key].startswith(bench + os.sep), key)
+
+    def test_moving_the_code_leaves_the_data_where_it_is(self) -> None:
+        with tempfile.TemporaryDirectory() as folder:
+            file = Path(folder) / "sources.json"
+            file.write_text(json.dumps({"grasping_bench_dir": "/elsewhere/grasp_bench"}), encoding="utf-8")
+            loaded = sources.load_sources(file)
+        self.assertEqual(loaded["grasping_curriculum"], "/elsewhere/grasp_bench/src/grasp_bench/curriculum.py")
+        self.assertEqual(loaded["grasping_ledger"], os.path.join(HOME, ".local/share/grasp_bench/out/ledger/runs.jsonl"))
+
+    def test_the_bench_code_follows_its_branch_and_falls_back_to_bam_ws_main(self) -> None:
+        porcelain = ("worktree /home/bam/bam_ws\nHEAD 1\nbranch refs/heads/main\n\n"
+                     "worktree /wt/rebuild\nHEAD 2\nbranch refs/heads/claude/grasping-evidence-rebuild-cb787d\n")
+
+        class Done:
+            stdout = porcelain
+
+        value = sources.WORKTRACK_SOURCES["grasping_bench_dir"]
+        original = sources.subprocess.run
+        sources.subprocess.run = lambda *a, **k: Done()
+        try:
+            self.assertEqual(sources._resolve_worktree(value), "/wt/rebuild/src/core/mdp/agent/actor/policy/grasp_bench")
+            sources._WORKTREE_CACHE.clear()
+            Done.stdout = "worktree /home/bam/bam_ws\nHEAD 1\nbranch refs/heads/main\n"   # the lane swept or merged
+            self.assertEqual(sources._resolve_worktree(value), "/home/bam/bam_ws/src/core/mdp/agent/actor/policy/grasp_bench")
+        finally:
+            sources.subprocess.run = original
+            sources._WORKTREE_CACHE.clear()
