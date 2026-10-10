@@ -24,7 +24,7 @@ from pathlib import Path
 from unittest import mock
 
 from tests.test_grasp_bench_bridge_snapshot import ENRICHED, SPARSE, make_real_bench
-from vibetracks.dashboard import registry
+from vibetracks.dashboard import needs, registry
 from vibetracks.benches import grasp_bench_bridge
 from vibetracks.dashboard.adapters import base, grasping
 from vibetracks.dashboard.registry import WorkTrack
@@ -741,6 +741,42 @@ class MilestonesAndStatusTest(unittest.TestCase):
         track = self.build()
         self.assertNotIn("milestones", track)
         self.assertTrue(any("roadmap_v4.json is not grasp-roadmap/1" in p for p in track["source"]["problems"]))
+
+    def test_needs_you_is_the_roadmaps_decisions_at_most_three(self) -> None:
+        # WHY (coordinator, 2026-10-10): the eight per-model download cells are one question, D1; S7 shows <= 3
+        roadmap = json.loads(json.dumps(ROADMAP))
+        roadmap["needs_you"][1]["blocks"] = ["every milestone"]
+        roadmap["needs_you"][2]["default"] = None
+        self.roadmap.write_text(json.dumps(roadmap), encoding="utf-8")
+        doc = needs.build_track("grasping", self.sources, title="Grasping")
+        self.assertEqual(doc["source"]["adapter"], "grasp_roadmap")
+        self.assertIn("1 more wait in the file", doc["source"]["note"])
+        items = {item["local_id"]: item for item in doc["items"]}
+        self.assertEqual(set(items), {"D1", "D2", "D3"})
+        self.assertEqual(items["D1"]["ask"], "question 1")                       # the file's own words
+        self.assertEqual(items["D1"]["default"]["text_md"], "default 1")
+        self.assertTrue(items["D1"]["blocking_now"])                              # names a rung of the file
+        self.assertEqual(items["D2"]["blocks"], [{"id": "every milestone", "kind": "note", "label": None}])
+        self.assertFalse(items["D2"]["blocking_now"])                             # free words never block alone
+        self.assertEqual(items["D3"]["group"], "blocking")
+        self.assertEqual((doc["counts"]["open"], doc["counts"]["blocking_now"]), (3, 2))
+        self.assertIn("D1/D2/D3", doc["answer_channel"]["read_back"])
+        self.assertEqual([n["id"] for n in self.build()["needs_you"]], ["D1", "D2", "D3"])
+        self.assertIn("3 decisions open (roadmap_v4.json)", self.build()["summary"])
+
+    def test_needs_fall_back_to_the_curriculum_only_when_the_roadmap_is_missing(self) -> None:
+        self.roadmap.unlink()
+        doc = needs.build_track("grasping", self.sources, title="Grasping")
+        self.assertEqual(doc["source"]["adapter"], "grasp_curriculum")
+        self.assertEqual([item["local_id"] for item in doc["items"]], ["M5.ggcnn"])
+        self.assertIn("name model ids verbatim", doc["answer_channel"]["read_back"])
+        self.assertEqual([n["id"] for n in self.build()["needs_you"]], ["grasping:download:M5.ggcnn"])
+        # an unreadable roadmap is a stated reason with unknown counts, never a silent return to the old questions
+        self.roadmap.write_text("{torn", encoding="utf-8")
+        doc = needs.build_track("grasping", self.sources, title="Grasping")
+        self.assertEqual((doc["source"]["adapter"], doc["items"]), ("grasp_roadmap", []))
+        self.assertIn("roadmap_v4.json unreadable", doc["source"]["note"])
+        self.assertIsNone(doc["counts"]["open"])
 
     def test_status_json_drives_the_latest_rebuild_reading(self) -> None:
         self.status.write_text(json.dumps(rebuild_status()), encoding="utf-8")

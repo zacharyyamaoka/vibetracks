@@ -1516,7 +1516,12 @@ def build_track(work_track: Any, sources: dict[str, str], *, bridge: Bridge | No
         licence = f" Licence: {spec.licence}." if spec else ""
         needs.append({"id": f"grasping:download:{model_id}", "q": f"Approve the {title} download?{detail}{licence}",
                       "blocks": [cell.id for cell in cells], "default": None, "applies": None})
+    if roadmap is not None:
+        # WHY the roadmap's decisions replace the per-model approvals (coordinator, 2026-10-10): the eight download cells
+        # are one question, D1, and at most three decisions are surfaced at once (needs.py reads the same file).
+        needs = [dict(need) for need in milestones(roadmap, sources["grasping_roadmap_v4"])["needs_you"]]
     track["needs_you"] = needs
+    needs_words = f"{len(needs)} " + ("decisions open (roadmap_v4.json)" if roadmap is not None else "download approvals open")
 
     # ---- state + summary
     latest = snaps[-1] if snaps else snapshot(None, [], cur, None)
@@ -1544,7 +1549,7 @@ def build_track(work_track: Any, sources: dict[str, str], *, bridge: Bridge | No
                           "since": None}
         track["summary"] = " · ".join(bit for bit in [
             f"evidence rebuild: {rebuild}", f"values are the {record.label}, not yet re-proved", lane or "",
-            f"{len(needs)} download approvals open" if needs else ""] if bit)
+            needs_words if needs else ""] if bit)
     elif not runs:
         track["state"] = {"word": "No runs yet", "tone": "muted", "detail": f"runs.jsonl is empty · written {_local(ledger_mtime)}",
                           "since": None}
@@ -1556,7 +1561,7 @@ def build_track(work_track: Any, sources: dict[str, str], *, bridge: Bridge | No
                           "since": None}
         track["summary"] = (f"{UNAVAILABLE}: {unavailable} · {len(runs)} ledger rows · {wave1_total} wave-1 cells planned"
                             + (f" · evidence rebuild: {rebuild}" if rebuild else "")
-                            + (f" · {len(needs)} download approvals open" if needs else ""))
+                            + (f" · {needs_words}" if needs else ""))
     else:
         if tier is None:
             word, detail_bits = "Wave 1 complete", ["every wave-1 cell measured and every gate beaten"]
@@ -1592,7 +1597,7 @@ def build_track(work_track: Any, sources: dict[str, str], *, bridge: Bridge | No
         if rebuild:
             summary += f" · evidence rebuild: {rebuild}"
         if needs:
-            summary += f" · {len(needs)} download approvals open"
+            summary += f" · {needs_words}"
         if lane:
             summary += f" · {lane}"
         track["summary"] = summary

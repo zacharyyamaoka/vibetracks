@@ -77,9 +77,11 @@ FALLBACK_TRACK_IDS = ["kinsim", "rig", "grasping", "detection", "pyblocks"]
 #: Where each prose-sourced track's answer goes back. WHY kept beside the parsers: the item text names model ids and
 #: rung ids verbatim, and these channels are how the session that owns the file reads them.
 CHANNELS: dict[str, dict[str, Any]] = {
-    "grasping": {"kind": "chat_paste", "target": "the grasping track session (ebbbbd1c, ~/.claude-proprotectives)",
+    # WHY not session ebbbbd1c any more (2026-10-10): that Oct 4-6 session has ended; work order v4 section 6 names the
+    # grasping loop's own session, which owns roadmap_v4.json's needs_you.
+    "grasping": {"kind": "chat_paste", "target": "the grasping loop session (work order v4 section 10), or the coordinator",
                  "row_schema": None,
-                 "read_back": "by hand: the session edits curriculum.py CELLS by model id, so name model ids verbatim"},
+                 "read_back": "by hand: the loop edits roadmap_v4.json needs_you by id, so name D1/D2/D3 verbatim"},
     "detection": {"kind": "note_paste", "target": "Daily Note '# Hyper feedback', or the loop's start prompt",
                   "row_schema": None, "read_back": "no loop reads answers yet"},
 }
@@ -753,7 +755,63 @@ def _prose_item(track: str, local_id: str, *, kind: str, title: str, ask: str, c
 
 
 def build_grasping(sources: Mapping[str, str], title: str = "grasping") -> dict[str, Any]:
-    """curriculum.py CELLS with status 'needs' whose ``why`` names a download approval: one item per model id.
+    """The grasping loop's decisions: roadmap_v4.json ``needs_you`` (grasp-roadmap/1), at most three.
+
+    WHY the roadmap and not curriculum.py (Zach's coordinator, 2026-10-10): the eight per-model download approvals are
+    one question, D1 (the download packet), and work order v4 section 7 surfaces at most three decisions at once. The
+    curriculum's download cells answer only when the roadmap file is missing; an unreadable roadmap is a stated reason
+    (counts null), never a silent fallback to the old questions.
+
+    Every text field is the file's own words: the ask is ``q``, the default is ``default``. A block that names one of the
+    file's rung or milestone ids is a ``rung`` (it holds the climb, so the item blocks); free words ("every milestone")
+    are kept as a ``note`` block, which never blocks by itself.
+    """
+    path = sources.get("grasping_roadmap_v4")
+    if not path or not Path(path).is_file():
+        return _grasping_from_curriculum(sources, title)
+    channel = CHANNELS["grasping"]
+    roadmap, problem = grasping_adapter.load_roadmap(path)
+    if roadmap is None:
+        return _empty_doc("grasping", title, problem or f"roadmap_v4.json could not be read ({path})", paths=[path],
+                          channel=channel, adapter="grasp_roadmap")
+    try:
+        text = Path(path).read_text(encoding="utf-8")
+    except (OSError, UnicodeDecodeError):
+        text = ""
+    ids = {str(m.get("id")) for m in roadmap["milestones"] if isinstance(m, dict)} | {
+        str(r.get("id")) for m in roadmap["milestones"] if isinstance(m, dict) for r in m.get("rungs") or []
+        if isinstance(r, dict)}
+    asked = [n for n in roadmap.get("needs_you") or [] if isinstance(n, dict) and n.get("id") and n.get("q")]
+    shown = asked[:grasping_adapter.SHOWN]
+    updated = _mtime_iso(path)
+    items = []
+    for need in shown:
+        blocks = [{"id": str(block), "kind": "rung" if str(block) in ids else "note", "label": None}
+                  for block in need.get("blocks") or []]
+        default = need.get("default")
+        items.append(_prose_item(
+            "grasping", str(need["id"]), kind="decision", title=str(need["q"]), ask=str(need["q"]),
+            context_md=str(need["q"]), base_md="", question_md="", default_md=str(default) if default else None,
+            applies_unit="unstated", blocks=blocks,
+            evidence=[_file_line(path, _line_of(text, f'"id": "{need["id"]}"'), f"roadmap_v4.json needs_you {need['id']}")],
+            asked_by="grasping loop (roadmap_v4.json needs_you)", updated_ts=updated, raw_status="open"))
+    items.sort(key=_sort_key)
+    more = len(asked) - len(shown)
+    return {
+        "schema": SCHEMA, "track": "grasping", "track_title": title, "generated_at": _now(), "iteration": None,
+        "source": {"adapter": "grasp_roadmap", "paths": [path], "commit": _git_last_commit(Path(path).parent, Path(path).name),
+                   "live": True,
+                   "note": "roadmap_v4.json needs_you (grasp-roadmap/1), read live from the loop branch's checkout "
+                           "(bam_ws main once merged), at most three at once (work order v4 section 7)"
+                           + (f"; {more} more wait in the file" if more else "") + "."},
+        "answer_channel": channel,
+        "counts": _counts(items), "items": items,
+    }
+
+
+def _grasping_from_curriculum(sources: Mapping[str, str], title: str = "grasping") -> dict[str, Any]:
+    """Fallback when roadmap_v4.json is missing: curriculum.py CELLS with status 'needs' whose ``why`` names a download
+    approval, one item per model id.
 
     Parsed by the grasping adapter's own ``load_curriculum`` + ``needs_cells`` + ``approval_phrases`` (one parser, not
     two). The question is the model id plus the cells' own words for the ask ("M5.ggcnn · download approval"): CELLS
@@ -767,7 +825,9 @@ def build_grasping(sources: Mapping[str, str], title: str = "grasping") -> dict[
     the cells it holds are listed in ``blocks`` (kind ``cell``, which ``holds_gate`` never counts) so the page can
     still say what waits on it.
     """
-    channel = CHANNELS["grasping"]
+    # WHY its own read-back: in this fallback the questions are curriculum.py's, named by model id
+    channel = {**CHANNELS["grasping"],
+               "read_back": "by hand: the session edits curriculum.py CELLS by model id, so name model ids verbatim"}
     path = sources.get("grasping_curriculum")
     if not path or not Path(path).is_file():
         return _empty_doc("grasping", title, f"curriculum.py not found ({path or 'grasping_curriculum is not a sources key'})",

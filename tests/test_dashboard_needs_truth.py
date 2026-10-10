@@ -14,6 +14,7 @@ this machine's real curriculum.py and plan note when they exist.
 
 from __future__ import annotations
 
+import json
 import tempfile
 import unittest
 from pathlib import Path
@@ -166,6 +167,21 @@ _SOURCES = load_sources()
 class LiveTruthTest(unittest.TestCase):
     def test_live_grasping(self) -> None:
         doc = needs.build_track("grasping", _SOURCES, title="Grasping")
+        roadmap = Path(_SOURCES.get("grasping_roadmap_v4", "/nonexistent"))
+        if roadmap.is_file():
+            # WHY (coordinator, 2026-10-10): the loop's decisions come from roadmap_v4.json, at most three, verbatim
+            asked = {n["id"]: n for n in json.loads(roadmap.read_text(encoding="utf-8"))["needs_you"]}
+            self.assertEqual(doc["source"]["adapter"], "grasp_roadmap")
+            self.assertLessEqual(len(doc["items"]), 3)
+            self.assertEqual({item["local_id"] for item in doc["items"]}, set(list(asked)[:3]))
+            for item in doc["items"]:
+                with self.subTest(item=item["local_id"]):
+                    need = asked[item["local_id"]]
+                    self.assertEqual(item["ask"], need["q"])
+                    self.assertEqual(item["default"]["text_md"], need.get("default") or "")
+                    self.assertEqual([block["id"] for block in item["blocks"]], need.get("blocks") or [])
+                    self.assertEqual(item["blocking_now"], any(block["kind"] == "rung" for block in item["blocks"]))
+            return
         text = Path(_SOURCES["grasping_curriculum"]).read_text(encoding="utf-8")
         self.assertIn(SOURCE_NOTE, doc["source"]["note"])
         self.assertEqual(doc["counts"]["blocking_now"], 0)
