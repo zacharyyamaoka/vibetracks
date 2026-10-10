@@ -122,6 +122,36 @@
       <div class="pg-note">${esc(doc.title || '')} · as of ${esc((doc.as_of && doc.as_of.branch) || 'unknown branch')} ${esc(((doc.as_of && doc.as_of.head) || '').slice(0, 8))} · generated ${esc(VT.ago(doc.generated_at))}</div></div>`;
   }
 
+  // ------------------------------------------------------------------ milestones: the loop's own milestone ladder
+  // WHY rendered as written: the adapter reads the loop's milestone file (grasping: roadmap_v4.json, grasp-roadmap/1);
+  // today's value carries the label it came with ("recorded …, not yet re-proved"), never a verdict computed here.
+  function milestoneLadder(ms) {
+    if (!ms || !(ms.items || []).length) return '';
+    const rows = ms.items.map((m) => {
+      const r = m.rung;
+      const sq = (m.rungs || []).map((x) => `<i class="pg-rung s-${esc(x.status)}${r && x.id === r.id ? ' front' : ''}" title="${esc(`${x.id} · ${x.title} · ${RUNG_WORD[x.status] || x.status}`)}"></i>`).join('');
+      const today = m.today || {};
+      const bar = m.bar ? `<small class="faint pg-wrap" title="${esc((m.bar.done_when || []).join('\n\n'))}">bar · ${esc(m.bar.rung)} ${esc(m.bar.title || '')}${m.bar.metric ? ' · ' + esc(m.bar.metric) : ''}</small>` : '<small class="unk">no done rung named</small>';
+      const blocked = (m.blocked_by || []).length ? `<small class="warnword pg-wrap">blocked by ${esc(m.blocked_by.join(' · '))}</small>` : '';
+      return `<div class="pg-gate pg-ms" data-testid="vt-milestone" data-milestone-id="${esc(m.id)}" data-status="${esc(m.status)}">
+        <span class="pg-gp p-${m.status === 'green' || m.status === 'done' ? 'true' : 'unknown'}">${esc(RUNG_WORD[m.status] || m.status || 'unknown')}</span>
+        <span class="pg-gl"><span class="t">${esc(m.title || m.id)} <span class="faint">${esc(m.id)}</span></span>
+          <span class="pg-rungs">${sq}</span>
+          <small>${r ? `current rung ${esc(r.id)} · ${esc(r.title || '')} · ${esc(RUNG_WORD[r.status] || r.status)}` : 'every rung green'}</small>${bar}${blocked}</span>
+        <span class="pg-gw"><span class="pg-wrap">${today.display ? esc(today.display) : '<span class="unk">no value yet</span>'}</span><small class="faint">${esc(today.label || '')}${m.bar && m.bar.comparison === 'published' && !today.comparable_to_published ? ' · not comparable to published' : ''}</small></span></div>`;
+    }).join('');
+    const needs = (ms.needs_you || []).map((n) => `<div class="pg-mqrow"><b>${esc(n.id)}</b><span class="pg-wrap">${esc(n.q || '')}<small class="faint">default if you say nothing: ${esc(n.default || 'none stated')}</small></span></div>`).join('');
+    const queue = (list) => (list || []).map((q) => `<div class="pg-mqrow"><b>${esc(q.id)}</b><span class="pg-wrap">${esc(q.title || '')}<small class="faint">${esc(q.status || '')}${(q.unlocks || []).length ? ' · unlocks ' + esc(q.unlocks.join(', ')) : ''}</small></span></div>`).join('') || '<p class="faint pg-p">nothing next</p>';
+    const more = ms.needs_you_total > (ms.needs_you || []).length ? ` <span class="faint">· ${ms.needs_you_total - ms.needs_you.length} more in the file</span>` : '';
+    return `<h2 class="pg-h2">Milestones <span class="faint pg-hs">· the loop's ladder, current rung, today's value against the bar</span></h2>
+      <div class="pg-card pg-gates" data-testid="vt-milestones">${rows}</div>
+      <div class="pg-mq">
+        ${needs ? `<div class="pg-card"><div class="pg-mqh">Decisions from the loop${more}</div>${needs}</div>` : ''}
+        <div class="pg-card"><div class="pg-mqh">Next in the model queue</div>${queue(ms.model_queue)}</div>
+        <div class="pg-card"><div class="pg-mqh">Next in the env queue</div>${queue(ms.env_queue)}</div></div>
+      <div class="pg-note">${esc(ms.source || '')}${ms.as_of && ms.as_of.note ? ' · ' + esc(ms.as_of.note) : ''}</div>`;
+  }
+
   function overview(t, d) {
     const k = d.kpis || {};
     const soft = (k.soft || []).slice().sort((a, b) => (b.north_star ? 1 : 0) - (a.north_star ? 1 : 0));
@@ -136,6 +166,7 @@
       <h2 class="pg-h2 bar2">Soft KPIs <span class="faint pg-hs">· every dimension side by side, so a trade-off shows</span><span class="spacer"></span>${soft.length ? toggle : ''}</h2>
       ${nsGate ? `<p class="pg-p faint">The north star, ${esc(nsGate.label)}, is a hard gate below.</p>` : ''}${softHtml}
       <h2 class="pg-h2">Hard gates <span class="faint pg-hs">· pass / fail, never averaged in</span></h2>${gates(gl)}
+      ${milestoneLadder(d.milestones)}
       <h2 class="pg-h2">Roadmap <span class="faint pg-hs">· rung ladder</span></h2>${roadmap(t, d)}`;
   }
 

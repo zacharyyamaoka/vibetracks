@@ -90,6 +90,13 @@ WORKTRACK_SOURCES: dict[str, str] = {
     # loss (read-only, a frozen ruler), and the rebuild loop's progress file. Both live under the out root.
     "grasping_record": "{grasping_out_dir}/record/report_record_2026-10-06.json",
     "grasping_rebuild_status": "{grasping_out_dir}/loop/STATUS.md",
+    # Appended 2026-10-10 (follow-up): the rebuild loop's machine-readable progress (grasp-bench-rebuild-status/1),
+    # and the four-milestone roadmap (grasp-roadmap/1, work order v4 section 6). WHY the roadmap resolved like the
+    # bench code (branch first, bam_ws main once merged) and never a pinned worktree path: a pinned path is what the
+    # Oct 6-10 sweep blinded.
+    "grasping_rebuild_status_json": "{grasping_out_dir}/loop/status.json",
+    "grasping_roadmap_v4": "@worktree:/home/bam/bam_ws:claude/grasping-evidence-rebuild-cb787d:docs/grasping/roadmap_v4.json"
+                           "|/home/bam/bam_ws/docs/grasping/roadmap_v4.json",
 }
 _REFERENCE = re.compile(r"^\{(?P<key>[a-z0-9_]+)\}")
 

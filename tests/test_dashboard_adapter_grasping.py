@@ -202,7 +202,9 @@ def bench_sources(root: Path, out: Path | None = None) -> dict[str, str]:
             "grasping_runner_py": str(code / "runner.py"), "grasping_contracts_py": str(code / "contracts.py"),
             "grasping_bench_src": str(code), "grasping_verdict_cache": str(root / "cache"),
             "grasping_record": str(out / "record" / "report_record_2026-10-06.json"),
-            "grasping_rebuild_status": str(out / "loop" / "STATUS.md")}
+            "grasping_rebuild_status": str(out / "loop" / "STATUS.md"),
+            "grasping_rebuild_status_json": str(out / "loop" / "status.json"),
+            "grasping_roadmap_v4": str(root / "docs" / "grasping" / "roadmap_v4.json")}
 
 
 def work_track() -> WorkTrack:
@@ -632,6 +634,160 @@ class RecordTest(unittest.TestCase):
                                "not on bam_ws main")
 
 
+def rung_(rung_id: str, status: str, title: str = "a rung", display: str | None = None) -> dict:
+    return {"id": rung_id, "title": title, "comparison": "harness", "done_when": [f"{rung_id} clause one", "clause two"],
+            "metric": "AP", "threshold": {}, "status": status, "current": {"display": display}, "gap": "far",
+            "depends_on": [], "needs": []}
+
+
+#: grasp-roadmap/1 in the shape of docs/grasping/roadmap_v4.json (work order v4 section 6), trimmed to what is read.
+ROADMAP = {
+    "schema": "grasp-roadmap/1", "track": "grasping", "generated_at": "2026-10-10T16:30:00-07:00",
+    "as_of": {"evidence": "record", "note": "Values come from the record recovered from the Oct 6 report."},
+    "milestones": [
+        {"id": "REAL-4DOF", "order": 2, "title": "4-DoF grasping in real life", "done_rung": "REAL-4DOF.b",
+         "status": "missing", "blocked_by": ["rig:T17 arm mechanical support"], "owner": "rig",
+         "current": {"value": 0, "display": "0 verified real picks", "source": "KPI note S1", "as_of": "2026-10-10"},
+         "rungs": [rung_("REAL-4DOF.a", "missing", "First verified real pick"), rung_("REAL-4DOF.b", "missing", "Done")]},
+        {"id": "GN1B-6DOF", "order": 1, "title": "6-DoF grasping on GraspNet-1Billion", "done_rung": "GN1B-6DOF.c",
+         "status": "partial", "blocked_by": ["needs_you:D1 downloads"], "unknown_field": {"ignored": True},
+         "current": {"value": 34.1, "display": "AP 34.1 (4-DoF height-only net)", "source": "record_2026-10-06",
+                     "as_of": "2026-10-05", "comparable_to_published": False},
+         "rungs": [rung_("GN1B-6DOF.a", "green", "Harness calibrated"), rung_("GN1B-6DOF.b", "partial", "6-DoF on the board",
+                                                                              "AP 20.7"),
+                   rung_("GN1B-6DOF.c", "missing", "At the frontier")]},
+    ],
+    "model_queue": [{"order": 1, "id": "Q0", "title": "diagnostics", "status": "ready", "unlocks": ["GN1B-6DOF.a"]},
+                    {"order": 2, "id": "Q5", "title": "retrain", "status": "later"},
+                    {"order": 3, "id": "Q1", "title": "CUDA build", "status": "needs_download"},
+                    {"order": 4, "id": "Q10", "title": "watch list", "status": None},
+                    {"order": 5, "id": "Q2", "title": "EconomicGrasp", "status": "needs_download"},
+                    {"order": 6, "id": "Q3", "title": "graspnet-baseline", "status": "needs_download"}],
+    "env_queue": [{"order": 1, "id": "E1", "title": "kinect envs", "status": "ready", "unlocks": ["GN1B-6DOF.b"]},
+                  {"order": 2, "id": "E9", "title": "real/pick", "status": "blocked"}],
+    "needs_you": [{"id": f"D{i}", "q": f"question {i}", "blocks": ["GN1B-6DOF.a"], "default": f"default {i}",
+                   "applies": "now"} for i in range(1, 5)],
+}
+
+
+def rebuild_status(**overrides) -> dict:
+    doc = {"schema": "grasp-bench-rebuild-status/1", "code_sha": "c299cd83", "started": "2026-10-10T15:00:00-07:00",
+           "updated": "2026-10-10T17:05:00-07:00",
+           "current": {"step": "B", "cell": "M3.dense@toy/xy_rz", "seed": 1, "started": "2026-10-10T17:00:00-07:00"},
+           "steps": [{"step": "A", "title": "floors", "cells_total": 20, "cells_done": 20, "state": "done", "eta": None},
+                     {"step": "B", "title": "toy learners", "cells_total": 30, "cells_done": 12, "state": "running",
+                      "eta": "2026-10-10T19:40:00-07:00"},
+                     {"step": "C", "title": "MuJoCo", "cells_total": 40, "cells_done": 0, "state": "queued",
+                      "eta": "2026-10-11T06:00:00-07:00"}],
+           "failures": []}
+    doc.update(overrides)
+    return doc
+
+
+class MilestonesAndStatusTest(unittest.TestCase):
+    """roadmap_v4.json's four-milestone ladder and loop/status.json's rebuild progress, read as the loop wrote them."""
+
+    tearDown, build, kpi, series = FixtureTest.tearDown, FixtureTest.build, FixtureTest.kpi, FixtureTest.series
+
+    def setUp(self) -> None:
+        FixtureTest.setUp(self)
+        self.roadmap = Path(self.sources["grasping_roadmap_v4"])
+        self.roadmap.parent.mkdir(parents=True)
+        self.roadmap.write_text(json.dumps(ROADMAP), encoding="utf-8")
+        self.status = Path(self.sources["grasping_rebuild_status_json"])
+        self.status.parent.mkdir(parents=True)
+        self.record = self.out / "record" / "report_record_2026-10-06.json"
+        self.record.parent.mkdir(parents=True)
+        self.record.write_text(json.dumps(RECORD), encoding="utf-8")
+
+    def test_the_milestone_ladder_is_the_files_own_words_in_order(self) -> None:
+        ms = self.build()["milestones"]
+        self.assertEqual([m["id"] for m in ms["items"]], ["GN1B-6DOF", "REAL-4DOF"])   # by order, not file position
+        gn = ms["items"][0]
+        self.assertEqual(gn["rung"]["id"], "GN1B-6DOF.b")       # the first rung not green: a is green, b partial
+        self.assertEqual(gn["rung"]["today"], "AP 20.7")
+        self.assertEqual(gn["today"]["display"], "AP 34.1 (4-DoF height-only net)")
+        self.assertEqual(gn["today"]["label"], "recorded 2026-10-05, not yet re-proved")   # never shown as live
+        self.assertFalse(gn["today"]["comparable_to_published"])
+        self.assertEqual((gn["bar"]["rung"], gn["bar"]["title"]), ("GN1B-6DOF.c", "At the frontier"))
+        self.assertEqual(gn["bar"]["done_when"], ["GN1B-6DOF.c clause one", "clause two"])
+        self.assertEqual(gn["blocked_by"], ["needs_you:D1 downloads"])
+        self.assertNotIn("unknown_field", gn)
+        self.assertEqual([r["status"] for r in gn["rungs"]], ["green", "partial", "missing"])
+        # a value that does not come from the record is never labelled as recorded, even in a record-era file
+        self.assertEqual(ms["items"][1]["today"]["label"], "as of 2026-10-10")
+        # S7: at most three decisions, the rest counted; the queues' next three, skipping "later" and watch items
+        self.assertEqual([n["id"] for n in ms["needs_you"]], ["D1", "D2", "D3"])
+        self.assertEqual(ms["needs_you_total"], 4)
+        self.assertEqual(ms["needs_you"][0]["default"], "default 1")
+        self.assertEqual([q["id"] for q in ms["model_queue"]], ["Q0", "Q1", "Q2"])
+        self.assertEqual([q["id"] for q in ms["env_queue"]], ["E1", "E9"])
+        self.assertEqual(ms["source"], str(self.roadmap))
+
+    def test_the_track_page_document_carries_the_ladder(self) -> None:
+        track = self.build()
+        projected = dict(track, reporting=True)
+        doc = {"projects": [{"id": "bam", "name": "BAM Robotics", "tracks": [{"id": "grasping", "provenance": {}}]}]}
+        last = {"now": 1760140800.0, "records": {}, "projected": {"grasping": projected}, "needs": {}}
+        page = detail.build_track(doc, last, "grasping")
+        self.assertEqual(page["milestones"], track["milestones"])
+        self.assertIsNone(detail.build_track(doc, dict(last, projected={"grasping": dict(projected, reporting=False)}),
+                                             "grasping")["milestones"])
+
+    def test_no_roadmap_file_means_no_ladder_and_a_bad_one_is_a_named_problem(self) -> None:
+        self.roadmap.unlink()
+        self.assertNotIn("milestones", self.build())
+        self.roadmap.write_text(json.dumps({"schema": "bam-roadmap/1"}), encoding="utf-8")
+        track = self.build()
+        self.assertNotIn("milestones", track)
+        self.assertTrue(any("roadmap_v4.json is not grasp-roadmap/1" in p for p in track["source"]["problems"]))
+
+    def test_status_json_drives_the_latest_rebuild_reading(self) -> None:
+        self.status.write_text(json.dumps(rebuild_status()), encoding="utf-8")
+        track = self.build()
+        kpi = self.kpi(track, "rebuild_progress")
+        last = kpi["values"][-1]
+        self.assertEqual((last["value"], last["of"]), (32.0, 90))
+        self.assertIn("step B (toy learners) · M3.dense@toy/xy_rz seed 1", last["note"])
+        eta = base.local_time("2026-10-10T19:40:00-07:00")   # the current step's ETA, in local time with its zone
+        self.assertIn(f"ETA {eta}", last["note"])
+        self.assertEqual(kpi["status"]["word"], f"32 of 90 cells · step B (toy learners) · M3.dense@toy/xy_rz seed 1 · "
+                                                f"ETA {eta}")
+        self.assertEqual(kpi["target"]["label"], "of 90 cells in the rebuild plan")
+        # the earlier columns keep the ledger-vs-record count they were
+        self.assertEqual([v["value"] for v in kpi["values"][:-1]], [0.0, 2.0, 4.0])
+        self.assertIn("32 of 90 cells (loop/status.json)", track["summary"])
+        self.assertIn({"label": "Rebuild status (loop/status.json)", "kind": "path", "value": str(self.status)},
+                      track["links"])
+        self.assertEqual(base.problems(track), [])
+
+    def test_status_json_with_no_ledger_yet_and_with_failures(self) -> None:
+        self.ledger.unlink()
+        self.status.write_text(json.dumps(rebuild_status(current=None, failures=[{"cell": "M3.x@toy/x", "reason": "OOM"}])),
+                               encoding="utf-8")
+        track = self.build()
+        kpi = self.kpi(track, "rebuild_progress")
+        self.assertEqual([(v["iteration"], v["value"]) for v in kpi["values"]], [(RECORD_ID, 32.0)])
+        self.assertEqual(kpi["status"]["tone"], "warn")
+        self.assertIn("no step running", kpi["status"]["word"])
+        # a cell id that already names its seed is not given it twice (L1 writes "M3.dense@toy/x [seed 20261004]")
+        status = grasping.RebuildStatus(path="x", updated=None, steps=[], failures=[],
+                                        current={"step": 2, "cell": "M3.dense@toy/x [seed 20261004]", "seed": 20261004})
+        self.assertEqual(status.where(), "step 2 · M3.dense@toy/x [seed 20261004]")
+        self.assertIn(f"ETA {base.local_time('2026-10-10T19:40:00-07:00')}", kpi["status"]["word"])   # first unfinished
+        self.assertIn("1 failed cells", kpi["values"][-1]["note"])
+
+    def test_without_or_with_a_bad_status_json_the_ledger_vs_record_count_stands(self) -> None:
+        self.assertEqual(self.series(self.build(), "rebuild_progress"), [0.0, 2.0, 4.0, 4.0])
+        for bad in ({"schema": "other/1"}, rebuild_status(steps=[{"step": "A", "cells_total": "20", "cells_done": 1}])):
+            self.status.write_text(json.dumps(bad), encoding="utf-8")
+            track = self.build()
+            self.assertEqual(self.series(track, "rebuild_progress"), [0.0, 2.0, 4.0, 4.0])
+            self.assertTrue(any(p.startswith("loop/status.json") for p in track["source"]["problems"]), track["source"])
+        self.status.write_text("{torn", encoding="utf-8")
+        self.assertTrue(any("loop/status.json unreadable" in p for p in self.build()["source"]["problems"]))
+
+
 #: True when every run row the page shows as clearing a gate carries the measurements that clearing needs.
 def gate_claims_have_measurements(test: unittest.TestCase, track: dict) -> None:
     runs = [item for items in track["evidence"]["by_iteration"].values() for item in items if item["kind"] == "run"]
@@ -758,7 +914,9 @@ class LiveSmokeTest(unittest.TestCase):
         self.assertTrue(track["iterations"])
         self.assertGreaterEqual(len(track["kpis"]), 4)
         beaten_kpi = next(k for k in track["kpis"] if k["id"] == "envs_beaten")
-        self.assertTrue(all(v["value"] is not None for v in beaten_kpi["values"]))
+        # WHY the record column is left out: it carries values, not verdicts, so its north star is null by design
+        judged = [v for v in beaten_kpi["values"] if not v["iteration"].startswith("record")]
+        self.assertTrue(judged and all(v["value"] is not None for v in judged), beaten_kpi["values"])
         # Independent oracle: the bench's own gallery.env_verdict in the bench's own venv, written here and not
         # through the bridge, over exactly the rows the adapter read (the ledger may have grown since the build).
         run_ids = [item["id"] for items in track["evidence"]["by_iteration"].values() for item in items

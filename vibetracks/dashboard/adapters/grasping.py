@@ -8,6 +8,10 @@ Inputs (the note's ``vibe-sources``; docs/dashboard/ADAPTERS.md, section ``grasp
 - ``grasping_curriculum``: ``grasp_bench/src/grasp_bench/curriculum.py``, the roadmap as code: TIERS, ENVS, MODELS,
   CELLS (wave1 / wave2 / needs / later / ref), GATES (Wilson-LB thresholds) and PUBLISHED_AP.
 - ``grasping_out_dir``: the out root, checked only for the bench's own gallery files to link (evidence).
+- ``grasping_rebuild_status_json``: ``<out>/loop/status.json`` (grasp-bench-rebuild-status/1), the rebuild loop's own
+  progress: when present, the rebuild KPI's latest reading (step, cell, ETA) comes from it.
+- ``grasping_roadmap_v4``: ``docs/grasping/roadmap_v4.json`` (grasp-roadmap/1) on the loop's branch, or bam_ws main once
+  merged: the four milestones, the model and env queues and the loop's decisions, as ``track.milestones``.
 - ``grasping_record``: ``<out>/record/report_record_2026-10-06.json``, the results recovered from the Oct 4-6 report
   after the ledger was deleted with its worktree (Oct 6-10). Read-only. Its values are the first iteration, labelled
   "recorded Oct 6, not yet re-proved": they carry no bench verdict, so no gate passes on them and the north star stays
@@ -58,7 +62,8 @@ READS = {"grasping_ledger": "heartbeat", "grasping_curriculum": "heartbeat", "gr
          "grasping_attestations": "input", "grasping_gallery_py": "input", "grasping_ledger_py": "input",
          "grasping_runner_py": "input", "grasping_contracts_py": "input", "grasping_bench_python": "input",
          "grasping_verdict_cache": "input", "grasping_bench_src": "input", "grasping_record": "input",
-         "grasping_rebuild_status": "heartbeat"}
+         "grasping_rebuild_status": "heartbeat", "grasping_rebuild_status_json": "heartbeat",
+         "grasping_roadmap_v4": "input"}
 #: WHY depth 2 for the bench package: its modules sit one folder down too (models/, envs/, evaluators/), and a change to
 #: any module the verdict imports must rerun this adapter (the bridge's own cache re-checks the exact imported set).
 DEPTH = {"grasping_bench_src": 2}
@@ -656,6 +661,151 @@ def bench_lane(bench: Path) -> str | None:
 
 
 # --------------------------------------------------------------------------------------------------------------------
+# The rebuild loop's progress (loop/status.json) and the four-milestone roadmap (roadmap_v4.json)
+# --------------------------------------------------------------------------------------------------------------------
+
+REBUILD_STATUS_SCHEMA = "grasp-bench-rebuild-status/1"
+ROADMAP_SCHEMA = "grasp-roadmap/1"
+#: WHY three: work order v4 section 7, "S7: at most three surfaced at once"; the queues show their next three too.
+SHOWN = 3
+#: Queue statuses that are not "next" (vocab.queue_status): sequenced after something else, or not runnable yet.
+NOT_NEXT = ("later", "watch")
+
+
+@dataclass
+class RebuildStatus:
+    path: str
+    updated: str | None
+    current: dict[str, Any] | None
+    steps: list[dict[str, Any]]
+    failures: list[dict[str, Any]]
+
+    def totals(self) -> tuple[int, int]:
+        return sum(step["cells_done"] for step in self.steps), sum(step["cells_total"] for step in self.steps)
+
+    def eta(self) -> str | None:
+        """The current step's ETA, else the first unfinished step's (the loop's own estimate, never computed here),
+        in local time with its zone like every time a person reads; verbatim when it is not a timestamp."""
+        named = (self.current or {}).get("step")
+        step = next((s for s in self.steps if named is not None and s.get("step") == named), None) or next(
+            (s for s in self.steps if s["cells_done"] < s["cells_total"]), None)
+        if step is None or not step.get("eta"):
+            return None
+        moment = _parse_time(str(step["eta"]))
+        return local_time(moment) if moment else str(step["eta"])
+
+    def where(self) -> str:
+        if not self.current:
+            return "no step running"
+        title = next((s.get("title") for s in self.steps if s.get("step") == self.current.get("step")), None)
+        bits = [f"step {self.current.get('step')}" + (f" ({title})" if title else ""),
+                str(self.current.get("cell") or "") + (
+                    f" seed {self.current['seed']}" if self.current.get("seed") is not None
+                    and str(self.current["seed"]) not in str(self.current.get("cell") or "") else "")]
+        return " · ".join(bit for bit in bits if bit.strip())
+
+
+def load_rebuild_status(path: str | os.PathLike[str]) -> tuple[RebuildStatus | None, str | None]:
+    """``(the status, None)``, ``(None, None)`` when the loop has not written it, or ``(None, why it is unusable)``.
+
+    WHY strict: the file names a step, a cell and an ETA the page shows as the loop's own words; a shape this reader
+    does not know falls back to the ledger-vs-record count rather than showing half of it.
+    """
+
+    try:
+        data = json.loads(Path(path).read_text(encoding="utf-8"))
+    except FileNotFoundError:
+        return None, None
+    except (OSError, ValueError) as error:
+        return None, f"loop/status.json unreadable · {path}: {error}"
+    if not isinstance(data, dict) or data.get("schema") != REBUILD_STATUS_SCHEMA:
+        return None, f"loop/status.json is not {REBUILD_STATUS_SCHEMA} · {path}"
+    steps, current, failures = data.get("steps"), data.get("current"), data.get("failures") or []
+    if not (isinstance(steps, list) and steps and all(
+            isinstance(step, dict) and all(isinstance(step.get(key), int) and not isinstance(step.get(key), bool)
+                                           and step[key] >= 0 for key in ("cells_total", "cells_done")) for step in steps)
+            and (current is None or isinstance(current, dict)) and isinstance(failures, list)):
+        return None, f"loop/status.json has no readable steps · {path}"
+    return RebuildStatus(path=str(path), updated=data.get("updated") if isinstance(data.get("updated"), str) else None,
+                         current=current, steps=steps,
+                         failures=[failure for failure in failures if isinstance(failure, dict)]), None
+
+
+def load_roadmap(path: str | os.PathLike[str]) -> tuple[dict[str, Any] | None, str | None]:
+    """``(grasp-roadmap/1, None)``, ``(None, None)`` when there is no file, or ``(None, why it is unusable)``."""
+
+    try:
+        data = json.loads(Path(path).read_text(encoding="utf-8"))
+    except FileNotFoundError:
+        return None, None
+    except (OSError, ValueError) as error:
+        return None, f"roadmap_v4.json unreadable · {path}: {error}"
+    if not isinstance(data, dict) or data.get("schema") != ROADMAP_SCHEMA or not isinstance(data.get("milestones"), list):
+        return None, f"roadmap_v4.json is not {ROADMAP_SCHEMA} with milestones · {path}"
+    return data, None
+
+
+def _recorded(current: dict[str, Any]) -> bool:
+    # WHY the value's own source and not the file's as_of.evidence: the real-world milestones' zeros come from the KPI
+    # note and the rig loop, not the recovered record, and "not yet re-proved" would be false for them.
+    return str(current.get("source") or "").startswith("record")
+
+
+def milestones(roadmap: dict[str, Any], path: str) -> dict[str, Any]:
+    """The track page's milestone ladder (``vibetracks-milestones/1``) from grasp-roadmap/1, read as written.
+
+    Per milestone: its current rung (the first rung, in the file's order, whose status is not ``green`` or ``done``;
+    status words are bam-roadmap/1's), today's value (``current.display``), its bar (the done rung's ``done_when``) and
+    ``blocked_by``. A value whose source is the recovered record is labelled "recorded <as_of>, not yet re-proved";
+    a published comparison is shown as comparable only when ``current.comparable_to_published`` is true. Unknown
+    fields are ignored (section 6: "a consumer ignores unknown fields").
+    """
+
+    as_of = roadmap.get("as_of") if isinstance(roadmap.get("as_of"), dict) else {}
+    items = []
+    for milestone in sorted((m for m in roadmap["milestones"] if isinstance(m, dict)), key=lambda m: m.get("order") or 0):
+        rungs = [rung for rung in milestone.get("rungs") or [] if isinstance(rung, dict)]
+        open_rung = next((rung for rung in rungs if rung.get("status") not in ("green", "done")), None)
+        done = next((rung for rung in rungs if rung.get("id") == milestone.get("done_rung")), None)
+        current = milestone.get("current") if isinstance(milestone.get("current"), dict) else {}
+        recorded = _recorded(current)
+        items.append({
+            "id": milestone.get("id"), "order": milestone.get("order"), "title": milestone.get("title"),
+            "status": milestone.get("status"), "owner": milestone.get("owner"),
+            "rung": ({"id": open_rung.get("id"), "title": open_rung.get("title"), "status": open_rung.get("status"),
+                      "comparison": open_rung.get("comparison"), "gap": open_rung.get("gap"),
+                      "today": (open_rung.get("current") or {}).get("display")} if open_rung else None),
+            "rungs": [{"id": rung.get("id"), "title": rung.get("title"), "status": rung.get("status")} for rung in rungs],
+            "today": {"display": current.get("display"), "value": current.get("value"), "metric": current.get("metric"),
+                      "as_of": current.get("as_of"), "source": current.get("source"),
+                      "comparable_to_published": current.get("comparable_to_published") is True,
+                      "label": (f"recorded {current.get('as_of') or 'earlier'}, not yet re-proved" if recorded
+                                else f"as of {current.get('as_of') or 'unknown'}")},
+            "bar": ({"rung": done.get("id"), "title": done.get("title"), "metric": done.get("metric"),
+                     "comparison": done.get("comparison"),
+                     "done_when": [str(text) for text in done.get("done_when") or []]} if done else None),
+            "blocked_by": [str(item) for item in milestone.get("blocked_by") or []],
+        })
+
+    def next_of(queue: Any) -> list[dict[str, Any]]:
+        entries = sorted((q for q in queue or [] if isinstance(q, dict)), key=lambda q: q.get("order") or 0)
+        return [{"id": q.get("id"), "title": q.get("title"), "status": q.get("status"),
+                 "unlocks": q.get("unlocks") or []}
+                for q in entries if q.get("status") and q.get("status") not in NOT_NEXT][:SHOWN]
+
+    needs = [{"id": n.get("id"), "q": n.get("q"), "blocks": n.get("blocks") or [], "default": n.get("default"),
+              "applies": n.get("applies")} for n in roadmap.get("needs_you") or [] if isinstance(n, dict)]
+    return {
+        "schema": "vibetracks-milestones/1", "source": path, "generated_at": roadmap.get("generated_at"),
+        "as_of": {"evidence": as_of.get("evidence"), "note": as_of.get("note")},
+        "items": items,
+        # WHY truncated with a count: the page shows at most three decisions; the rest stay one click away in the file
+        "needs_you": needs[:SHOWN], "needs_you_total": len(needs),
+        "model_queue": next_of(roadmap.get("model_queue")), "env_queue": next_of(roadmap.get("env_queue")),
+    }
+
+
+# --------------------------------------------------------------------------------------------------------------------
 # KPIs
 # --------------------------------------------------------------------------------------------------------------------
 
@@ -817,6 +967,10 @@ def build_track(work_track: Any, sources: dict[str, str], *, bridge: Bridge | No
     lane = bench_lane(bench_root)
     status_file = Path(sources["grasping_rebuild_status"]) if sources.get("grasping_rebuild_status") else None
     status_mtime = _mtime_iso(status_file) if status_file is not None and status_file.is_file() else None
+    rebuild_status, rebuild_problem = (load_rebuild_status(sources["grasping_rebuild_status_json"])
+                                       if sources.get("grasping_rebuild_status_json") else (None, None))
+    roadmap, roadmap_problem = (load_roadmap(sources["grasping_roadmap_v4"]) if sources.get("grasping_roadmap_v4")
+                                else (None, None))
 
     track = skeleton(work_track, unit="wave")
     wave1_ids = {cell.id for cell in cur.wave1()}
@@ -1197,7 +1351,7 @@ def build_track(work_track: Any, sources: dict[str, str], *, bridge: Bridge | No
 
     # S5 · evidence rebuild: recorded headline cells with a row in the rebuilt ledger (raw cell ids; no verdict needed)
     recorded_cells = record.cells() if record is not None else set()
-    if record is not None:
+    if record is not None or (rebuild_status is not None and iterations):
         status_words = f" · loop/STATUS.md written {_local(status_mtime)}" if status_mtime else ""
         values = column(
             lambda rec: _point(record_id, 0.0, of=len(recorded_cells), note="the rebuild starts from this record"),
@@ -1205,20 +1359,36 @@ def build_track(work_track: Any, sources: dict[str, str], *, bridge: Bridge | No
                 phase.id, float(len(recorded_cells & {run.cell_id for run in snap.runs})), of=len(recorded_cells),
                 note=f"recorded headline cells with a rebuilt ledger row{status_words}",
                 evidence=[run.run_id for run in phase.runs if run.cell_id in recorded_cells]))
-        rebuilt = int(values[-1]["value"])
+        rebuilt, planned = int(values[-1]["value"]), len(recorded_cells)
+        status = {"word": f"{rebuilt} of {planned} re-run{status_words}", "tone": "ok" if rebuilt == planned else "muted"}
+        if rebuild_status is not None:
+            # WHY the latest column only: loop/status.json is the loop's reading now, of its own plan's cells; the
+            # earlier columns stay the ledger-vs-record count they were.
+            rebuilt, planned = rebuild_status.totals()
+            eta = rebuild_status.eta()
+            failed = len(rebuild_status.failures)
+            values[-1] = _point(values[-1]["iteration"], float(rebuilt), of=planned, evidence=values[-1]["evidence"],
+                                note=" · ".join(bit for bit in [
+                                    f"loop/status.json updated {_local(rebuild_status.updated)}",
+                                    rebuild_status.where(), f"ETA {eta}" if eta else "",
+                                    f"{failed} failed cells" if failed else ""] if bit))
+            status = {"word": " · ".join(bit for bit in [f"{rebuilt} of {planned} cells", rebuild_status.where(),
+                                                          f"ETA {eta}" if eta else ""] if bit),
+                      "tone": "warn" if failed else "ok" if rebuilt == planned else "muted"}
         kpis.append({
-            "id": "rebuild_progress", "label": "Evidence rebuild · recorded cells re-run", "slot": "S5", "unit": "cells",
+            "id": "rebuild_progress", "label": "Evidence rebuild · cells re-run", "slot": "S5", "unit": "cells",
             "direction": "higher",
-            "target": {"value": len(recorded_cells), "kind": "scope", "label": f"of {len(recorded_cells)} recorded cells"},
-            "baseline": None, "values": values,
-            "status": {"word": f"{rebuilt} of {len(recorded_cells)} re-run{status_words}",
-                       "tone": "ok" if rebuilt == len(recorded_cells) else "muted"},
-            "note": (f"Headline cells of the {record.label} with at least one row in the rebuilt ledger. Whether a re-run "
-                     "reproduces its recorded value is the rebuild's own comparison (docs/grasping/compare_rebuild.py), "
-                     "not this count."),
+            "target": {"value": planned, "kind": "scope",
+                       "label": f"of {planned} " + ("cells in the rebuild plan" if rebuild_status else "recorded cells")},
+            "baseline": None, "values": values, "status": status,
+            "note": ("Recorded headline cells with at least one row in the rebuilt ledger; when the rebuild loop writes "
+                     "loop/status.json, the latest reading is its own steps' cells done of cells total, its current "
+                     "step and cell and its ETA. Whether a re-run reproduces its recorded value is the rebuild's own "
+                     "comparison (docs/grasping/compare_rebuild.py), not this count."),
             "aggregate": None,
-            "provenance": _prov(ledger_path, f"distinct cell_ids of the record's headline runs present in runs.jsonl · "
-                                f"{record.path}"),
+            "provenance": _prov(ledger_path, "distinct cell_ids of the record's headline runs present in runs.jsonl"
+                                + (f" · {record.path}" if record is not None else "")
+                                + (f" · latest: {rebuild_status.path}" if rebuild_status is not None else "")),
         })
 
     # S5 · 3-seed rule on cells trained here. WHY still measured without the bench's verdict: it counts
@@ -1331,6 +1501,8 @@ def build_track(work_track: Any, sources: dict[str, str], *, bridge: Bridge | No
 
     track["kpis"] = kpis
     track["north_star"] = "envs_beaten"
+    if roadmap is not None:
+        track["milestones"] = milestones(roadmap, sources["grasping_roadmap_v4"])
     by_kpi = {kpi["id"]: [evidence for point in kpi["values"] for evidence in point["evidence"]] for kpi in kpis}
     track["evidence"] = {"by_iteration": by_iteration, "by_kpi": by_kpi}
 
@@ -1353,6 +1525,11 @@ def build_track(work_track: Any, sources: dict[str, str], *, bridge: Bridge | No
     toy_gated = [e for e in cur.gates if _family(e) == "toy"]
     rebuild = (f"{len(recorded_cells & {run.cell_id for run in runs})} of {len(recorded_cells)} recorded cells re-run"
                if record is not None else "")
+    if rebuild_status is not None:
+        done_cells, total_cells = rebuild_status.totals()
+        rebuild = " · ".join(bit for bit in [f"{done_cells} of {total_cells} cells (loop/status.json)",
+                                             rebuild_status.where(),
+                                             f"ETA {rebuild_status.eta()}" if rebuild_status.eta() else ""] if bit)
     tail = [f"last run started {_local(last_run.started_at)}" if last_run else "",
             f"ledger written {_local(ledger_mtime)}" if ledger_mtime else "no ledger file yet",
             f"{bad_lines} unreadable ledger lines skipped" if bad_lines else "", lane or ""]
@@ -1430,6 +1607,10 @@ def build_track(work_track: Any, sources: dict[str, str], *, bridge: Bridge | No
            {"label": "Curriculum (curriculum.py)", "kind": "path", "value": curriculum_path}]
         + ([{"label": f"Recovered record ({record.label})", "kind": "path", "value": record.path}] if record else [])
         + ([{"label": "Rebuild status (loop/STATUS.md)", "kind": "path", "value": str(status_file)}] if status_mtime else [])
+        + ([{"label": "Rebuild status (loop/status.json)", "kind": "path", "value": rebuild_status.path}]
+           if rebuild_status else [])
+        + ([{"label": "Milestones (roadmap_v4.json)", "kind": "path", "value": sources["grasping_roadmap_v4"]}]
+           if roadmap else [])
         + [{"label": "Rebuild the bench gallery", "kind": "command",
             "value": f"cd {bench_root} && env -u VIRTUAL_ENV GRASP_BENCH_OUT={out_root} .venv/bin/grasp-bench gallery"}]
     )
@@ -1445,7 +1626,7 @@ def build_track(work_track: Any, sources: dict[str, str], *, bridge: Bridge | No
     # a problem with the track's inputs, and the page's source panel is where an input problem is read.
     track["source"] = {"problems": [p for p in (unavailable_note,
                                                 f"{bad_lines} unreadable ledger lines skipped" if bad_lines else None,
-                                                record_problem) if p],
+                                                record_problem, rebuild_problem, roadmap_problem) if p],
                        "bench_verdict": bridge_info}
     track["provenance"] = {
         "snapshot": None, "pointer": None, "source": ledger_path,

@@ -131,6 +131,14 @@
 .pg-gl small, .pg-gw small { font-size: var(--fs-footnote); overflow-wrap: anywhere; }
 .pg-gw { text-align: right; }
 .pg-gw .unk { display: inline; }
+.pg-ms { align-items: start; }
+.pg-ms .pg-rungs { margin: 3px 0 2px; }
+.pg-mq { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 10px; margin-top: 10px; }
+.pg-mqh { font-size: var(--fs-footnote); font-weight: 600; color: var(--ink-2); padding: 8px 10px 4px; }
+.pg-mqrow { display: grid; grid-template-columns: 34px minmax(0, 1fr); column-gap: 8px; padding: 6px 10px; font-size: 13px; line-height: 1.35; }
+.pg-mqrow + .pg-mqrow { border-top: 1px solid var(--line); }
+.pg-mqrow > span { display: flex; flex-direction: column; min-width: 0; }
+.pg-mqrow small { font-size: var(--fs-footnote); overflow-wrap: anywhere; }
 
 /* track: roadmap rung ladder */
 .pg-road { padding: 4px 14px 10px; }

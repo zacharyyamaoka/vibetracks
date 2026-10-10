@@ -140,7 +140,8 @@ class GraspingSplitTest(unittest.TestCase):
         self.assertEqual(out, os.path.join(HOME, ".local/share/grasp_bench/out"))
         for key, rest in (("grasping_ledger", "ledger/runs.jsonl"), ("grasping_attestations", "ledger/attestations.jsonl"),
                           ("grasping_record", "record/report_record_2026-10-06.json"),
-                          ("grasping_rebuild_status", "loop/STATUS.md")):
+                          ("grasping_rebuild_status", "loop/STATUS.md"),
+                          ("grasping_rebuild_status_json", "loop/status.json")):
             self.assertEqual(loaded[key], f"{out}/{rest}", key)
         self.assertEqual(loaded["grasp_bench_out"], out)   # the roadmap projector's name for the same root
         bench = loaded["grasping_bench_dir"]
@@ -173,6 +174,13 @@ class GraspingSplitTest(unittest.TestCase):
             sources._WORKTREE_CACHE.clear()
             Done.stdout = "worktree /home/bam/bam_ws\nHEAD 1\nbranch refs/heads/main\n"   # the lane swept or merged
             self.assertEqual(sources._resolve_worktree(value), "/home/bam/bam_ws/src/core/mdp/agent/actor/policy/grasp_bench")
+            # the milestone roadmap resolves the same way: the loop branch's checkout, else bam_ws main, never pinned
+            roadmap = sources.WORKTRACK_SOURCES["grasping_roadmap_v4"]
+            self.assertEqual(sources._resolve_worktree(roadmap), "/home/bam/bam_ws/docs/grasping/roadmap_v4.json")
+            sources._WORKTREE_CACHE.clear()
+            Done.stdout = porcelain
+            self.assertEqual(sources._resolve_worktree(roadmap), "/wt/rebuild/docs/grasping/roadmap_v4.json")
+            self.assertNotIn(".claude/worktrees", roadmap)
         finally:
             sources.subprocess.run = original
             sources._WORKTREE_CACHE.clear()

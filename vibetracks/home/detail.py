@@ -320,6 +320,9 @@ def build_track(doc: Mapping[str, Any], last: Mapping[str, Any], track_id: str) 
         "track": track,
         "project": {"id": project.get("id"), "name": project.get("name"), "color": project.get("color")},
         "kpis": _kpis(projected),
+        # WHY passed through as the adapter wrote it: a loop's milestone ladder (grasping: roadmap_v4.json) is its own
+        # document, read by its adapter; this page only lays it out. Null when the loop declares none.
+        "milestones": (projected or {}).get("milestones") if (projected or {}).get("reporting", True) is not False else None,
         "roadmap": {"href": f"../roadmap/doc?track={track_id}",
                     "note": "the roadmap projector's document for this track (vibetracks.roadmap); 404 when it has none"},
         "worked_daily": worked_daily(files, now),
