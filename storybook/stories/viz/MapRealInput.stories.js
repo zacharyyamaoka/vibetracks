@@ -21,28 +21,32 @@ export const SliderDrag = {
   play: async ({ canvasElement }) => {
     const input = await realInput();
     if (!input) return;
-    const el = await ready(mapOf(canvasElement));
-    const range = el.querySelector('.vtm-period input[type=range]');
-    const idx = (y) => el._periods.indexOf(String(y));
-    await expect(yearOf(el)).toBe('2010');
-    // 2010 -> 1996 in 20 mouse moves with the button held (bug: the thumb stopped after one step, at 2009 or 2008)
-    const r = range.getBoundingClientRect(), y = r.top + r.height / 2;
-    const from = thumbX(range, idx(2010)), to = thumbX(range, idx(1996));
-    await input.move(from, y);
-    await input.down();
-    let last = null;
-    for (let s = 1; s <= 20; s++) {
-      await input.move(from + ((to - from) * s) / 20, y, 1, true);
-      last = range.value;
+    try {
+      const el = await ready(mapOf(canvasElement));
+      const range = el.querySelector('.vtm-period input[type=range]');
+      const idx = (y) => el._periods.indexOf(String(y));
+      await expect(yearOf(el)).toBe('2010');
+      // 2010 -> 1996 in 20 mouse moves with the button held (bug: the thumb stopped after one step, at 2009 or 2008)
+      const r = range.getBoundingClientRect(), y = r.top + r.height / 2;
+      const from = thumbX(range, idx(2010)), to = thumbX(range, idx(1996));
+      await input.move(from, y);
+      await input.down();
+      let last = null;
+      for (let s = 1; s <= 20; s++) {
+        await input.move(from + ((to - from) * s) / 20, y, 1, true);
+        last = range.value;
+      }
+      await input.up();
+      await until(() => el.dataset.state === 'ready', 'the map after the drag');
+      await el.whenReady();
+      await expect(+last).toBeLessThan(idx(2010) - 10);
+      await expect(Math.abs(idx(yearOf(el)) - idx(1996))).toBeLessThanOrEqual(1);
+      await expect(el.querySelector('.vtm-period output').textContent).toBe(yearOf(el));
+      await expect(range.getAttribute('aria-valuetext')).toBe(yearOf(el));
+      await expect(el.querySelector('.vtm-period input[type=range]')).toBe(range);   // the same control, never rebuilt
+    } finally {
+      await input.park();
     }
-    await input.up();
-    await until(() => el.dataset.state === 'ready', 'the map after the drag');
-    await el.whenReady();
-    await expect(+last).toBeLessThan(idx(2010) - 10);
-    await expect(Math.abs(idx(yearOf(el)) - idx(1996))).toBeLessThanOrEqual(1);
-    await expect(el.querySelector('.vtm-period output').textContent).toBe(yearOf(el));
-    await expect(range.getAttribute('aria-valuetext')).toBe(yearOf(el));
-    await expect(el.querySelector('.vtm-period input[type=range]')).toBe(range);   // the same control, never rebuilt
   },
 };
 
@@ -52,20 +56,24 @@ export const SliderArrowKeys = {
   play: async ({ canvasElement }) => {
     const input = await realInput();
     if (!input) return;
-    const el = await ready(mapOf(canvasElement));
-    const range = el.querySelector('.vtm-period input[type=range]');
-    const idx = (y) => el._periods.indexOf(String(y));
-    range.focus();
-    await expect(document.activeElement).toBe(range);
-    // bug: focus left the slider after the first press, so the next two presses went nowhere (2009 three times)
-    for (let n = 1; n <= 3; n++) {
-      const before = idx(yearOf(el));
-      await input.userEvent.keyboard('{ArrowLeft}');
-      await until(() => idx(yearOf(el)) === before - 1 && el.dataset.state === 'ready', `year ${el._periods[before - 1]} after ArrowLeft ${n}`);
+    try {
+      const el = await ready(mapOf(canvasElement));
+      const range = el.querySelector('.vtm-period input[type=range]');
+      const idx = (y) => el._periods.indexOf(String(y));
+      range.focus();
       await expect(document.activeElement).toBe(range);
+      // bug: focus left the slider after the first press, so the next two presses went nowhere (2009 three times)
+      for (let n = 1; n <= 3; n++) {
+        const before = idx(yearOf(el));
+        await input.userEvent.keyboard('{ArrowLeft}');
+        await until(() => idx(yearOf(el)) === before - 1 && el.dataset.state === 'ready', `year ${el._periods[before - 1]} after ArrowLeft ${n}`);
+        await expect(document.activeElement).toBe(range);
+      }
+      await expect(yearOf(el)).toBe('2007');
+      await expect(el.querySelector('.vtm-period input[type=range]')).toBe(range);
+    } finally {
+      await input.park();
     }
-    await expect(yearOf(el)).toBe('2007');
-    await expect(el.querySelector('.vtm-period input[type=range]')).toBe(range);
   },
 };
 
@@ -75,18 +83,22 @@ export const TooltipClearsOnDrill = {
   play: async ({ canvasElement }) => {
     const input = await realInput();
     if (!input) return;
-    const el = await ready(mapOf(canvasElement));
-    const tip = el.querySelector('.vtm-tip');
-    const [x, y] = input.lonLat(el, BC);
-    await input.move(x - 30, y - 30);
-    await input.move(x, y, 4);
-    await until(() => !tip.hidden && /British Columbia/.test(tip.textContent), 'the BC tooltip');
-    await input.down();
-    await input.up();                       // the pointer stays where it is: no mousemove follows the click
-    await until(() => el.dataset.level === 'district' && el.dataset.state === 'ready', 'BC\'s districts');
-    await el.whenReady();
-    await frames();
-    await expect(tip.hidden).toBe(true);
+    try {
+      const el = await ready(mapOf(canvasElement));
+      const tip = el.querySelector('.vtm-tip');
+      const [x, y] = input.lonLat(el, BC);
+      await input.move(x - 30, y - 30);
+      await input.move(x, y, 4);
+      await until(() => !tip.hidden && /British Columbia/.test(tip.textContent), 'the BC tooltip');
+      await input.down();
+      await input.up();                       // the pointer stays where it is: no mousemove follows the click
+      await until(() => el.dataset.level === 'district' && el.dataset.state === 'ready', 'BC\'s districts');
+      await el.whenReady();
+      await frames();
+      await expect(tip.hidden).toBe(true);
+    } finally {
+      await input.park();
+    }
   },
 };
 
@@ -96,18 +108,22 @@ export const TooltipClearsOnBreadcrumb = {
   play: async ({ canvasElement }) => {
     const input = await realInput();
     if (!input) return;
-    const el = await ready(mapOf(canvasElement));
-    const tip = el.querySelector('.vtm-tip');
-    const [x, y] = input.lonLat(el, METRO);
-    await input.move(x - 20, y - 20);
-    await input.move(x, y, 4);
-    await until(() => !tip.hidden && /Metro Vancouver/.test(tip.textContent), 'the Metro Vancouver tooltip');
-    // the keyboard path up: the pointer rests on the map while the breadcrumb is used
-    el.querySelector('.vtm-crumb button[data-level="1"]').focus();
-    await input.userEvent.keyboard('{Enter}');
-    await until(() => el.dataset.level === 'province' && el.dataset.state === 'ready', 'back to provinces');
-    await el.whenReady();
-    await frames();
-    await expect(tip.hidden).toBe(true);
+    try {
+      const el = await ready(mapOf(canvasElement));
+      const tip = el.querySelector('.vtm-tip');
+      const [x, y] = input.lonLat(el, METRO);
+      await input.move(x - 20, y - 20);
+      await input.move(x, y, 4);
+      await until(() => !tip.hidden && /Metro Vancouver/.test(tip.textContent), 'the Metro Vancouver tooltip');
+      // the keyboard path up: the pointer rests on the map while the breadcrumb is used
+      el.querySelector('.vtm-crumb button[data-level="1"]').focus();
+      await input.userEvent.keyboard('{Enter}');
+      await until(() => el.dataset.level === 'province' && el.dataset.state === 'ready', 'back to provinces');
+      await el.whenReady();
+      await frames();
+      await expect(tip.hidden).toBe(true);
+    } finally {
+      await input.park();
+    }
   },
 };

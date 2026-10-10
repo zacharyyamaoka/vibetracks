@@ -76,10 +76,27 @@ export async function realInput() {
     async down() { await send('mousePressed', at.x, at.y); },
     async up() { await send('mouseReleased', at.x, at.y); },
     async click(x, y) { await this.move(x, y); await this.down(); await this.up(); },
+    /** Releases the button and parks the pointer in the page corner. WHY: the browser keeps one real pointer for the whole
+     *  run, and Chromium re-fires a mousemove under a stationary pointer when a later story lays out beneath it, which lit
+     *  a hover highlight on another story's map and moved a measured pixel. */
+    async park() { await send('mouseReleased', at.x, at.y).catch(() => {}); await send('mouseMoved', 2, 2, { buttons: 0 }); at = { x: 2, y: 2 }; },
     /** Viewport position of a lon/lat on the map's canvas. */
     lonLat(el, lonlat) {
       const r = el.map.getCanvas().getBoundingClientRect(), p = el.map.project(lonlat);
       return [r.left + p.x, r.top + p.y];
     },
   };
+}
+/** Like colorIs for a region only a few pixels wide (Nova Scotia is ~7 px at the Canada view): some pixel within `r` px of
+ *  the lon/lat must be the token's colour, so an antialiased coast pixel does not decide the test. */
+export function colorAround(el, lonlat, token, r = 3, tol = 6) {
+  const map = el.map, gl = map.getCanvas(), p = map.project(lonlat), k = gl.width / gl.clientWidth;
+  const c = document.createElement('canvas');
+  c.width = gl.width; c.height = gl.height;
+  const g = c.getContext('2d');
+  g.drawImage(gl, 0, 0);
+  const want = tokenRGB(el, token), n = 2 * Math.round(r * k) + 1;
+  const d = g.getImageData(Math.round(p.x * k) - Math.round(r * k), Math.round(p.y * k) - Math.round(r * k), n, n).data;
+  for (let i = 0; i < d.length; i += 4) if (near([d[i], d[i + 1], d[i + 2]], want, tol)) return true;
+  throw new Error(`no pixel within ${r}px of ${lonlat} is ${token} (rgb(${want}))`);
 }

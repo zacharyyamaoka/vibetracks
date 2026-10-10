@@ -20,7 +20,7 @@ Then http://127.0.0.1:6126/. Toolbar: **Theme** (dark / light, html[data-theme] 
 | `shots` | screenshots every story, dark and light, from the static build (see `scripts/shoot.mjs`) |
 | `fixtures` | rebuilds the committed synthetic fixtures with the home's own code |
 | `capture` | captures real fixtures from a running home, GET only (default Stable :4394), into gitignored `fixtures/real/` |
-| `geo` | rebuilds the map's boundary files from Natural Earth and Statistics Canada |
+| `geo` | rebuilds the map's boundary files: countries and provinces from Natural Earth, BC's waste reporting districts from the BC Data Catalogue (no Statistics Canada boundaries) |
 
 ## Two kinds of component
 

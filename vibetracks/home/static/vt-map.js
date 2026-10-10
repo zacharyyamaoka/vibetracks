@@ -265,14 +265,7 @@ class VtMap extends HTMLElement {
     this._els.crumb.innerHTML = crumbs.join('<span aria-hidden="true">/</span>');
     const noun = c.level.noun || c.level.label || c.level.id;
     this._els.title.innerHTML = `<b>${esc(m.label || 'Value')}</b><span>by ${esc(noun)}${c.period ? ` · ${esc(c.period)}` : ''}</span>`;
-    // period: a segmented control for a few periods, a slider for many, nothing for one
-    const ps = this._periods;
-    if (ps.length > 1 && ps.length <= 4) {
-      this._els.period.innerHTML = `<span>Period</span><span class="vtm-seg" role="group" aria-label="Period">${ps.map((p) => `<button type="button" data-period="${esc(p)}" aria-pressed="${p === c.period}">${esc(p)}</button>`).join('')}</span>`;
-    } else if (ps.length > 4) {
-      const i = ps.indexOf(c.period);
-      this._els.period.innerHTML = `<label for="vtm-p-${this._uid()}">Period</label><input id="vtm-p-${this._uid()}" type="range" min="0" max="${ps.length - 1}" step="1" value="${i}" aria-valuetext="${esc(c.period)}"><output>${esc(c.period)}</output>`;
-    } else this._els.period.innerHTML = '';
+    this._paintPeriod(c);
     // legend: stepped classes, No data, the goal, the sites
     const br = c.br, n = br.length + 1;
     const edges = [null].concat(br).concat([null]);
@@ -303,6 +296,36 @@ class VtMap extends HTMLElement {
     for (const s of (c.level.sources || []).concat(spec.sources || [])) lines.push(`<span>${esc(s)}</span>`);
     if (spec.pointsNote && sitesIn) lines.push(`<span>${esc(spec.pointsNote)}</span>`);
     this._els.foot.innerHTML = lines.join('');
+  }
+  /** The period control: a segmented control for a few periods, a slider for many, nothing for one.
+   *  WHY built once and updated in place (Zach's bug, Oct 10: "the slider moves one step and stops"): the update cycle runs
+   *  on every input event, and re-creating the <input> mid-drag destroyed the element holding the pointer capture and the
+   *  keyboard focus. A control is rebuilt only when its kind or its set of periods changes; a slider that stays a slider
+   *  keeps its element even then (only min/max move), so a focused or captured input is never replaced. */
+  _paintPeriod(c) {
+    const host = this._els.period, ps = this._periods;
+    const kind = ps.length > 4 ? 'slider' : ps.length > 1 ? 'seg' : 'none';
+    const sig = kind === 'seg' ? `seg|${ps.join(',')}` : kind;
+    if (kind === 'none') { if (host.dataset.kind !== 'none') host.innerHTML = ''; host.dataset.kind = 'none'; host.dataset.sig = ''; return; }
+    if (host.dataset.sig !== sig) {
+      if (kind === 'seg') {
+        host.innerHTML = `<span>Period</span><span class="vtm-seg" role="group" aria-label="Period">${ps.map((p) => `<button type="button" data-period="${esc(p)}" aria-pressed="false">${esc(p)}</button>`).join('')}</span>`;
+      } else {
+        const id = `vtm-p-${this._uid()}`;
+        host.innerHTML = `<label for="${id}">Period</label><input id="${id}" type="range" min="0" max="${ps.length - 1}" step="1" value="0"><output></output>`;
+      }
+      host.dataset.sig = sig; host.dataset.kind = kind;
+    }
+    if (kind === 'seg') {
+      for (const b of host.querySelectorAll('button[data-period]')) b.setAttribute('aria-pressed', String(b.dataset.period === c.period));
+    } else {
+      const input = host.querySelector('input[type=range]'), out = host.querySelector('output');
+      input.max = String(ps.length - 1);
+      const i = String(ps.indexOf(c.period));
+      if (input.value !== i) input.value = i;
+      input.setAttribute('aria-valuetext', c.period);
+      out.textContent = c.period;
+    }
   }
   _uid() { return this._id || (this._id = Math.random().toString(36).slice(2, 8)); }
 
@@ -401,7 +424,7 @@ class VtMap extends HTMLElement {
   }
   _draw() {
     const c = this._ctx, map = this._map;
-    this._hover = null;
+    this._clearHover();
     map.getSource('vtm-regions').setData({ type: 'FeatureCollection', features: c.features });
     const pts = (c.spec.points || []).filter((p) => isFinite(p.lon) && isFinite(p.lat));
     map.getSource('vtm-points').setData({ type: 'FeatureCollection', features: pts.map((p) => ({ type: 'Feature',
@@ -414,16 +437,19 @@ class VtMap extends HTMLElement {
     this._moved = true;
     this._userMoved = false;
   }
-  /** Fits the view's regions (or the spec's starting bounds), clamped to 60° S – 76° N: Mercator's poles would
-   *  otherwise shrink everything (Canada's Arctic islands reach 83° N). */
+  /** Fits the view's regions (or the spec's starting bounds) with padding. At the world level the view is clamped to
+   *  60° S – 76° N: Mercator's poles would otherwise shrink everything. Below it the real extent is used, up to Mercator's
+   *  own limit: Canada's Arctic islands reach 83.1° N, and clamping them at 76° cut Ellesmere and Axel Heiberg off at
+   *  the top edge (Zach, Oct 10). */
   _fit(duration, again) {
     const c = this._ctx, map = this._map;
     const first = !this._moved && c.spec.view && c.spec.view.bounds;
     const bb = again || first || (c.level.bounds && c.level.bounds[this._view.focus || '*']) || bboxOf(c.features);
     if (!bb) return;
-    const s = Math.max(bb[1], -60), n = Math.min(bb[3], 76);
+    const south = c.li === 0 ? -60 : -85, north = c.li === 0 ? 76 : 85;
+    const s = Math.max(bb[1], south), n = Math.min(bb[3], north);
     this._fitted = [bb[0], s, bb[2], n];
-    map.fitBounds([[bb[0], s], [bb[2], n]], { padding: { top: 24, bottom: 96, left: 24, right: 52 }, duration });
+    map.fitBounds([[bb[0], s], [bb[2], n]], { padding: { top: 32, bottom: 96, left: 24, right: 52 }, duration });
   }
   _repaint() {
     const map = this._map;
@@ -446,6 +472,20 @@ class VtMap extends HTMLElement {
     this._mq = window.matchMedia('(prefers-color-scheme: dark)');
     this._mqFn = again;
     this._mq.addEventListener('change', again);
+  }
+
+  /** Drops the hover highlight and hides the tooltip.
+   *  WHY (Zach's bug, Oct 10: "hover BC, click to drill in, and the province tooltip stays over the district map"): a
+   *  tooltip is only refreshed by a mouse move, and a click that changes the view is followed by none, so the old level's
+   *  tooltip (and its highlight) outlived the regions it described. Called when the view changes, in every way it can. */
+  _clearHover() {
+    const map = this._map;
+    if (map && map.getSource('vtm-regions')) {
+      if (this._hover != null) map.setFeatureState({ source: 'vtm-regions', id: this._hover }, { hover: false });
+      map.getCanvas().style.cursor = '';
+    }
+    this._hover = null;
+    if (this._els) this._els.tip.hidden = true;
   }
 
   _wireMap() {
@@ -510,6 +550,7 @@ class VtMap extends HTMLElement {
     const c = this._ctx;
     if (!c || !c.nextLevel || !c.drillable.has(key)) return;
     const from = c.level.id;
+    this._clearHover();
     this.removeAttribute('level'); this.removeAttribute('focus'); this.removeAttribute('period');
     this._view = { level: c.nextLevel.id, focus: key, period: null };
     this.dispatchEvent(new CustomEvent('vt-map-drill', { bubbles: true, detail: { from, to: c.nextLevel.id, focus: key } }));
@@ -519,6 +560,7 @@ class VtMap extends HTMLElement {
     const c = this._ctx;
     if (!c) return;
     const lvl = c.spec.levels[li];
+    this._clearHover();
     this.removeAttribute('level'); this.removeAttribute('focus'); this.removeAttribute('period');
     this._view = { level: lvl.id, focus: li === 0 ? null : focus, period: null };
     this.dispatchEvent(new CustomEvent('vt-map-drill', { bubbles: true, detail: { from: c.level.id, to: lvl.id, focus: this._view.focus } }));

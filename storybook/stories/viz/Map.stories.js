@@ -1,7 +1,7 @@
 // <vt-map> (vibetracks/home/static/vt-map.js): the one map component, built once. Every play MEASURES what was
 // drawn: pixels read back from the WebGL canvas against the viz tokens, fitted bounds, the breadcrumb's text.
 import { expect } from 'storybook/test';
-import { mountMap, mapOf, ready, pixelAt, near, colorIs, until } from './_map.js';
+import { mountMap, mapOf, ready, pixelAt, near, colorIs, colorAround, until } from './_map.js';
 import { cesiRows, bcRows, LEVELS, DIVERSION, BOUNDARY_NOTE, ILLUSTRATIVE_SITES } from './data.js';
 
 export default { title: 'Viz/Map', parameters: { home: false } };
@@ -28,8 +28,12 @@ export const DiversionByProvince = {
     await expect([el.dataset.level, el.dataset.focus, el.dataset.period]).toEqual(['province', 'CAN', '2022']);
     // BC 38.4 % sits in the 20–40 class; Nova Scotia 42.9 % in 40–60; Alberta 19.6 % below 20: the pixel is the class
     await expect(keyAt(el, AT.BC)).toBe('CA-BC');
+    // the high Arctic is inside the frame: Canada's northernmost land (Ellesmere, 83.1° N) is not cropped at the top edge
+    const north = el.map.getBounds().getNorth(), top = el.map.project([-75, 83.1]).y;
+    await expect(north).toBeGreaterThan(83.1);
+    await expect(top).toBeGreaterThan(0);
     await expect(colorIs(el, AT.BC, '--viz-seq-2')).toBe(true);
-    await expect(colorIs(el, AT.NS, '--viz-seq-3')).toBe(true);
+    await expect(colorAround(el, AT.NS, '--viz-seq-3')).toBe(true);
     await expect(colorIs(el, AT.AB, '--viz-seq-1')).toBe(true);
     // the territories are suppressed in the source (n/a): drawn as No data, never as the lowest class (and never 0)
     await expect(keyAt(el, AT.NT)).toBe('CA-NT');
@@ -45,7 +49,7 @@ export const DiversionByProvince = {
     el.querySelector('.vtm-period button[data-period="2002"]').click();
     await until(() => el.dataset.period === '2002' && el.dataset.state === 'ready', 'period 2002');
     await el.whenReady();
-    await expect(colorIs(el, AT.NS, '--viz-seq-2')).toBe(true);
+    await expect(colorAround(el, AT.NS, '--viz-seq-2')).toBe(true);
   },
 };
 
