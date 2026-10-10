@@ -57,7 +57,8 @@ export default {
   async viteFinal(config) {
     const { mergeConfig } = await import('vite');
     return mergeConfig(config, {
-      resolve: { alias: { '@home': HOME } },
+      // WHY dedupe: vt-map.js lives in the home's folder, outside this package, so 'maplibre-gl' must resolve from here.
+      resolve: { alias: { '@home': HOME }, dedupe: ['maplibre-gl'] },
       server: { fs: { allow: [HOME, here, resolve(here, '..')] } },
       plugins: [homeFonts()],
     });

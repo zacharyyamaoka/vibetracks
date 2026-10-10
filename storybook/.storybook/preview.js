@@ -13,8 +13,18 @@ import '@home/views.js';
 import '@home/review.js';
 import '@home/project.js';
 import '@home/track.js';
+// The shared viz parts (not loaded by the home yet): the map engine's CSS, the viz tokens and styles, <vt-map>.
+import 'maplibre-gl/dist/maplibre-gl.css';
+import '@home/viz.css';
+import '@home/vt-map.js';
+// WHY the worker URL is set here: MapLibre derives its worker from its own file's URL, which a bundler renames.
+// The vanilla home (vendored files side by side) needs no such line.
+import { setWorkerUrl } from 'maplibre-gl';
+import workerUrl from 'maplibre-gl/dist/maplibre-gl-worker.mjs?url';
 import './preview.css';
 import { releaseClock } from '../lib/home.js';
+
+setWorkerUrl(workerUrl);
 
 export default {
   parameters: {

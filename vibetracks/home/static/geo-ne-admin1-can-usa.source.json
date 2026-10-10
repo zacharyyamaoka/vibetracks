@@ -1,0 +1,10 @@
+{
+ "level": "province",
+ "source": "Natural Earth 5.1.2, admin-1 states and provinces 1:50m (CAN, USA)",
+ "url": "https://cdn.jsdelivr.net/gh/nvkelso/natural-earth-vector@v5.1.2/geojson/ne_50m_admin_1_states_provinces.geojson",
+ "licence": "Public domain",
+ "key": "iso_3166_2 (e.g. CA-BC)",
+ "parent": "adm0_a3",
+ "retrieved": "2026-10-10",
+ "simplified": "Visvalingam 25% kept, keep-shapes, precision 0.01°"
+}

@@ -26,3 +26,6 @@ storybook/node_modules/
 storybook/storybook-static/
 storybook/fixtures/real/**
 !storybook/fixtures/real/README.md
+storybook/.geo-cache/
+storybook/fixtures/local/**
+!storybook/fixtures/local/README.md

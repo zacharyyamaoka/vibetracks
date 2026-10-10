@@ -1,0 +1,14 @@
+{
+ "title": "Solid waste diversion rate from all sources by jurisdiction, Canada, 2002 and 2022 (CESI, figure 5)",
+ "publisher": "Environment and Climate Change Canada, Canadian Environmental Sustainability Indicators",
+ "url": "https://www.canada.ca/content/dam/eccc/documents/csv/cesindicators/solid-waste/2024-nov/figure-5-en.csv",
+ "page": "https://www.canada.ca/en/environment-climate-change/services/environmental-indicators/solid-waste-diversion-disposal.html",
+ "licence": "Open Government Licence – Canada",
+ "attribution": "Contains information licensed under the Open Government Licence – Canada",
+ "definition": "diverted / (diverted + disposed); disposal includes landfill, incineration and energy-from-waste, so burning never counts as diverted",
+ "caveats": [
+  "n/a cells are suppressed by Statistics Canada (PEI, the territories): no data, never 0",
+  "two periods only, 2002 and 2022"
+ ],
+ "retrieved": "2026-10-10"
+}
