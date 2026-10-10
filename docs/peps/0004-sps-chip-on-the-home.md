@@ -29,9 +29,14 @@ Make Stable anywhere but the dock.
    `stable-preview.json` names `{assets}/vite/serve.mjs --root {checkout} --vite-root /home/bam/clank-workbench
    --config {checkout}/vite.vibetracks.config.mjs`. Same Vite, same wrapper config; the switcher's server is the one
    that answers `/__sps` and injects the chip.
-3. **The home and the Clank plugin are unchanged.** No chip code, no badge, no Vite plugin of ours in this repo; the
-   page is served from the same URL on every channel.
-4. **Chip placement unchanged:** `bottom-right`, `avoid` Clank's status bar. Measured on the home (Stable and Preview;
+3. **No chip code in this repo.** No chip component, no badge, no Vite plugin of ours; the page is served from the same
+   URL on every channel and the Clank plugin is unchanged.
+4. **The home names its theme the way the chip reads it.** The chip takes the app's shadcn token names
+   (`--background`, `--foreground`, `--border`, `--muted-foreground`, `--secondary`, `--secondary-foreground`,
+   `--destructive`) through inheritance, else a light neutral, so on Zach's dark home it was a white pill.
+   `tokens.css` now aliases those names to the Claude tokens it already has (no value retuned); measured: the chip's
+   background is the home's surface in dark (`#1a1a1a` at 90 %) and light (`#fff` at 90 %).
+5. **Chip placement unchanged:** `bottom-right`, `avoid` Clank's status bar. Measured on the home (Stable and Preview;
    home, Display popover open, account menu open, scrolled to the bottom, Review, a project page, a track page) at
    1440×900 and 1280×720: 0 px² of overlap with the Display button, the account button, the settings gear, the
    sidebar's resize handle, the Display popover and the account menu. At 1440×900 nothing clickable is under the chip
