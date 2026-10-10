@@ -17,6 +17,7 @@ import '@home/track.js';
 import 'maplibre-gl/dist/maplibre-gl.css';
 import '@home/viz.css';
 import '@home/vt-map.js';
+import '@home/kpi-panel.js';
 // WHY the worker URL is set here: MapLibre derives its worker from its own file's URL, which a bundler renames.
 // The vanilla home (vendored files side by side) needs no such line.
 import { setWorkerUrl } from 'maplibre-gl';

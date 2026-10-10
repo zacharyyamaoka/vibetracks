@@ -1,0 +1,147 @@
+{
+ "schema": "vibetracks-project-kpis/0",
+ "title": "Outside view",
+ "subtitle": "trailing KPIs, what a customer or an investor would see",
+ "as_of": "2026-10-10",
+ "groups": [
+  {
+   "id": "impact",
+   "label": "Impact and unit economics",
+   "note": "per tonne received",
+   "kpis": [
+    {
+     "id": "profit_per_tonne",
+     "label": "Profit per tonne at the landfill price",
+     "unit": "USD/t",
+     "better": "higher",
+     "north_star": true,
+     "basis": "none",
+     "value": null,
+     "target": {
+      "value": 0,
+      "label": "> $0 / t: sorting beats dumping"
+     },
+     "definition": "Per tonne received: the customer's landfill tipping fee + bale sales at the grade actually achieved - the all-in processing cost (labour, energy, maintenance, overhead, capital) - outlet and residue fees. The fee is pinned to the customer's own landfill rate, so charging more cannot raise it.",
+     "record": "weigh-scale tickets (t in), bale invoices at the grade sold, the cost ledger, and which landfill tariff class the customer pays"
+    },
+    {
+     "id": "tonnes_diverted",
+     "label": "Tonnes diverted at grade",
+     "unit": "t/week",
+     "better": "higher",
+     "basis": "known",
+     "value": 0,
+     "note": "No BAM site is deployed yet, so this is a known 0, not a reading.",
+     "definition": "Tonnes leaving in bales a buyer accepts (sold or downgraded), per week.",
+     "record": "weigh-scale tickets of accepted bales per site"
+    },
+    {
+     "id": "diverted_share",
+     "label": "Diverted share at BAM sites",
+     "unit": "%",
+     "better": "higher",
+     "basis": "none",
+     "value": null,
+     "definition": "The share of tonnes received that leaves in accepted bales. A facility's yield: not ECCC's jurisdiction diversion rate, so it never shares the provinces' colour scale.",
+     "record": "per site and month: t received, t leaving in accepted bales, t to disposal"
+    },
+    {
+     "id": "worst_bin_purity",
+     "label": "Bale purity, worst bin",
+     "unit": "%",
+     "better": "higher",
+     "basis": "none",
+     "value": null,
+     "target": {
+      "value": 95,
+      "label": "each bin at its grade floor (95% paper, film)"
+     },
+     "definition": "Purity by mass of the dirtiest bin carrying at least 1% of output, against its ReMA grade floor.",
+     "record": "bale audits, or a camera QC check per bale"
+    },
+    {
+     "id": "processing_cost",
+     "label": "Processing cost per tonne, all-in",
+     "unit": "USD/t",
+     "better": "lower",
+     "basis": "none",
+     "value": null,
+     "target": {
+      "label": "below the landfill rate it competes with"
+     },
+     "beside": {
+      "label": "throughput",
+      "value": null,
+      "unit": "t/h"
+     },
+     "definition": "Labour, energy, maintenance, overhead and capital recovery per tonne received; always read beside throughput (no tonnes, no cost).",
+     "record": "the cost ledger divided by weigh-scale tonnes"
+    },
+    {
+     "id": "categories_at_grade",
+     "label": "Output categories at grade",
+     "unit": "count",
+     "better": "higher",
+     "basis": "none",
+     "value": null,
+     "definition": "Distinct output streams that meet a sellable grade (not bins installed).",
+     "record": "bale grades per stream from the buyers' acceptance"
+    }
+   ]
+  },
+  {
+   "id": "company",
+   "label": "Company",
+   "note": "monthly",
+   "kpis": [
+    {
+     "id": "revenue",
+     "label": "Revenue",
+     "unit": "USD/month",
+     "better": "higher",
+     "basis": "none",
+     "value": null,
+     "record": "a monthly P&L export (QuickBooks)"
+    },
+    {
+     "id": "net_income",
+     "label": "Net income",
+     "unit": "USD/month",
+     "better": "higher",
+     "basis": "none",
+     "value": null,
+     "record": "a monthly P&L export (QuickBooks)"
+    },
+    {
+     "id": "cash",
+     "label": "Cash",
+     "unit": "USD",
+     "better": "higher",
+     "basis": "none",
+     "value": null,
+     "record": "the month-end balance sheet"
+    },
+    {
+     "id": "runway",
+     "label": "Runway",
+     "unit": "months",
+     "better": "higher",
+     "basis": "none",
+     "value": null,
+     "record": "cash ÷ average monthly net burn"
+    },
+    {
+     "id": "default_alive",
+     "label": "Default alive",
+     "unit": "bool",
+     "better": "higher",
+     "basis": "none",
+     "value": null,
+     "definition": "Paul Graham's test: on today's cash, costs held flat and revenue growing at its recent rate, does the company reach profitability?",
+     "record": "revenue growth and burn from the monthly exports"
+    }
+   ]
+  }
+ ],
+ "foot": "Committed public version: definitions and what to record only. BAM's modelled values live in a local overlay (fixtures/local), never in this public repo."
+}
