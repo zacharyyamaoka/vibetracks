@@ -1,0 +1,202 @@
+{
+ "schema": "vibetracks-home-track/1",
+ "generated_at": "2026-10-09T12:00:00-07:00",
+ "track": {
+  "id": "t-stale",
+  "title": "Stale fixture",
+  "kind": "activity",
+  "adapter": null,
+  "project": "Fixture Robotics",
+  "revision": "fixture-rev-1",
+  "status": "paused",
+  "priority": 3,
+  "target": null,
+  "purpose": "The stale fixture: one rule case for tests/test_home_rules.py.",
+  "stall_hours": 24.0,
+  "state": {
+   "word": "stale",
+   "label": "Stale",
+   "rule": "stale",
+   "why": "no agent entry or loop write for 30 h (stall rule 24 h)",
+   "since": null
+  },
+  "health": {
+   "color": "red",
+   "rule": "red: stale"
+  },
+  "progress": {
+   "label": null,
+   "value": null,
+   "of": null,
+   "unit": null,
+   "unknown": "no KPI adapter yet",
+   "source": null
+  },
+  "mode": {
+   "word": "discover",
+   "why": "no KPI adapter yet: nothing is measured, so it is still finding what to measure"
+  },
+  "worked": {
+   "h24_s": 0,
+   "d7_s": 3600
+  },
+  "last_action": {
+   "ts": "2026-10-08T06:00:00-07:00",
+   "age_s": 108000,
+   "type": "action",
+   "body": "Bash"
+  },
+  "last_loop_write": null,
+  "last_error": null,
+  "needs_you": {
+   "blocking": null,
+   "open": null,
+   "oldest_age_s": null,
+   "unknown_ages": 0,
+   "source": "no triage file: an activity-only track",
+   "waiting_sessions": 0,
+   "open_questions": [],
+   "review": null
+  },
+  "sessions": [
+   {
+    "id": "11111111-0000-4000-8000-000000000003",
+    "account": "fixa",
+    "title": "Stale fixture session",
+    "branch": "claude/t-stale-cc33",
+    "cwd": "/home/fix/stale",
+    "transcript": "/home/fix/claude-fixa/projects/-home-fix-stale/11111111-0000-4000-8000-000000000003.jsonl",
+    "subagent_files": 0,
+    "open_questions": 0,
+    "last_action": {
+     "ts": "2026-10-08T06:00:00-07:00",
+     "age_s": 108000,
+     "type": "action",
+     "body": "Bash"
+    },
+    "last_error": null,
+    "worked": {
+     "h24_s": 0,
+     "d7_s": 3600
+    },
+    "join": {
+     "by": "branch",
+     "value": "claude/t-stale-*"
+    },
+    "pid": null,
+    "live": false,
+    "status": null,
+    "waiting_for": null,
+    "status_since": null,
+    "entrypoint": null,
+    "state": {
+     "word": "ended",
+     "label": "Ended"
+    },
+    "open": {
+     "desktop": null,
+     "remote_control": null,
+     "resume": "CLAUDE_CONFIG_DIR=/home/fix/.claude-fixa claude --resume 11111111-0000-4000-8000-000000000003"
+    }
+   }
+  ],
+  "links": {
+   "track": null,
+   "review": null
+  },
+  "provenance": {
+   "note": "/home/fix/workspace/tracks/t-stale.md",
+   "state": "stale",
+   "loop": null,
+   "projection": false,
+   "transcripts": [
+    "/home/fix/claude-fixa/projects/-home-fix-stale/11111111-0000-4000-8000-000000000003.jsonl"
+   ],
+   "join": {
+    "branch": 1,
+    "cwd": 0,
+    "title": 0
+   }
+  },
+  "problems": []
+ },
+ "project": {
+  "id": "fixture-robotics",
+  "name": "Fixture Robotics",
+  "color": "#8d7cc3"
+ },
+ "kpis": {
+  "north_star": null,
+  "soft": [],
+  "gates": [],
+  "iterations": [],
+  "unknown": "no KPI adapter yet"
+ },
+ "roadmap": {
+  "href": "../roadmap/doc?track=t-stale",
+  "note": "the roadmap projector's document for this track (vibetracks.roadmap); 404 when it has none"
+ },
+ "worked_daily": [
+  {
+   "date": "2026-10-03",
+   "s": 0
+  },
+  {
+   "date": "2026-10-04",
+   "s": 0
+  },
+  {
+   "date": "2026-10-05",
+   "s": 0
+  },
+  {
+   "date": "2026-10-06",
+   "s": 0
+  },
+  {
+   "date": "2026-10-07",
+   "s": 0
+  },
+  {
+   "date": "2026-10-08",
+   "s": 3600
+  },
+  {
+   "date": "2026-10-09",
+   "s": 0
+  }
+ ],
+ "timeline": [
+  {
+   "ts": "2026-10-08T06:00:00-07:00",
+   "kind": "action",
+   "title": "Last agent entry · Stale fixture session",
+   "detail": "action: Bash",
+   "source": "/home/fix/claude-fixa/projects/-home-fix-stale/11111111-0000-4000-8000-000000000003.jsonl",
+   "session": "11111111-0000-4000-8000-000000000003",
+   "account": "fixa"
+  },
+  {
+   "ts": "2026-10-08T05:00:00-07:00",
+   "kind": "session",
+   "title": "Session started · Stale fixture session",
+   "detail": "fixa · claude/t-stale-cc33",
+   "source": "/home/fix/claude-fixa/projects/-home-fix-stale/11111111-0000-4000-8000-000000000003.jsonl",
+   "session": "11111111-0000-4000-8000-000000000003",
+   "account": "fixa"
+  }
+ ],
+ "audits": {
+  "globs": [],
+  "rounds": [],
+  "unknown": "no vibe-audits glob in the track's note"
+ },
+ "agents": {
+  "11111111-0000-4000-8000-000000000003": {
+   "provider": "claude-code",
+   "model": "claude-opus-5-5",
+   "model_source": "the transcript's last assistant line"
+  }
+ },
+ "timing_ms": null
+}

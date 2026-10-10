@@ -1,0 +1,1370 @@
+{
+ "schema": "vibetracks-home-project/1",
+ "generated_at": "2026-10-09T12:00:00-07:00",
+ "project": {
+  "id": "fixture-robotics",
+  "revision": "fixture-rev-1",
+  "name": "Fixture Robotics",
+  "color": "#8d7cc3",
+  "target": null,
+  "target_from": null,
+  "health": "red",
+  "rollup": {
+   "green": 2,
+   "yellow": 2,
+   "red": 3
+  },
+  "needs_you": {
+   "blocking": 0,
+   "open": 0,
+   "tracks": 2
+  },
+  "worked": {
+   "h24_s": 12300,
+   "d7_s": 15900
+  },
+  "roots": [
+   {
+    "path": "/home/fix",
+    "exists": false
+   }
+  ],
+  "descriptor": "/home/fix/workspace/projects/fixture.vibetrack",
+  "north_star": null,
+  "sessions_unpinned": [
+   {
+    "id": "11111111-0000-4000-8000-000000000008",
+    "account": "fixa",
+    "title": "Prusa input shaper",
+    "branch": "claude/prusa-input-shaper-1a2b",
+    "cwd": "/home/fix/prusa",
+    "transcript": "/home/fix/claude-fixa/projects/-home-fix-prusa/11111111-0000-4000-8000-000000000008.jsonl",
+    "subagent_files": 0,
+    "open_questions": 0,
+    "last_action": {
+     "ts": "2026-10-09T11:45:00-07:00",
+     "age_s": 900,
+     "type": "action",
+     "body": "Bash"
+    },
+    "last_error": null,
+    "worked": {
+     "h24_s": 0,
+     "d7_s": 0
+    },
+    "join": {
+     "by": null,
+     "value": null
+    },
+    "pid": 1007,
+    "live": true,
+    "status": "idle",
+    "waiting_for": null,
+    "status_since": "2026-10-09T11:59:00-07:00",
+    "entrypoint": "claude-desktop",
+    "state": {
+     "word": "working",
+     "label": "Working"
+    },
+    "open": {
+     "desktop": "claude://code/continue?session=local_fix_1007",
+     "remote_control": null,
+     "resume": "CLAUDE_CONFIG_DIR=/home/fix/claude-fixa claude --resume 11111111-0000-4000-8000-000000000008"
+    },
+    "projects": [
+     "fixture-robotics"
+    ]
+   }
+  ],
+  "sessions_live": 6,
+  "tracks": [
+   {
+    "id": "t-waiting",
+    "title": "Waiting fixture",
+    "kind": "activity",
+    "adapter": null,
+    "project": "Fixture Robotics",
+    "revision": "fixture-rev-2",
+    "status": "paused",
+    "priority": 1,
+    "target": null,
+    "purpose": "The waiting fixture: one rule case for tests/test_home_rules.py.",
+    "stall_hours": 24.0,
+    "state": {
+     "word": "needs_you",
+     "label": "Needs you",
+     "rule": "waiting",
+     "why": "1 live session waiting (input needed)",
+     "since": null
+    },
+    "health": {
+     "color": "yellow",
+     "rule": "yellow: waiting on you"
+    },
+    "progress": {
+     "label": null,
+     "value": null,
+     "of": null,
+     "unit": null,
+     "unknown": "no KPI adapter yet",
+     "source": null
+    },
+    "mode": {
+     "word": "discover",
+     "why": "no KPI adapter yet: nothing is measured, so it is still finding what to measure"
+    },
+    "worked": {
+     "h24_s": 1560,
+     "d7_s": 1560
+    },
+    "last_action": {
+     "ts": "2026-10-09T11:57:00-07:00",
+     "age_s": 180,
+     "type": "action",
+     "body": "Bash"
+    },
+    "last_loop_write": null,
+    "last_error": null,
+    "needs_you": {
+     "blocking": null,
+     "open": null,
+     "oldest_age_s": null,
+     "unknown_ages": 0,
+     "source": "no triage file: an activity-only track",
+     "waiting_sessions": 1,
+     "open_questions": [],
+     "review": null
+    },
+    "sessions": [
+     {
+      "id": "11111111-0000-4000-8000-000000000001",
+      "account": "fixa",
+      "title": "Waiting fixture session",
+      "branch": "claude/t-waiting-aa11",
+      "cwd": "/home/fix/waiting",
+      "transcript": "/home/fix/claude-fixa/projects/-home-fix-waiting/11111111-0000-4000-8000-000000000001.jsonl",
+      "subagent_files": 0,
+      "open_questions": 0,
+      "last_action": {
+       "ts": "2026-10-09T11:57:00-07:00",
+       "age_s": 180,
+       "type": "action",
+       "body": "Bash"
+      },
+      "last_error": null,
+      "worked": {
+       "h24_s": 1560,
+       "d7_s": 1560
+      },
+      "join": {
+       "by": "branch",
+       "value": "claude/t-waiting-*"
+      },
+      "pid": 1001,
+      "live": true,
+      "status": "waiting",
+      "waiting_for": "input needed",
+      "status_since": "2026-10-09T11:59:00-07:00",
+      "entrypoint": "claude-desktop",
+      "state": {
+       "word": "needs_you",
+       "label": "Needs you"
+      },
+      "open": {
+       "desktop": "claude://code/continue?session=local_fix_1001",
+       "remote_control": "https://claude.ai/code/session_01FixWaiting",
+       "resume": "CLAUDE_CONFIG_DIR=/home/fix/claude-fixa claude --resume 11111111-0000-4000-8000-000000000001"
+      }
+     }
+    ],
+    "links": {
+     "track": null,
+     "review": null
+    },
+    "provenance": {
+     "note": "/home/fix/workspace/tracks/t-waiting.md",
+     "state": "waiting",
+     "loop": null,
+     "projection": false,
+     "transcripts": [
+      "/home/fix/claude-fixa/projects/-home-fix-waiting/11111111-0000-4000-8000-000000000001.jsonl"
+     ],
+     "join": {
+      "branch": 1,
+      "cwd": 0,
+      "title": 0
+     }
+    },
+    "problems": []
+   },
+   {
+    "id": "t-ratelimit",
+    "title": "Rate-limit fixture",
+    "kind": "activity",
+    "adapter": null,
+    "project": "Fixture Robotics",
+    "revision": "fixture-rev-3",
+    "status": "running",
+    "priority": 2,
+    "target": null,
+    "purpose": "The rate-limit fixture: one rule case for tests/test_home_rules.py.",
+    "stall_hours": 24.0,
+    "state": {
+     "word": "error",
+     "label": "Error",
+     "rule": "error_entry",
+     "why": "last agent entry is an error, 40 min ago · rate limit: You've hit your session limit · resets 5:20pm (America/Vancouver) (Fri 17:20 PDT)",
+     "since": null
+    },
+    "health": {
+     "color": "red",
+     "rule": "red: error"
+    },
+    "progress": {
+     "label": null,
+     "value": null,
+     "of": null,
+     "unit": null,
+     "unknown": "no KPI adapter yet",
+     "source": null
+    },
+    "mode": {
+     "word": "discover",
+     "why": "no KPI adapter yet: nothing is measured, so it is still finding what to measure"
+    },
+    "worked": {
+     "h24_s": 3000,
+     "d7_s": 3000
+    },
+    "last_action": {
+     "ts": "2026-10-09T11:20:00-07:00",
+     "age_s": 2400,
+     "type": "error",
+     "body": "You've hit your session limit · resets 5:20pm (America/Vancouver)"
+    },
+    "last_loop_write": null,
+    "last_error": {
+     "ts": "2026-10-09T11:20:00-07:00",
+     "age_s": 2400,
+     "kind": "rate_limit",
+     "text": "You've hit your session limit · resets 5:20pm (America/Vancouver)",
+     "resets": "2026-10-09T17:20:00-07:00"
+    },
+    "needs_you": {
+     "blocking": null,
+     "open": null,
+     "oldest_age_s": null,
+     "unknown_ages": 0,
+     "source": "no triage file: an activity-only track",
+     "waiting_sessions": 0,
+     "open_questions": [],
+     "review": null
+    },
+    "sessions": [
+     {
+      "id": "11111111-0000-4000-8000-000000000002",
+      "account": "fixa",
+      "title": "Rate-limit fixture session",
+      "branch": "claude/t-ratelimit-bb22",
+      "cwd": "/home/fix/ratelimit",
+      "transcript": "/home/fix/claude-fixa/projects/-home-fix-ratelimit/11111111-0000-4000-8000-000000000002.jsonl",
+      "subagent_files": 0,
+      "open_questions": 0,
+      "last_action": {
+       "ts": "2026-10-09T11:20:00-07:00",
+       "age_s": 2400,
+       "type": "error",
+       "body": "You've hit your session limit · resets 5:20pm (America/Vancouver)"
+      },
+      "last_error": {
+       "ts": "2026-10-09T11:20:00-07:00",
+       "kind": "rate_limit",
+       "text": "You've hit your session limit · resets 5:20pm (America/Vancouver)",
+       "resets": "2026-10-09T17:20:00-07:00"
+      },
+      "worked": {
+       "h24_s": 3000,
+       "d7_s": 3000
+      },
+      "join": {
+       "by": "branch",
+       "value": "claude/t-ratelimit-*"
+      },
+      "pid": 1002,
+      "live": true,
+      "status": "idle",
+      "waiting_for": null,
+      "status_since": "2026-10-09T11:59:00-07:00",
+      "entrypoint": "claude-desktop",
+      "state": {
+       "word": "error",
+       "label": "Error"
+      },
+      "open": {
+       "desktop": "claude://code/continue?session=local_fix_1002",
+       "remote_control": null,
+       "resume": "CLAUDE_CONFIG_DIR=/home/fix/claude-fixa claude --resume 11111111-0000-4000-8000-000000000002"
+      }
+     }
+    ],
+    "links": {
+     "track": null,
+     "review": null
+    },
+    "provenance": {
+     "note": "/home/fix/workspace/tracks/t-ratelimit.md",
+     "state": "error_entry",
+     "loop": null,
+     "projection": false,
+     "transcripts": [
+      "/home/fix/claude-fixa/projects/-home-fix-ratelimit/11111111-0000-4000-8000-000000000002.jsonl"
+     ],
+     "join": {
+      "branch": 1,
+      "cwd": 0,
+      "title": 0
+     }
+    },
+    "problems": []
+   },
+   {
+    "id": "t-stale",
+    "title": "Stale fixture",
+    "kind": "activity",
+    "adapter": null,
+    "project": "Fixture Robotics",
+    "revision": "fixture-rev-4",
+    "status": "paused",
+    "priority": 3,
+    "target": null,
+    "purpose": "The stale fixture: one rule case for tests/test_home_rules.py.",
+    "stall_hours": 24.0,
+    "state": {
+     "word": "stale",
+     "label": "Stale",
+     "rule": "stale",
+     "why": "no agent entry or loop write for 30 h (stall rule 24 h)",
+     "since": null
+    },
+    "health": {
+     "color": "red",
+     "rule": "red: stale"
+    },
+    "progress": {
+     "label": null,
+     "value": null,
+     "of": null,
+     "unit": null,
+     "unknown": "no KPI adapter yet",
+     "source": null
+    },
+    "mode": {
+     "word": "discover",
+     "why": "no KPI adapter yet: nothing is measured, so it is still finding what to measure"
+    },
+    "worked": {
+     "h24_s": 0,
+     "d7_s": 3600
+    },
+    "last_action": {
+     "ts": "2026-10-08T06:00:00-07:00",
+     "age_s": 108000,
+     "type": "action",
+     "body": "Bash"
+    },
+    "last_loop_write": null,
+    "last_error": null,
+    "needs_you": {
+     "blocking": null,
+     "open": null,
+     "oldest_age_s": null,
+     "unknown_ages": 0,
+     "source": "no triage file: an activity-only track",
+     "waiting_sessions": 0,
+     "open_questions": [],
+     "review": null
+    },
+    "sessions": [
+     {
+      "id": "11111111-0000-4000-8000-000000000003",
+      "account": "fixa",
+      "title": "Stale fixture session",
+      "branch": "claude/t-stale-cc33",
+      "cwd": "/home/fix/stale",
+      "transcript": "/home/fix/claude-fixa/projects/-home-fix-stale/11111111-0000-4000-8000-000000000003.jsonl",
+      "subagent_files": 0,
+      "open_questions": 0,
+      "last_action": {
+       "ts": "2026-10-08T06:00:00-07:00",
+       "age_s": 108000,
+       "type": "action",
+       "body": "Bash"
+      },
+      "last_error": null,
+      "worked": {
+       "h24_s": 0,
+       "d7_s": 3600
+      },
+      "join": {
+       "by": "branch",
+       "value": "claude/t-stale-*"
+      },
+      "pid": null,
+      "live": false,
+      "status": null,
+      "waiting_for": null,
+      "status_since": null,
+      "entrypoint": null,
+      "state": {
+       "word": "ended",
+       "label": "Ended"
+      },
+      "open": {
+       "desktop": null,
+       "remote_control": null,
+       "resume": "CLAUDE_CONFIG_DIR=/home/fix/.claude-fixa claude --resume 11111111-0000-4000-8000-000000000003"
+      }
+     }
+    ],
+    "links": {
+     "track": null,
+     "review": null
+    },
+    "provenance": {
+     "note": "/home/fix/workspace/tracks/t-stale.md",
+     "state": "stale",
+     "loop": null,
+     "projection": false,
+     "transcripts": [
+      "/home/fix/claude-fixa/projects/-home-fix-stale/11111111-0000-4000-8000-000000000003.jsonl"
+     ],
+     "join": {
+      "branch": 1,
+      "cwd": 0,
+      "title": 0
+     }
+    },
+    "problems": []
+   },
+   {
+    "id": "t-busy",
+    "title": "Busy fixture",
+    "kind": "activity",
+    "adapter": null,
+    "project": "Fixture Robotics",
+    "revision": "fixture-rev-5",
+    "status": "running",
+    "priority": 4,
+    "target": null,
+    "purpose": "The busy fixture: one rule case for tests/test_home_rules.py.",
+    "stall_hours": 24.0,
+    "state": {
+     "word": "working",
+     "label": "Working",
+     "rule": "busy",
+     "why": "1 live session busy",
+     "since": null
+    },
+    "health": {
+     "color": "green",
+     "rule": "green: moving or idle, nothing open"
+    },
+    "progress": {
+     "label": null,
+     "value": null,
+     "of": null,
+     "unit": null,
+     "unknown": "no KPI adapter yet",
+     "source": null
+    },
+    "mode": {
+     "word": "discover",
+     "why": "no KPI adapter yet: nothing is measured, so it is still finding what to measure"
+    },
+    "worked": {
+     "h24_s": 2400,
+     "d7_s": 2400
+    },
+    "last_action": {
+     "ts": "2026-10-09T11:40:00-07:00",
+     "age_s": 1200,
+     "type": "action",
+     "body": "Bash"
+    },
+    "last_loop_write": null,
+    "last_error": null,
+    "needs_you": {
+     "blocking": null,
+     "open": null,
+     "oldest_age_s": null,
+     "unknown_ages": 0,
+     "source": "no triage file: an activity-only track",
+     "waiting_sessions": 0,
+     "open_questions": [],
+     "review": null
+    },
+    "sessions": [
+     {
+      "id": "11111111-0000-4000-8000-000000000004",
+      "account": "fixa",
+      "title": "Busy fixture session",
+      "branch": "claude/t-busy-dd44",
+      "cwd": "/home/fix/busy",
+      "transcript": "/home/fix/claude-fixa/projects/-home-fix-busy/11111111-0000-4000-8000-000000000004.jsonl",
+      "subagent_files": 0,
+      "open_questions": 0,
+      "last_action": {
+       "ts": "2026-10-09T11:40:00-07:00",
+       "age_s": 1200,
+       "type": "action",
+       "body": "Bash"
+      },
+      "last_error": null,
+      "worked": {
+       "h24_s": 2400,
+       "d7_s": 2400
+      },
+      "join": {
+       "by": "branch",
+       "value": "claude/t-busy-*"
+      },
+      "pid": 1004,
+      "live": true,
+      "status": "busy",
+      "waiting_for": null,
+      "status_since": "2026-10-09T11:59:00-07:00",
+      "entrypoint": "claude-desktop",
+      "state": {
+       "word": "working",
+       "label": "Working"
+      },
+      "open": {
+       "desktop": "claude://code/continue?session=local_fix_1004",
+       "remote_control": "https://claude.ai/code/session_01FixBusy",
+       "resume": "CLAUDE_CONFIG_DIR=/home/fix/claude-fixa claude --resume 11111111-0000-4000-8000-000000000004"
+      }
+     }
+    ],
+    "links": {
+     "track": null,
+     "review": null
+    },
+    "provenance": {
+     "note": "/home/fix/workspace/tracks/t-busy.md",
+     "state": "busy",
+     "loop": null,
+     "projection": false,
+     "transcripts": [
+      "/home/fix/claude-fixa/projects/-home-fix-busy/11111111-0000-4000-8000-000000000004.jsonl"
+     ],
+     "join": {
+      "branch": 1,
+      "cwd": 0,
+      "title": 0
+     }
+    },
+    "problems": []
+   },
+   {
+    "id": "t-openask",
+    "title": "Open question fixture",
+    "kind": "activity",
+    "adapter": null,
+    "project": "Fixture Robotics",
+    "revision": "fixture-rev-6",
+    "status": "running",
+    "priority": 5,
+    "target": null,
+    "purpose": "The open question fixture: one rule case for tests/test_home_rules.py.",
+    "stall_hours": 24.0,
+    "state": {
+     "word": "needs_you",
+     "label": "Needs you",
+     "rule": "open_question",
+     "why": "unanswered question “Which gripper should the bench use?” (50 min ago)",
+     "since": null
+    },
+    "health": {
+     "color": "yellow",
+     "rule": "yellow: waiting on you"
+    },
+    "progress": {
+     "label": null,
+     "value": null,
+     "of": null,
+     "unit": null,
+     "unknown": "no KPI adapter yet",
+     "source": null
+    },
+    "mode": {
+     "word": "discover",
+     "why": "no KPI adapter yet: nothing is measured, so it is still finding what to measure"
+    },
+    "worked": {
+     "h24_s": 780,
+     "d7_s": 780
+    },
+    "last_action": {
+     "ts": "2026-10-09T11:58:00-07:00",
+     "age_s": 120,
+     "type": "action",
+     "body": "Bash"
+    },
+    "last_loop_write": null,
+    "last_error": null,
+    "needs_you": {
+     "blocking": null,
+     "open": null,
+     "oldest_age_s": null,
+     "unknown_ages": 0,
+     "source": "no triage file: an activity-only track",
+     "waiting_sessions": 0,
+     "open_questions": [
+      {
+       "ts": "2026-10-09T11:10:00-07:00",
+       "age_s": 3000,
+       "question": "Which gripper should the bench use?"
+      }
+     ],
+     "review": null
+    },
+    "sessions": [
+     {
+      "id": "11111111-0000-4000-8000-000000000006",
+      "account": "fixa",
+      "title": "Open question fixture session",
+      "branch": "claude/t-openask-ee55",
+      "cwd": "/home/fix/openask",
+      "transcript": "/home/fix/claude-fixa/projects/-home-fix-openask/11111111-0000-4000-8000-000000000006.jsonl",
+      "subagent_files": 0,
+      "open_questions": 0,
+      "last_action": {
+       "ts": "2026-10-09T11:58:00-07:00",
+       "age_s": 120,
+       "type": "action",
+       "body": "Bash"
+      },
+      "last_error": null,
+      "worked": {
+       "h24_s": 480,
+       "d7_s": 480
+      },
+      "join": {
+       "by": "branch",
+       "value": "claude/t-openask-*"
+      },
+      "pid": 1005,
+      "live": true,
+      "status": "idle",
+      "waiting_for": null,
+      "status_since": "2026-10-09T11:59:00-07:00",
+      "entrypoint": "claude-desktop",
+      "state": {
+       "word": "working",
+       "label": "Working"
+      },
+      "open": {
+       "desktop": "claude://code/continue?session=local_fix_1005",
+       "remote_control": null,
+       "resume": "CLAUDE_CONFIG_DIR=/home/fix/claude-fixa claude --resume 11111111-0000-4000-8000-000000000006"
+      }
+     },
+     {
+      "id": "11111111-0000-4000-8000-000000000005",
+      "account": "fixa",
+      "title": null,
+      "branch": "claude/t-openask-ee55",
+      "cwd": "/home/fix/openask",
+      "transcript": "/home/fix/claude-fixa/projects/-home-fix-openask/11111111-0000-4000-8000-000000000005.jsonl",
+      "subagent_files": 0,
+      "open_questions": 1,
+      "last_action": {
+       "ts": "2026-10-09T11:10:00-07:00",
+       "age_s": 3000,
+       "type": "elicitation",
+       "body": "Which gripper should the bench use?"
+      },
+      "last_error": null,
+      "worked": {
+       "h24_s": 300,
+       "d7_s": 300
+      },
+      "join": {
+       "by": "branch",
+       "value": "claude/t-openask-*"
+      },
+      "pid": null,
+      "live": false,
+      "status": null,
+      "waiting_for": null,
+      "status_since": null,
+      "entrypoint": null,
+      "state": {
+       "word": "needs_you",
+       "label": "Needs you"
+      },
+      "open": {
+       "desktop": null,
+       "remote_control": null,
+       "resume": "CLAUDE_CONFIG_DIR=/home/fix/.claude-fixa claude --resume 11111111-0000-4000-8000-000000000005"
+      }
+     }
+    ],
+    "links": {
+     "track": null,
+     "review": null
+    },
+    "provenance": {
+     "note": "/home/fix/workspace/tracks/t-openask.md",
+     "state": "open_question",
+     "loop": null,
+     "projection": false,
+     "transcripts": [
+      "/home/fix/claude-fixa/projects/-home-fix-openask/11111111-0000-4000-8000-000000000005.jsonl",
+      "/home/fix/claude-fixa/projects/-home-fix-openask/11111111-0000-4000-8000-000000000006.jsonl"
+     ],
+     "join": {
+      "branch": 2,
+      "cwd": 0,
+      "title": 0
+     }
+    },
+    "problems": []
+   },
+   {
+    "id": "t-subagent",
+    "title": "Subagent fixture",
+    "kind": "activity",
+    "adapter": null,
+    "project": "Fixture Robotics",
+    "revision": "fixture-rev-7",
+    "status": "running",
+    "priority": 6,
+    "target": null,
+    "purpose": "The subagent fixture: one rule case for tests/test_home_rules.py.",
+    "stall_hours": 24.0,
+    "state": {
+     "word": "working",
+     "label": "Working",
+     "rule": "recent",
+     "why": "last action 4 min ago",
+     "since": null
+    },
+    "health": {
+     "color": "green",
+     "rule": "green: moving or idle, nothing open"
+    },
+    "progress": {
+     "label": null,
+     "value": null,
+     "of": null,
+     "unit": null,
+     "unknown": "no KPI adapter yet",
+     "source": null
+    },
+    "mode": {
+     "word": "discover",
+     "why": "no KPI adapter yet: nothing is measured, so it is still finding what to measure"
+    },
+    "worked": {
+     "h24_s": 4560,
+     "d7_s": 4560
+    },
+    "last_action": {
+     "ts": "2026-10-09T11:56:00-07:00",
+     "age_s": 240,
+     "type": "action",
+     "body": "Edit"
+    },
+    "last_loop_write": null,
+    "last_error": null,
+    "needs_you": {
+     "blocking": null,
+     "open": null,
+     "oldest_age_s": null,
+     "unknown_ages": 0,
+     "source": "no triage file: an activity-only track",
+     "waiting_sessions": 0,
+     "open_questions": [],
+     "review": null
+    },
+    "sessions": [
+     {
+      "id": "11111111-0000-4000-8000-000000000007",
+      "account": "fixa",
+      "title": "Subagent fixture session",
+      "branch": "claude/t-subagent-ff66",
+      "cwd": "/home/fix/subagent",
+      "transcript": "/home/fix/claude-fixa/projects/-home-fix-subagent/11111111-0000-4000-8000-000000000007.jsonl",
+      "subagent_files": 2,
+      "open_questions": 0,
+      "last_action": {
+       "ts": "2026-10-09T11:56:00-07:00",
+       "age_s": 240,
+       "type": "action",
+       "body": "Edit"
+      },
+      "last_error": null,
+      "worked": {
+       "h24_s": 4560,
+       "d7_s": 4560
+      },
+      "join": {
+       "by": "branch",
+       "value": "claude/t-subagent-*"
+      },
+      "pid": 1006,
+      "live": true,
+      "status": "idle",
+      "waiting_for": null,
+      "status_since": "2026-10-09T11:59:00-07:00",
+      "entrypoint": "claude-desktop",
+      "state": {
+       "word": "working",
+       "label": "Working"
+      },
+      "open": {
+       "desktop": "claude://code/continue?session=local_fix_1006",
+       "remote_control": null,
+       "resume": "CLAUDE_CONFIG_DIR=/home/fix/claude-fixa claude --resume 11111111-0000-4000-8000-000000000007"
+      }
+     }
+    ],
+    "links": {
+     "track": null,
+     "review": null
+    },
+    "provenance": {
+     "note": "/home/fix/workspace/tracks/t-subagent.md",
+     "state": "recent",
+     "loop": null,
+     "projection": false,
+     "transcripts": [
+      "/home/fix/claude-fixa/projects/-home-fix-subagent/11111111-0000-4000-8000-000000000007.jsonl",
+      "/home/fix/claude-fixa/projects/-home-fix-subagent/11111111-0000-4000-8000-000000000007/subagents/agent-a1b2c3d4e5f60718.jsonl",
+      "/home/fix/claude-fixa/projects/-home-fix-subagent/11111111-0000-4000-8000-000000000007/subagents/workflows/wf_fix0001-001/agent-a9f8e7d6c5b4a392.jsonl"
+     ],
+     "join": {
+      "branch": 1,
+      "cwd": 0,
+      "title": 0
+     }
+    },
+    "problems": []
+   },
+   {
+    "id": "t-claim",
+    "title": "Claim fixture",
+    "kind": "adapter",
+    "adapter": "fixture",
+    "project": "Fixture Robotics",
+    "revision": "fixture-rev-8",
+    "status": "running",
+    "priority": 7,
+    "target": null,
+    "purpose": "The claim fixture: one rule case for tests/test_home_rules.py.",
+    "stall_hours": 24.0,
+    "state": {
+     "word": "stale",
+     "label": "Stale",
+     "rule": "stale",
+     "why": "no agent entry or loop write for 32 h (stall rule 24 h)",
+     "since": null
+    },
+    "health": {
+     "color": "red",
+     "rule": "red: stale"
+    },
+    "progress": {
+     "label": "rungs",
+     "unit": null,
+     "direction": "higher",
+     "target": 20,
+     "target_label": "of 20",
+     "source": "projection north_star rungs",
+     "value": 8,
+     "of": null,
+     "iteration": "W2",
+     "unknown": null
+    },
+    "mode": {
+     "word": "optimize",
+     "why": "its loop reports a north-star KPI (rungs)"
+    },
+    "worked": {
+     "h24_s": 0,
+     "d7_s": 0
+    },
+    "last_action": {
+     "ts": "2026-10-08T04:00:00-07:00",
+     "age_s": 115200,
+     "type": "action",
+     "body": "Bash"
+    },
+    "last_loop_write": {
+     "ts": "2026-10-08T03:00:00-07:00",
+     "age_s": 118800,
+     "key": "fixture_events",
+     "path": null
+    },
+    "last_error": null,
+    "needs_you": {
+     "blocking": null,
+     "open": null,
+     "oldest_age_s": null,
+     "unknown_ages": 0,
+     "source": null,
+     "waiting_sessions": 0,
+     "open_questions": [],
+     "review": null
+    },
+    "sessions": [
+     {
+      "id": "11111111-0000-4000-8000-00000000000b",
+      "account": "fixa",
+      "title": null,
+      "branch": "claude/t-claim-gg77",
+      "cwd": "/home/fix/claim",
+      "transcript": "/home/fix/claude-fixa/projects/-home-fix-claim/11111111-0000-4000-8000-00000000000b.jsonl",
+      "subagent_files": 0,
+      "open_questions": 0,
+      "last_action": {
+       "ts": "2026-10-08T04:00:00-07:00",
+       "age_s": 115200,
+       "type": "action",
+       "body": "Bash"
+      },
+      "last_error": null,
+      "worked": {
+       "h24_s": 0,
+       "d7_s": 0
+      },
+      "join": {
+       "by": "branch",
+       "value": "claude/t-claim-*"
+      },
+      "pid": null,
+      "live": false,
+      "status": null,
+      "waiting_for": null,
+      "status_since": null,
+      "entrypoint": null,
+      "state": {
+       "word": "ended",
+       "label": "Ended"
+      },
+      "open": {
+       "desktop": null,
+       "remote_control": null,
+       "resume": "CLAUDE_CONFIG_DIR=/home/fix/.claude-fixa claude --resume 11111111-0000-4000-8000-00000000000b"
+      }
+     }
+    ],
+    "links": {
+     "track": "/?vtdash=Agent%20work.vtdash#vt?track=t-claim",
+     "review": null
+    },
+    "provenance": {
+     "note": "/home/fix/workspace/tracks/t-claim.md",
+     "state": "stale",
+     "loop": null,
+     "projection": true,
+     "transcripts": [
+      "/home/fix/claude-fixa/projects/-home-fix-claim/11111111-0000-4000-8000-00000000000b.jsonl"
+     ],
+     "join": {
+      "branch": 1,
+      "cwd": 0,
+      "title": 0
+     }
+    },
+    "problems": []
+   }
+  ]
+ },
+ "north_star": {
+  "declared": null,
+  "unknown": "no north star declared in the project's descriptor"
+ },
+ "leading": [
+  {
+   "track": "t-waiting",
+   "title": "Waiting fixture",
+   "state": {
+    "word": "needs_you",
+    "label": "Needs you",
+    "rule": "waiting",
+    "why": "1 live session waiting (input needed)",
+    "since": null
+   },
+   "health": {
+    "color": "yellow",
+    "rule": "yellow: waiting on you"
+   },
+   "kpi": null,
+   "unknown": "no KPI adapter yet",
+   "worked_daily": [
+    {
+     "date": "2026-10-03",
+     "s": 0
+    },
+    {
+     "date": "2026-10-04",
+     "s": 0
+    },
+    {
+     "date": "2026-10-05",
+     "s": 0
+    },
+    {
+     "date": "2026-10-06",
+     "s": 0
+    },
+    {
+     "date": "2026-10-07",
+     "s": 0
+    },
+    {
+     "date": "2026-10-08",
+     "s": 0
+    },
+    {
+     "date": "2026-10-09",
+     "s": 1560
+    }
+   ]
+  },
+  {
+   "track": "t-ratelimit",
+   "title": "Rate-limit fixture",
+   "state": {
+    "word": "error",
+    "label": "Error",
+    "rule": "error_entry",
+    "why": "last agent entry is an error, 40 min ago · rate limit: You've hit your session limit · resets 5:20pm (America/Vancouver) (Fri 17:20 PDT)",
+    "since": null
+   },
+   "health": {
+    "color": "red",
+    "rule": "red: error"
+   },
+   "kpi": null,
+   "unknown": "no KPI adapter yet",
+   "worked_daily": [
+    {
+     "date": "2026-10-03",
+     "s": 0
+    },
+    {
+     "date": "2026-10-04",
+     "s": 0
+    },
+    {
+     "date": "2026-10-05",
+     "s": 0
+    },
+    {
+     "date": "2026-10-06",
+     "s": 0
+    },
+    {
+     "date": "2026-10-07",
+     "s": 0
+    },
+    {
+     "date": "2026-10-08",
+     "s": 0
+    },
+    {
+     "date": "2026-10-09",
+     "s": 3000
+    }
+   ]
+  },
+  {
+   "track": "t-stale",
+   "title": "Stale fixture",
+   "state": {
+    "word": "stale",
+    "label": "Stale",
+    "rule": "stale",
+    "why": "no agent entry or loop write for 30 h (stall rule 24 h)",
+    "since": null
+   },
+   "health": {
+    "color": "red",
+    "rule": "red: stale"
+   },
+   "kpi": null,
+   "unknown": "no KPI adapter yet",
+   "worked_daily": [
+    {
+     "date": "2026-10-03",
+     "s": 0
+    },
+    {
+     "date": "2026-10-04",
+     "s": 0
+    },
+    {
+     "date": "2026-10-05",
+     "s": 0
+    },
+    {
+     "date": "2026-10-06",
+     "s": 0
+    },
+    {
+     "date": "2026-10-07",
+     "s": 0
+    },
+    {
+     "date": "2026-10-08",
+     "s": 3600
+    },
+    {
+     "date": "2026-10-09",
+     "s": 0
+    }
+   ]
+  },
+  {
+   "track": "t-busy",
+   "title": "Busy fixture",
+   "state": {
+    "word": "working",
+    "label": "Working",
+    "rule": "busy",
+    "why": "1 live session busy",
+    "since": null
+   },
+   "health": {
+    "color": "green",
+    "rule": "green: moving or idle, nothing open"
+   },
+   "kpi": null,
+   "unknown": "no KPI adapter yet",
+   "worked_daily": [
+    {
+     "date": "2026-10-03",
+     "s": 0
+    },
+    {
+     "date": "2026-10-04",
+     "s": 0
+    },
+    {
+     "date": "2026-10-05",
+     "s": 0
+    },
+    {
+     "date": "2026-10-06",
+     "s": 0
+    },
+    {
+     "date": "2026-10-07",
+     "s": 0
+    },
+    {
+     "date": "2026-10-08",
+     "s": 0
+    },
+    {
+     "date": "2026-10-09",
+     "s": 2400
+    }
+   ]
+  },
+  {
+   "track": "t-openask",
+   "title": "Open question fixture",
+   "state": {
+    "word": "needs_you",
+    "label": "Needs you",
+    "rule": "open_question",
+    "why": "unanswered question “Which gripper should the bench use?” (50 min ago)",
+    "since": null
+   },
+   "health": {
+    "color": "yellow",
+    "rule": "yellow: waiting on you"
+   },
+   "kpi": null,
+   "unknown": "no KPI adapter yet",
+   "worked_daily": [
+    {
+     "date": "2026-10-03",
+     "s": 0
+    },
+    {
+     "date": "2026-10-04",
+     "s": 0
+    },
+    {
+     "date": "2026-10-05",
+     "s": 0
+    },
+    {
+     "date": "2026-10-06",
+     "s": 0
+    },
+    {
+     "date": "2026-10-07",
+     "s": 0
+    },
+    {
+     "date": "2026-10-08",
+     "s": 0
+    },
+    {
+     "date": "2026-10-09",
+     "s": 780
+    }
+   ]
+  },
+  {
+   "track": "t-subagent",
+   "title": "Subagent fixture",
+   "state": {
+    "word": "working",
+    "label": "Working",
+    "rule": "recent",
+    "why": "last action 4 min ago",
+    "since": null
+   },
+   "health": {
+    "color": "green",
+    "rule": "green: moving or idle, nothing open"
+   },
+   "kpi": null,
+   "unknown": "no KPI adapter yet",
+   "worked_daily": [
+    {
+     "date": "2026-10-03",
+     "s": 0
+    },
+    {
+     "date": "2026-10-04",
+     "s": 0
+    },
+    {
+     "date": "2026-10-05",
+     "s": 0
+    },
+    {
+     "date": "2026-10-06",
+     "s": 0
+    },
+    {
+     "date": "2026-10-07",
+     "s": 0
+    },
+    {
+     "date": "2026-10-08",
+     "s": 0
+    },
+    {
+     "date": "2026-10-09",
+     "s": 4560
+    }
+   ]
+  },
+  {
+   "track": "t-claim",
+   "title": "Claim fixture",
+   "state": {
+    "word": "stale",
+    "label": "Stale",
+    "rule": "stale",
+    "why": "no agent entry or loop write for 32 h (stall rule 24 h)",
+    "since": null
+   },
+   "health": {
+    "color": "red",
+    "rule": "red: stale"
+   },
+   "kpi": {
+    "id": "rungs",
+    "label": "rungs",
+    "unit": null,
+    "direction": "higher",
+    "target": {
+     "value": 20,
+     "kind": "scope",
+     "label": "of 20"
+    },
+    "baseline": null,
+    "status": null,
+    "note": null,
+    "north_star": true,
+    "series": [
+     {
+      "iteration": "W0",
+      "date": "2026-10-05",
+      "value": 3,
+      "of": null,
+      "measured": true,
+      "note": null
+     },
+     {
+      "iteration": "W1",
+      "date": "2026-10-07",
+      "value": 5,
+      "of": null,
+      "measured": true,
+      "note": null
+     },
+     {
+      "iteration": "W2",
+      "date": null,
+      "value": 8,
+      "of": null,
+      "measured": true,
+      "note": null
+     }
+    ]
+   },
+   "unknown": null,
+   "worked_daily": [
+    {
+     "date": "2026-10-03",
+     "s": 0
+    },
+    {
+     "date": "2026-10-04",
+     "s": 0
+    },
+    {
+     "date": "2026-10-05",
+     "s": 0
+    },
+    {
+     "date": "2026-10-06",
+     "s": 0
+    },
+    {
+     "date": "2026-10-07",
+     "s": 0
+    },
+    {
+     "date": "2026-10-08",
+     "s": 0
+    },
+    {
+     "date": "2026-10-09",
+     "s": 0
+    }
+   ]
+  }
+ ],
+ "days": [
+  "2026-10-03",
+  "2026-10-04",
+  "2026-10-05",
+  "2026-10-06",
+  "2026-10-07",
+  "2026-10-08",
+  "2026-10-09"
+ ],
+ "timing_ms": null
+}
