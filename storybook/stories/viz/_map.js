@@ -42,3 +42,44 @@ export function colorIs(el, lonlat, token, tol = 6) {
   if (!near(got, want, tol)) throw new Error(`pixel at ${lonlat} is rgb(${got}) but ${token} is rgb(${want})`);
   return true;
 }
+
+/** REAL input for a play function: Chromium's own mouse and keyboard through the browser-mode provider (CDP), not
+ *  `.value =` and synthetic events. Resolves null where there is no Vitest browser (the Storybook UI), so the story
+ *  still renders there and can be driven by hand; under Vitest a failed import is an error, never a silent pass.
+ *  WHY: the period slider shipped a drag bug (the control was rebuilt on every update) that every synthetic test missed. */
+export async function realInput() {
+  let browser;
+  try { browser = await import('vitest/browser'); } catch (e) {
+    if (globalThis.__vitest_browser__ || (import.meta.env && import.meta.env.VITEST)) throw e;
+    return null;
+  }
+  const { userEvent, cdp } = browser;
+  // the story runs in an iframe of the Vitest page, CDP coordinates are the top page's: offset and scale by the frame
+  const toPage = (x, y) => {
+    const f = window.frameElement, r = f ? f.getBoundingClientRect() : { left: 0, top: 0, width: innerWidth };
+    const k = f && f.clientWidth ? r.width / f.clientWidth : 1;
+    return { x: r.left + x * k, y: r.top + y * k };
+  };
+  const send = (type, x, y, extra) => cdp().send('Input.dispatchMouseEvent', Object.assign({ type, ...toPage(x, y), button: 'left', buttons: type === 'mouseReleased' ? 0 : 1, clickCount: 1 }, extra));
+  let at = { x: 0, y: 0 };
+  return {
+    userEvent,
+    /** Moves the real pointer to viewport (x, y) in `steps` mouse moves; the button state is kept. */
+    async move(x, y, steps = 1, held = false) {
+      for (let i = 1; i <= steps; i++) {
+        const px = at.x + ((x - at.x) * i) / steps, py = at.y + ((y - at.y) * i) / steps;
+        await send('mouseMoved', px, py, { buttons: held ? 1 : 0 });
+        await new Promise((r) => requestAnimationFrame(r));
+      }
+      at = { x, y };
+    },
+    async down() { await send('mousePressed', at.x, at.y); },
+    async up() { await send('mouseReleased', at.x, at.y); },
+    async click(x, y) { await this.move(x, y); await this.down(); await this.up(); },
+    /** Viewport position of a lon/lat on the map's canvas. */
+    lonLat(el, lonlat) {
+      const r = el.map.getCanvas().getBoundingClientRect(), p = el.map.project(lonlat);
+      return [r.left + p.x, r.top + p.y];
+    },
+  };
+}
