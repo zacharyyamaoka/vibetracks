@@ -6,7 +6,7 @@ vibe-status: running
 vibe-priority: 3
 vibe-owner: grasp-bench session
 vibe-adapter: grasping
-vibe-sources: [grasping_ledger, grasping_curriculum, grasping_out_dir, grasping_attestations, grasping_gallery_py, grasping_ledger_py, grasping_runner_py, grasping_contracts_py, grasping_bench_python, grasping_verdict_cache, grasping_bench_src, grasping_record, grasping_rebuild_status, grasping_rebuild_status_json, grasping_roadmap_v4]
+vibe-sources: [grasping_ledger, grasping_curriculum, grasping_out_dir, grasping_attestations, grasping_gallery_py, grasping_ledger_py, grasping_runner_py, grasping_contracts_py, grasping_bench_python, grasping_verdict_cache, grasping_bench_src, grasping_record, grasping_roadmap_v4, grasping_scoreboard, grasping_queue_status_json, grasping_queue_status]
 vibe-roadmap:
   projector: grasping
   sources: [grasp_bench_dir, grasp_bench_out]

@@ -97,6 +97,14 @@ WORKTRACK_SOURCES: dict[str, str] = {
     "grasping_rebuild_status_json": "{grasping_out_dir}/loop/status.json",
     "grasping_roadmap_v4": "@worktree:/home/bam/bam_ws:claude/grasping-evidence-rebuild-cb787d:docs/grasping/roadmap_v4.json"
                            "|/home/bam/bam_ws/docs/grasping/roadmap_v4.json",
+    # Appended 2026-10-11 (grasping loop contract v5, presentation lane P-W2): the scoreboard every grasping view reads
+    # (grasp-scoreboard/1, rewritten by the runner after each request), the runner service's status (grasp-runner-status/1)
+    # and its STATUS.md, which replace the finished rebuild's loop/status.json, and the answers file the grasping
+    # Needs-you channel appends to (bam-triage-answer/1, read back by the loop's feedback intake each tick).
+    "grasping_scoreboard": "{grasping_out_dir}/scoreboard/scoreboard.json",
+    "grasping_queue_status_json": "{grasping_out_dir}/queue/status.json",
+    "grasping_queue_status": "{grasping_out_dir}/queue/STATUS.md",
+    "grasping_triage_answers": "~/.local/share/grasp_bench/loop/triage_answers.jsonl",
 }
 _REFERENCE = re.compile(r"^\{(?P<key>[a-z0-9_]+)\}")
 

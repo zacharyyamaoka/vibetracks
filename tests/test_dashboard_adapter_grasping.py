@@ -202,9 +202,11 @@ def bench_sources(root: Path, out: Path | None = None) -> dict[str, str]:
             "grasping_runner_py": str(code / "runner.py"), "grasping_contracts_py": str(code / "contracts.py"),
             "grasping_bench_src": str(code), "grasping_verdict_cache": str(root / "cache"),
             "grasping_record": str(out / "record" / "report_record_2026-10-06.json"),
-            "grasping_rebuild_status": str(out / "loop" / "STATUS.md"),
-            "grasping_rebuild_status_json": str(out / "loop" / "status.json"),
-            "grasping_roadmap_v4": str(root / "docs" / "grasping" / "roadmap_v4.json")}
+            "grasping_roadmap_v4": str(root / "docs" / "grasping" / "roadmap_v4.json"),
+            "grasping_scoreboard": str(out / "scoreboard" / "scoreboard.json"),
+            "grasping_queue_status_json": str(out / "queue" / "status.json"),
+            "grasping_queue_status": str(out / "queue" / "STATUS.md"),
+            "grasping_triage_answers": str(root / "loop" / "triage_answers.jsonl")}
 
 
 def work_track() -> WorkTrack:
@@ -617,14 +619,18 @@ class RecordTest(unittest.TestCase):
         self.assertIn("ledger missing", track["summary"])
         self.assertIn("record unreadable", track["summary"])
 
-    def test_the_rebuild_status_file_is_linked_when_the_loop_writes_it(self) -> None:
-        self.assertFalse(any(link["label"].startswith("Rebuild status") for link in self.build()["links"]))
-        status = self.out / "loop" / "STATUS.md"
+    def test_the_runner_status_files_are_linked_when_the_runner_writes_them(self) -> None:
+        self.assertFalse(any(link["label"].startswith("Runner status") for link in self.build()["links"]))
+        status = self.out / "queue" / "STATUS.md"
         status.parent.mkdir(parents=True)
-        status.write_text("# rebuild\n", encoding="utf-8")
+        status.write_text("# runner\n", encoding="utf-8")
+        (self.out / "queue" / "status.json").write_text(json.dumps(runner_status()), encoding="utf-8")
         track = self.build()
-        self.assertIn({"label": "Rebuild status (loop/STATUS.md)", "kind": "path", "value": str(status)}, track["links"])
-        self.assertIn("loop/STATUS.md written", self.kpi(track, "rebuild_progress")["status"]["word"])
+        self.assertIn({"label": "Runner status (queue/STATUS.md)", "kind": "path", "value": str(status)}, track["links"])
+        self.assertIn({"label": "Runner status (queue/status.json)", "kind": "path",
+                       "value": str(self.out / "queue" / "status.json")}, track["links"])
+        # the rebuild KPI is the ledger-vs-record count only: the finished rebuild's loop/status.json is not read
+        self.assertEqual(self.kpi(track, "rebuild_progress")["status"]["word"], "4 of 7 re-run")
 
     def test_the_lane_is_named_when_the_bench_code_sits_in_an_agent_worktree(self) -> None:
         self.assertIsNone(grasping.bench_lane(self.root))
@@ -670,22 +676,8 @@ ROADMAP = {
 }
 
 
-def rebuild_status(**overrides) -> dict:
-    doc = {"schema": "grasp-bench-rebuild-status/1", "code_sha": "c299cd83", "started": "2026-10-10T15:00:00-07:00",
-           "updated": "2026-10-10T17:05:00-07:00",
-           "current": {"step": "B", "cell": "M3.dense@toy/xy_rz", "seed": 1, "started": "2026-10-10T17:00:00-07:00"},
-           "steps": [{"step": "A", "title": "floors", "cells_total": 20, "cells_done": 20, "state": "done", "eta": None},
-                     {"step": "B", "title": "toy learners", "cells_total": 30, "cells_done": 12, "state": "running",
-                      "eta": "2026-10-10T19:40:00-07:00"},
-                     {"step": "C", "title": "MuJoCo", "cells_total": 40, "cells_done": 0, "state": "queued",
-                      "eta": "2026-10-11T06:00:00-07:00"}],
-           "failures": []}
-    doc.update(overrides)
-    return doc
-
-
 class MilestonesAndStatusTest(unittest.TestCase):
-    """roadmap_v4.json's four-milestone ladder and loop/status.json's rebuild progress, read as the loop wrote them."""
+    """roadmap_v4.json's four-milestone ladder and the runner's queue/status.json, read as the loop wrote them."""
 
     tearDown, build, kpi, series = FixtureTest.tearDown, FixtureTest.build, FixtureTest.kpi, FixtureTest.series
 
@@ -694,7 +686,7 @@ class MilestonesAndStatusTest(unittest.TestCase):
         self.roadmap = Path(self.sources["grasping_roadmap_v4"])
         self.roadmap.parent.mkdir(parents=True)
         self.roadmap.write_text(json.dumps(ROADMAP), encoding="utf-8")
-        self.status = Path(self.sources["grasping_rebuild_status_json"])
+        self.status = Path(self.sources["grasping_queue_status_json"])
         self.status.parent.mkdir(parents=True)
         self.record = self.out / "record" / "report_record_2026-10-06.json"
         self.record.parent.mkdir(parents=True)
@@ -778,50 +770,204 @@ class MilestonesAndStatusTest(unittest.TestCase):
         self.assertIn("roadmap_v4.json unreadable", doc["source"]["note"])
         self.assertIsNone(doc["counts"]["open"])
 
-    def test_status_json_drives_the_latest_rebuild_reading(self) -> None:
-        self.status.write_text(json.dumps(rebuild_status()), encoding="utf-8")
+    def test_the_runner_kpi_reads_queue_status_json_as_written(self) -> None:
+        self.status.write_text(json.dumps(runner_status()), encoding="utf-8")
         track = self.build()
-        kpi = self.kpi(track, "rebuild_progress")
-        last = kpi["values"][-1]
-        self.assertEqual((last["value"], last["of"]), (32.0, 90))
-        self.assertIn("step B (toy learners) · M3.dense@toy/xy_rz seed 1", last["note"])
-        eta = base.local_time("2026-10-10T19:40:00-07:00")   # the current step's ETA, in local time with its zone
-        self.assertIn(f"ETA {eta}", last["note"])
-        self.assertEqual(kpi["status"]["word"], f"32 of 90 cells · step B (toy learners) · M3.dense@toy/xy_rz seed 1 · "
-                                                f"ETA {eta}")
-        self.assertEqual(kpi["target"]["label"], "of 90 cells in the rebuild plan")
-        # the earlier columns keep the ledger-vs-record count they were
-        self.assertEqual([v["value"] for v in kpi["values"][:-1]], [0.0, 2.0, 4.0])
-        self.assertIn("32 of 90 cells (loop/status.json)", track["summary"])
-        self.assertIn({"label": "Rebuild status (loop/status.json)", "kind": "path", "value": str(self.status)},
-                      track["links"])
+        kpi = self.kpi(track, "runner_queue")
+        self.assertEqual([v["value"] for v in kpi["values"]], [None, None, None, 7.0])   # the latest column only
+        self.assertIn("reports only its current state", kpi["values"][0]["note"])
+        word = kpi["status"]["word"]
+        for words in ("running", "running M3.dense@mujoco/stage1 s0", "4 queued", "7 done · 0 failed in 24 h",
+                      f"heartbeat {base.local_time('2026-10-11T18:00:00+00:00')}", "canary green"):
+            self.assertIn(words, word)
+        self.assertEqual(kpi["slot"], "S4")
         self.assertEqual(base.problems(track), [])
 
-    def test_status_json_with_no_ledger_yet_and_with_failures(self) -> None:
-        self.ledger.unlink()
-        self.status.write_text(json.dumps(rebuild_status(current=None, failures=[{"cell": "M3.x@toy/x", "reason": "OOM"}])),
-                               encoding="utf-8")
-        track = self.build()
-        kpi = self.kpi(track, "rebuild_progress")
-        self.assertEqual([(v["iteration"], v["value"]) for v in kpi["values"]], [(RECORD_ID, 32.0)])
-        self.assertEqual(kpi["status"]["tone"], "warn")
-        self.assertIn("no step running", kpi["status"]["word"])
-        # a cell id that already names its seed is not given it twice (L1 writes "M3.dense@toy/x [seed 20261004]")
-        status = grasping.RebuildStatus(path="x", updated=None, steps=[], failures=[],
-                                        current={"step": 2, "cell": "M3.dense@toy/x [seed 20261004]", "seed": 20261004})
-        self.assertEqual(status.where(), "step 2 · M3.dense@toy/x [seed 20261004]")
-        self.assertIn(f"ETA {base.local_time('2026-10-10T19:40:00-07:00')}", kpi["status"]["word"])   # first unfinished
-        self.assertIn("1 failed cells", kpi["values"][-1]["note"])
+    def test_runner_tone_and_absence(self) -> None:
+        kpi = self.kpi(self.build(), "runner_queue")
+        self.assertEqual((kpi["values"][-1]["value"], kpi["status"]), (None, {"word": "runner not started", "tone": "muted"}))
+        self.assertIn("no out/queue/status.json", kpi["values"][-1]["note"])
+        for override, tone in (({"failed_24h": 2}, "warn"), ({"heartbeat_at": "2026-10-01T00:00:00+00:00"}, "warn"),
+                               ({"last_canary": {"at": "2026-10-11T17:00:00+00:00", "green": False}}, "warn"),
+                               ({"state": "idle", "current": []}, "muted")):
+            self.status.write_text(json.dumps(runner_status(**override)), encoding="utf-8")
+            with mock.patch.object(grasping.time, "time", return_value=1791741900.0):   # 2026-10-11T18:05Z
+                self.assertEqual(self.kpi(self.build(), "runner_queue")["status"]["tone"], tone, override)
 
-    def test_without_or_with_a_bad_status_json_the_ledger_vs_record_count_stands(self) -> None:
-        self.assertEqual(self.series(self.build(), "rebuild_progress"), [0.0, 2.0, 4.0, 4.0])
-        for bad in ({"schema": "other/1"}, rebuild_status(steps=[{"step": "A", "cells_total": "20", "cells_done": 1}])):
-            self.status.write_text(json.dumps(bad), encoding="utf-8")
+    def test_a_bad_runner_status_is_a_named_problem(self) -> None:
+        for bad, words in (({"schema": "other/1"}, "queue/status.json is not grasp-runner-status/1"),
+                           (None, "queue/status.json unreadable")):
+            self.status.write_text("{torn" if bad is None else json.dumps(bad), encoding="utf-8")
             track = self.build()
-            self.assertEqual(self.series(track, "rebuild_progress"), [0.0, 2.0, 4.0, 4.0])
-            self.assertTrue(any(p.startswith("loop/status.json") for p in track["source"]["problems"]), track["source"])
-        self.status.write_text("{torn", encoding="utf-8")
-        self.assertTrue(any("loop/status.json unreadable" in p for p in self.build()["source"]["problems"]))
+            self.assertTrue(any(p.startswith(words) for p in track["source"]["problems"]), track["source"])
+            self.assertEqual(self.kpi(track, "runner_queue")["status"]["tone"], "warn")
+        # the record-vs-ledger rebuild count stands on its own
+        self.assertEqual(self.series(track, "rebuild_progress"), [0.0, 2.0, 4.0, 4.0])
+
+
+def runner_status(**overrides) -> dict:
+    """A grasp-runner-status/1 document, the contract's runner.status_fields."""
+
+    doc = {"schema": "grasp-runner-status/1", "pid": 4242, "unit": "grasp-bench-runner", "service_code_sha": "a" * 40,
+           "started_at": "2026-10-11T17:00:00+00:00", "heartbeat_at": "2026-10-11T18:00:00+00:00", "state": "running",
+           "current": [{"id": "req-1", "cell": "M3.dense@mujoco/stage1", "training_seed": 0,
+                        "started_at": "2026-10-11T17:30:00+00:00", "scope": "grasp-run-x-1", "log": "/x.log"}],
+           "queued": 4, "done_24h": 7, "failed_24h": 0, "idle_since": None, "stop_reason": None,
+           "last_canary": {"at": "2026-10-11T17:05:00+00:00", "green": True}}
+    doc.update(overrides)
+    return doc
+
+
+def scoreboard_doc(ledger: Path, **overrides) -> dict:
+    """grasp-scoreboard/1 with today's numbers (loop contract v5): champion M2.hill; picks/h 1,729 (estimate); hold-out
+    92.5% [88.0, 95.4] (stand-in); p95 993 ms; bench-v1-standin 51.0 [47.8, 54.2]; gates 2 of 8; canaries green."""
+
+    tile = lambda id_, title, value, unit, status, ci=None, other=None, run_ids=(): {  # noqa: E731
+        "id": id_, "title": title, "value": value, "unit": unit, "ci95": ci, "status": status, "env": "mujoco-cam/meshes",
+        "protocol": "eval-200", "model": "M2.hill", "basis": f"basis of {id_}", "run_ids": list(run_ids), "per_seed": None,
+        "beside": None, "target": 1000 if unit == "ms" else None, "best_other": other}
+    gates = [{"kind": "gate", "env": "toy/xy_rz", "bar": 0.95, "protocol": {"name": "eval-2000", "episodes": 2000},
+              "status": "beaten", "holder": "M3.dense", "best": "M3.dense", "worst_seed_lb": 0.9666, "seeds": {},
+              "held": True, "v4": {"protocol": "eval-2000", "beaten": True, "holder": "M3.dense", "worst_seed_lb": 0.9666}},
+             {"kind": "gate", "env": "mujoco/stage0", "bar": 0.93, "protocol": {"name": "eval-1000", "episodes": 1000},
+              "status": "awaiting_protocol", "holder": None, "best": None, "worst_seed_lb": None, "seeds": {},
+              "held": False, "v4": {"protocol": "eval-200", "beaten": True, "holder": "M3.bandit", "worst_seed_lb": 0.9361}},
+             {"kind": "gate", "env": "mujoco/stage1", "bar": 0.93, "protocol": {"name": "eval-1000", "episodes": 1000},
+              "status": "not_beaten", "holder": None, "best": "M3.bandit", "worst_seed_lb": 0.91, "seeds": {},
+              "held": False, "v4": None}]
+    doc = {"schema": "grasp-scoreboard/1", "generated_at": "2026-10-11T18:27:17+00:00", "code_sha": "f" * 40,
+           "contract_sha256": "0" * 64,
+           "ledger": {"path": str(ledger), "rows": len(ROWS), "sha256": hashlib.sha256(ledger.read_bytes()).hexdigest(),
+                      "sealed_rows": 0},
+           "bench_versions": ["bench-v1", "bench-v1-standin"],
+           "header": {"champion": {"model": "M2.hill", "since": None, "how": "seeded"}, "kpis": [
+               tile("picks_per_hour", "Picks per hour (time to clear a bin)", 1729, "picks/h", "estimate",
+                    other="M6.sim_finetuned_bandit about 1,869 (estimate)", run_ids=[ROWS[8]["run_id"], "not-a-run"]),
+               tile("holdout_success", "Hold-out grasp success", 0.925, "%", "stand-in", [0.88, 0.954],
+                    "M6.sim_finetuned_bandit 96.3% pooled (578/600) [94.5, 97.6], stand-in", run_ids=[ROWS[0]["run_id"]]),
+               tile("grasp_time_p95_ms", "Grasp computation time", 993, "ms", "stand-in"),
+               {**tile("bench_score", "Bench score, with gates held", 51.0, "0-100", "stand-in", [47.8, 54.2]),
+                "beside": {"gates_held": {"k": 2, "n": 8}}}]},
+           "leaderboard": [], "gates": gates, "gates_held": {"k": 2, "n": 8},
+           "canaries": [{"env": "toy/x", "status": "green", "run_ids": []}, {"env": "toy/xy", "status": "green", "run_ids": []}],
+           "env_states": [], "cells": [], "warnings": []}
+    doc.update(overrides)
+    return doc
+
+
+class ScoreboardTest(unittest.TestCase):
+    """Loop contract v5 P-W2: the champion's four tiles, gates held, canaries and v5 gates come from scoreboard.json."""
+
+    tearDown, build, kpi, series = FixtureTest.tearDown, FixtureTest.build, FixtureTest.kpi, FixtureTest.series
+
+    def setUp(self) -> None:
+        FixtureTest.setUp(self)
+        self.board = Path(self.sources["grasping_scoreboard"])
+        self.board.parent.mkdir(parents=True)
+        self.board.write_text(json.dumps(scoreboard_doc(self.ledger)), encoding="utf-8")
+
+    def test_the_header_is_the_champions_four_tiles_with_their_status_words(self) -> None:
+        track = self.build()
+        ids = [k["id"] for k in track["kpis"]]
+        self.assertEqual(ids[:4], ["picks_per_hour", "holdout_success", "grasp_time_p95_ms", "bench_score"])
+        self.assertEqual(track["north_star"], "picks_per_hour")
+        values = {kpi_id: self.kpi(track, kpi_id)["values"][-1]["value"] for kpi_id in ids[:4]}
+        self.assertEqual(values, {"picks_per_hour": 1729, "holdout_success": 92.5, "grasp_time_p95_ms": 993,
+                                  "bench_score": 51.0})
+        picks = self.kpi(track, "picks_per_hour")
+        self.assertEqual(picks["status"], {"word": "estimate · better elsewhere: M6.sim_finetuned_bandit about 1,869 "
+                                                   "(estimate)", "tone": "muted"})
+        self.assertEqual([v["value"] for v in picks["values"][:-1]], [None, None])    # one reading, on the latest column
+        self.assertEqual(picks["values"][-1]["evidence"], [ROWS[8]["run_id"]])         # only runs of that column
+        self.assertEqual(self.kpi(track, "holdout_success")["values"][-1]["evidence"], [])
+        self.assertIn("95% interval [88.0, 95.4]", self.kpi(track, "holdout_success")["values"][-1]["note"])
+        self.assertTrue(self.kpi(track, "holdout_success")["status"]["word"].startswith("stand-in · better elsewhere"))
+        time_kpi = self.kpi(track, "grasp_time_p95_ms")
+        self.assertEqual((time_kpi["direction"], time_kpi["target"]["kind"], time_kpi["target"]["value"]), ("lower", "limit", 1000))
+        self.assertEqual(self.kpi(track, "bench_score")["status"]["word"], "stand-in · no eligible model is better")
+        self.assertIn("gates held 2 of 8", self.kpi(track, "bench_score")["target"]["label"])
+        self.assertEqual(base.problems(track), [])
+
+    def test_gates_held_canaries_and_v5_gates_replace_the_gallery_gates(self) -> None:
+        track = self.build()
+        held = self.kpi(track, "gates_held")
+        self.assertEqual((held["values"][-1]["value"], held["values"][-1]["of"]), (2.0, 8))
+        self.assertTrue(held["status"]["word"].startswith("2 of 8 held"))
+        canaries = self.kpi(track, "canaries")
+        self.assertEqual((canaries["values"][-1]["value"], canaries["status"]["word"]), (2.0, "green: toy/x, toy/xy"))
+        gates = [k for k in track["kpis"] if (k["target"] or {}).get("kind") == "gate"]
+        self.assertEqual([k["label"] for k in gates], ["toy/xy_rz", "mujoco/stage0", "mujoco/stage1"])  # not toy/x
+        verdicts = {k["label"]: detail.gate_verdict(k) for k in gates}
+        self.assertEqual({env: v["pass"] for env, v in verdicts.items()},
+                         {"toy/xy_rz": True, "mujoco/stage0": None, "mujoco/stage1": False})
+        self.assertEqual(verdicts["toy/xy_rz"]["value"], 96.66)
+        self.assertEqual(verdicts["mujoco/stage0"]["why"],
+                         "awaiting eval-1000 runs · v4 eval-200: beaten by M3.bandit, worst-seed LB 93.61 %")
+        self.assertEqual(self.kpi(track, "gate_mujoco_stage0")["target"]["label"],
+                         "worst-seed Wilson LB ≥ 93 % · eval-1000 (n 1,000) · every training seed")
+
+    def test_the_older_kpis_are_demoted_to_detail_not_deleted(self) -> None:
+        track = self.build()
+        levels = {k["id"]: k.get("level") for k in track["kpis"]}
+        for kpi_id in ("envs_beaten", "tier_best_toy", "tier_best_mujoco", "latency_toy", "latency_mujoco"):
+            self.assertEqual(levels[kpi_id], "detail")
+        header = [k["id"] for k in track["kpis"] if k.get("level") == "header"]
+        self.assertEqual(header[:6], ["picks_per_hour", "holdout_success", "grasp_time_p95_ms", "bench_score",
+                                      "gates_held", "canaries"])
+        self.assertTrue(all(levels[i] == "detail" for i in levels if i not in header))
+
+    def test_state_and_summary_lead_with_the_champion(self) -> None:
+        track = self.build()
+        self.assertEqual((track["state"]["word"], track["state"]["tone"]), ("Champion M2.hill", "ok"))
+        self.assertTrue(track["summary"].startswith(
+            "champion M2.hill · picks/h 1,729 (estimate) · hold-out 92.5% (stand-in) · decision p95 993 ms (stand-in) · "
+            "bench 51.0 [47.8, 54.2] (stand-in) · gates held 2 of 8 · canaries green"), track["summary"])
+        self.assertIn({"label": "Scoreboard (scoreboard.json)", "kind": "path", "value": str(self.board)}, track["links"])
+        self.assertIn("runner: runner not started", track["state"]["detail"])
+
+    def test_a_ledger_the_scoreboard_has_not_read_makes_every_tile_say_stale_since(self) -> None:
+        extra = row("M2.hill", "toy/x", 1, 0.9, 0.88, started="2026-10-11T19:30:00+00:00")
+        with self.ledger.open("a", encoding="utf-8") as handle:
+            handle.write(json.dumps(extra) + "\n")
+        # the fake bridge's subsets assertion is about ROWS; this case only reads the header, so let it judge nothing
+        track = grasping.build_track(work_track(), self.sources, bridge=FakeBridge(self, reason="not judged here"))
+        since = base.local_time("2026-10-11T19:30:00+00:00")
+        for kpi_id in ("picks_per_hour", "holdout_success", "grasp_time_p95_ms", "bench_score", "gates_held"):
+            status = self.kpi(track, kpi_id)["status"]
+            self.assertTrue(status["word"].startswith(f"stale since {since} (1 new runs) · "), status)
+            self.assertEqual(status["tone"], "warn")
+        self.assertIn(f"scoreboard stale since {since}", track["summary"])
+        self.assertEqual(track["state"]["tone"], "warn")
+
+    def test_a_bad_or_missing_scoreboard_keeps_the_gallery_view(self) -> None:
+        self.board.write_text(json.dumps({"schema": "grasp-scoreboard/0"}), encoding="utf-8")
+        track = self.build()
+        self.assertTrue(any("scoreboard.json is not grasp-scoreboard/1" in p for p in track["source"]["problems"]))
+        self.assertEqual(track["north_star"], "envs_beaten")
+        self.assertNotIn("picks_per_hour", [k["id"] for k in track["kpis"]])
+        self.assertEqual([k["id"] for k in track["kpis"] if (k["target"] or {}).get("kind") == "gate"],
+                         ["gate_toy_x", "gate_mujoco_stage0", "gate_mujoco_stage1"])
+        self.board.unlink()
+        self.assertEqual(self.build()["source"]["problems"], ["1 unreadable ledger lines skipped"])
+
+    def test_answers_appended_by_zach_read_back_as_answered(self) -> None:
+        roadmap = Path(self.sources["grasping_roadmap_v4"])
+        roadmap.parent.mkdir(parents=True)
+        roadmap.write_text(json.dumps(ROADMAP), encoding="utf-8")
+        answers = Path(self.sources["grasping_triage_answers"])
+        answers.parent.mkdir(parents=True)
+        answers.write_text(json.dumps({"schema": "bam-triage-answer/1", "triage_id": "D1", "choice": "accept_recommendation",
+                                       "note": "yes, download", "ts": "2026-10-11T18:00:00+00:00"}) + "\n", encoding="utf-8")
+        doc = needs.build_track("grasping", self.sources, title="Grasping")
+        self.assertEqual(doc["answer_channel"]["kind"], "jsonl_append")
+        self.assertEqual(doc["answer_channel"]["target"], str(answers))
+        self.assertEqual(doc["answer_channel"]["row_schema"], "bam-triage-answer/1")
+        items = {item["local_id"]: item for item in doc["items"]}
+        self.assertEqual((items["D1"]["status"], items["D1"]["group"], items["D1"]["answer"]["note"]),
+                         ("answered", "answered", "yes, download"))
+        self.assertFalse(items["D1"]["blocking_now"])
+        self.assertEqual(items["D2"]["status"], "open")
+        self.assertIn(str(answers), doc["source"]["paths"])
 
 
 #: True when every run row the page shows as clearing a gate carries the measurements that clearing needs.

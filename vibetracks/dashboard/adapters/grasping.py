@@ -8,15 +8,19 @@ Inputs (the note's ``vibe-sources``; docs/dashboard/ADAPTERS.md, section ``grasp
 - ``grasping_curriculum``: ``grasp_bench/src/grasp_bench/curriculum.py``, the roadmap as code: TIERS, ENVS, MODELS,
   CELLS (wave1 / wave2 / needs / later / ref), GATES (Wilson-LB thresholds) and PUBLISHED_AP.
 - ``grasping_out_dir``: the out root, checked only for the bench's own gallery files to link (evidence).
-- ``grasping_rebuild_status_json``: ``<out>/loop/status.json`` (grasp-bench-rebuild-status/1), the rebuild loop's own
-  progress: when present, the rebuild KPI's latest reading (step, cell, ETA) comes from it.
+- ``grasping_scoreboard``: ``<out>/scoreboard/scoreboard.json`` (grasp-scoreboard/1, loop contract v5), the one
+  projection every grasping view reads: the champion's four header KPI tiles, gates held, the canaries and the v5 hard
+  gates come from it as written, never recomputed. When its ledger hash differs from the runs.jsonl this adapter read,
+  every tile says "stale since <time>". Without the file the track keeps the gallery-verdict KPIs below as before.
+- ``grasping_queue_status_json``: ``<out>/queue/status.json`` (grasp-runner-status/1), the runner service's own status;
+  the runner KPI reads it (``grasping_queue_status``, its STATUS.md, is linked). It replaced the finished evidence
+  rebuild's ``<out>/loop/status.json`` on 2026-10-11.
 - ``grasping_roadmap_v4``: ``docs/grasping/roadmap_v4.json`` (grasp-roadmap/1) on the loop's branch, or bam_ws main once
   merged: the four milestones, the model and env queues and the loop's decisions, as ``track.milestones``.
 - ``grasping_record``: ``<out>/record/report_record_2026-10-06.json``, the results recovered from the Oct 4-6 report
   after the ledger was deleted with its worktree (Oct 6-10). Read-only. Its values are the first iteration, labelled
   "recorded Oct 6, not yet re-proved": they carry no bench verdict, so no gate passes on them and the north star stays
-  unmeasured until the rebuilt ledger is judged. ``grasping_rebuild_status`` (``<out>/loop/STATUS.md``) is linked when
-  the rebuild loop writes it.
+  unmeasured until the rebuilt ledger is judged.
 
 The rung (``track.rung``) is the frontier tier, the lowest tier whose wave-1 cells are not all measured on the frozen
 protocol or whose gates are not all beaten, never the tier of the newest run: the loop measures ahead (tier 5 cells
@@ -62,8 +66,8 @@ READS = {"grasping_ledger": "heartbeat", "grasping_curriculum": "heartbeat", "gr
          "grasping_attestations": "input", "grasping_gallery_py": "input", "grasping_ledger_py": "input",
          "grasping_runner_py": "input", "grasping_contracts_py": "input", "grasping_bench_python": "input",
          "grasping_verdict_cache": "input", "grasping_bench_src": "input", "grasping_record": "input",
-         "grasping_rebuild_status": "heartbeat", "grasping_rebuild_status_json": "heartbeat",
-         "grasping_roadmap_v4": "input"}
+         "grasping_roadmap_v4": "input", "grasping_scoreboard": "heartbeat", "grasping_queue_status_json": "heartbeat",
+         "grasping_queue_status": "heartbeat"}
 #: WHY depth 2 for the bench package: its modules sit one folder down too (models/, envs/, evaluators/), and a change to
 #: any module the verdict imports must rerun this adapter (the bridge's own cache re-checks the exact imported set).
 DEPTH = {"grasping_bench_src": 2}
@@ -661,74 +665,286 @@ def bench_lane(bench: Path) -> str | None:
 
 
 # --------------------------------------------------------------------------------------------------------------------
-# The rebuild loop's progress (loop/status.json) and the four-milestone roadmap (roadmap_v4.json)
+# The four-milestone roadmap (roadmap_v4.json), the scoreboard (grasp-scoreboard/1) and the runner (grasp-runner-status/1)
 # --------------------------------------------------------------------------------------------------------------------
 
-REBUILD_STATUS_SCHEMA = "grasp-bench-rebuild-status/1"
 ROADMAP_SCHEMA = "grasp-roadmap/1"
+SCOREBOARD_SCHEMA = "grasp-scoreboard/1"
+RUNNER_STATUS_SCHEMA = "grasp-runner-status/1"
 #: WHY three: work order v4 section 7, "S7: at most three surfaced at once"; the queues show their next three too.
 SHOWN = 3
 #: Queue statuses that are not "next" (vocab.queue_status): sequenced after something else, or not runnable yet.
 NOT_NEXT = ("later", "watch")
+#: The header tiles, in the contract's order (loop_contract_v5.json kpis), and the slot each sits in. WHY picks per hour
+#: is the north star (KPI note 4a): it is the time to clear a bin; success and computation time are its two inputs and
+#: stay beside it, and the bench score with gates held is the frontier tile.
+HEADER_KPIS = ("picks_per_hour", "holdout_success", "grasp_time_p95_ms", "bench_score")
+HEADER_SLOTS = {"picks_per_hour": "S1", "holdout_success": "S1", "grasp_time_p95_ms": "S3", "bench_score": "S2"}
+#: The runner's heartbeat age past which the loop's preflight restarts it (loop contract v5, tick step 1).
+RUNNER_STALE_S = 600
 
 
-@dataclass
-class RebuildStatus:
-    path: str
-    updated: str | None
-    current: dict[str, Any] | None
-    steps: list[dict[str, Any]]
-    failures: list[dict[str, Any]]
-
-    def totals(self) -> tuple[int, int]:
-        return sum(step["cells_done"] for step in self.steps), sum(step["cells_total"] for step in self.steps)
-
-    def eta(self) -> str | None:
-        """The current step's ETA, else the first unfinished step's (the loop's own estimate, never computed here),
-        in local time with its zone like every time a person reads; verbatim when it is not a timestamp."""
-        named = (self.current or {}).get("step")
-        step = next((s for s in self.steps if named is not None and s.get("step") == named), None) or next(
-            (s for s in self.steps if s["cells_done"] < s["cells_total"]), None)
-        if step is None or not step.get("eta"):
-            return None
-        moment = _parse_time(str(step["eta"]))
-        return local_time(moment) if moment else str(step["eta"])
-
-    def where(self) -> str:
-        if not self.current:
-            return "no step running"
-        title = next((s.get("title") for s in self.steps if s.get("step") == self.current.get("step")), None)
-        bits = [f"step {self.current.get('step')}" + (f" ({title})" if title else ""),
-                str(self.current.get("cell") or "") + (
-                    f" seed {self.current['seed']}" if self.current.get("seed") is not None
-                    and str(self.current["seed"]) not in str(self.current.get("cell") or "") else "")]
-        return " · ".join(bit for bit in bits if bit.strip())
-
-
-def load_rebuild_status(path: str | os.PathLike[str]) -> tuple[RebuildStatus | None, str | None]:
-    """``(the status, None)``, ``(None, None)`` when the loop has not written it, or ``(None, why it is unusable)``.
-
-    WHY strict: the file names a step, a cell and an ETA the page shows as the loop's own words; a shape this reader
-    does not know falls back to the ledger-vs-record count rather than showing half of it.
-    """
+def load_scoreboard(path: str | os.PathLike[str]) -> tuple[dict[str, Any] | None, str | None]:
+    """``(grasp-scoreboard/1, None)``, ``(None, None)`` when the runner has not written it, or ``(None, why unusable)``."""
 
     try:
         data = json.loads(Path(path).read_text(encoding="utf-8"))
     except FileNotFoundError:
         return None, None
     except (OSError, ValueError) as error:
-        return None, f"loop/status.json unreadable · {path}: {error}"
-    if not isinstance(data, dict) or data.get("schema") != REBUILD_STATUS_SCHEMA:
-        return None, f"loop/status.json is not {REBUILD_STATUS_SCHEMA} · {path}"
-    steps, current, failures = data.get("steps"), data.get("current"), data.get("failures") or []
-    if not (isinstance(steps, list) and steps and all(
-            isinstance(step, dict) and all(isinstance(step.get(key), int) and not isinstance(step.get(key), bool)
-                                           and step[key] >= 0 for key in ("cells_total", "cells_done")) for step in steps)
-            and (current is None or isinstance(current, dict)) and isinstance(failures, list)):
-        return None, f"loop/status.json has no readable steps · {path}"
-    return RebuildStatus(path=str(path), updated=data.get("updated") if isinstance(data.get("updated"), str) else None,
-                         current=current, steps=steps,
-                         failures=[failure for failure in failures if isinstance(failure, dict)]), None
+        return None, f"scoreboard.json unreadable · {path}: {error}"
+    if not isinstance(data, dict) or data.get("schema") != SCOREBOARD_SCHEMA or not isinstance(data.get("header"), dict) \
+            or not isinstance(data["header"].get("kpis"), list) or not isinstance(data.get("ledger"), dict):
+        return None, f"scoreboard.json is not {SCOREBOARD_SCHEMA} with a header and a ledger · {path}"
+    return data, None
+
+
+def scoreboard_staleness(doc: dict[str, Any], live_sha: str | None, runs: list[Run], ledger_mtime: str | None) -> dict[str, Any]:
+    """Loop contract v5 views_rule: a view says "stale since <time>" when the scoreboard's ledger hash differs from the
+    live runs.jsonl. ``since`` is the start of the first row the scoreboard did not read (the ledger is append-only, so
+    those are the rows past ``ledger.rows``), else the ledger's mtime."""
+
+    ledger = doc.get("ledger") or {}
+    if not ledger.get("sha256") or not live_sha:
+        return {"stale": None, "since": None, "new_rows": None}
+    if ledger["sha256"] == live_sha:
+        return {"stale": False, "since": None, "new_rows": 0}
+    rows = ledger.get("rows")
+    new = runs[rows:] if isinstance(rows, int) and 0 <= rows <= len(runs) else []
+    starts = sorted(run.started_at for run in new if run.started_at)
+    return {"stale": True, "since": starts[0] if starts else ledger_mtime, "new_rows": len(new) if new else None}
+
+
+def load_runner_status(path: str | os.PathLike[str]) -> tuple[dict[str, Any] | None, str | None]:
+    """``(grasp-runner-status/1, None)``, ``(None, None)`` when the runner has not started, or ``(None, why unusable)``."""
+
+    try:
+        data = json.loads(Path(path).read_text(encoding="utf-8"))
+    except FileNotFoundError:
+        return None, None
+    except (OSError, ValueError) as error:
+        return None, f"queue/status.json unreadable · {path}: {error}"
+    if not isinstance(data, dict) or data.get("schema") != RUNNER_STATUS_SCHEMA:
+        return None, f"queue/status.json is not {RUNNER_STATUS_SCHEMA} · {path}"
+    return data, None
+
+
+def _count(value: Any) -> int | None:
+    return value if isinstance(value, int) and not isinstance(value, bool) else (len(value) if isinstance(value, list) else None)
+
+
+def runner_reading(status: dict[str, Any], now: float | None = None) -> tuple[str, str, str]:
+    """(status word, tone, note) for the runner KPI, in the runner's own words: state, what runs, queue, last 24 h,
+    heartbeat. WHY warn on a heartbeat older than 10 min or a failure in 24 h: the loop's preflight restarts a silent
+    runner and a failing job needs a look; anything else is calm."""
+
+    state = str(status.get("state") or "unknown")
+    current = [c for c in status.get("current") or [] if isinstance(c, dict)]
+    running = ", ".join(str(c.get("cell") or "?") + (f" s{c['training_seed']}" if c.get("training_seed") is not None else "")
+                        for c in current) or "nothing"
+    queued, done, failed = _count(status.get("queued")), _count(status.get("done_24h")), _count(status.get("failed_24h"))
+    beat = _parse_time(status["heartbeat_at"]) if isinstance(status.get("heartbeat_at"), str) else None
+    age = ((now if now is not None else time.time()) - beat.timestamp()) if beat else None
+    canary = status.get("last_canary") if isinstance(status.get("last_canary"), dict) else None
+    bits = [state, f"running {running}", f"{queued if queued is not None else '?'} queued",
+            f"{done if done is not None else '?'} done · {failed if failed is not None else '?'} failed in 24 h",
+            f"heartbeat {_local(status['heartbeat_at'])}" if beat else "no heartbeat",
+            (f"canary {'green' if canary.get('green') else 'red'} {_local(str(canary.get('at') or '') or None)}"
+             if canary else ""),
+            (f"stopped: {status['stop_reason']}" if status.get("stop_reason") else "")]
+    word = " · ".join(bit for bit in bits if bit)
+    tone = "warn" if (failed or (age is not None and age > RUNNER_STALE_S and state != "stopping")
+                      or (canary is not None and canary.get("green") is False)) else "ok" if state == "running" else "muted"
+    return word, tone, word
+
+
+def _num(value: Any) -> bool:
+    return isinstance(value, (int, float)) and not isinstance(value, bool)
+
+
+def _pct_ci(ci: Any, unit: str) -> str:
+    if not (isinstance(ci, list) and len(ci) == 2 and all(_num(x) for x in ci)):
+        return ""
+    scale = 100.0 if unit == "%" else 1.0
+    return f"95% interval [{ci[0] * scale:.1f}, {ci[1] * scale:.1f}]"
+
+
+def scoreboard_kpis(board: dict[str, Any], stale: dict[str, Any] | None, iterations: list[dict[str, Any]], path: str,
+                    by_iteration: dict[str, list[dict[str, Any]]]) -> list[dict[str, Any]]:
+    """The champion's four header tiles, gates held, the canaries and the v5 hard gates, as the scoreboard wrote them.
+
+    Loop contract v5 (kpi_header_rule): each tile names its status (estimate / stand-in / measured / sealed) and, when
+    another eligible model is better on it, names that model in one line (``best_other``, in the status word). Nothing
+    here is computed: a rate tile is printed in percent and that is all. The scoreboard projects the whole current
+    ledger, so each value sits on the latest column; earlier columns say why they are empty. A ledger the scoreboard
+    has not read yet turns every tile's status into "stale since <time>" (views_rule).
+    """
+
+    if not iterations:
+        return []
+    last_id = iterations[-1]["id"]
+    latest_items = {item["id"] for item in by_iteration.get(last_id, [])}
+    generated = board.get("generated_at")
+    ledger = board.get("ledger") or {}
+    champion = (board.get("header") or {}).get("champion") or {}
+    stale_word = (f"stale since {_local(stale['since'])}" + (f" ({stale['new_rows']} new runs)" if stale.get("new_rows") else "")
+                  if stale and stale.get("stale") else "")
+    early = "the scoreboard projects the whole current ledger: no reading for this phase"
+    prov = lambda derived: {"snapshot": generated, "pointer": None, "source": path,  # noqa: E731
+                            "derived": f"{derived} of grasp-scoreboard/1 generated {generated} over runs.jsonl "
+                                       f"({ledger.get('rows')} rows, sha {str(ledger.get('sha256') or '')[:12]})"}
+
+    def column(latest: dict[str, Any]) -> list[dict[str, Any]]:
+        return [_point(item["id"], None, note=early) for item in iterations[:-1]] + [latest]
+
+    def staled(status: dict[str, str]) -> dict[str, str]:
+        return {"word": f"{stale_word} · {status['word']}", "tone": "warn"} if stale_word else status
+
+    out: list[dict[str, Any]] = []
+    tiles = {tile.get("id"): tile for tile in board["header"]["kpis"] if isinstance(tile, dict)}
+    gates_held = board.get("gates_held") if isinstance(board.get("gates_held"), dict) else None
+    for kpi_id in HEADER_KPIS:
+        tile = tiles.get(kpi_id)
+        if tile is None:
+            continue
+        unit = str(tile.get("unit") or "")
+        raw = tile.get("value")
+        # WHY x100 and nothing else: the scoreboard stores rates as 0-1 and the page prints percent.
+        value = (round(raw * 100.0, 6) if unit == "%" else raw) if _num(raw) else None
+        status = str(tile.get("status") or "status unknown")
+        better = f"better elsewhere: {tile['best_other']}" if tile.get("best_other") else "no eligible model is better"
+        ci = _pct_ci(tile.get("ci95"), unit)
+        bits = [f"{tile.get('model')} (champion, {champion.get('how') or 'how unknown'})", str(tile.get("basis") or ""),
+                " ".join(str(x) for x in (tile.get("env"), tile.get("protocol")) if x), ci]
+        note = " · ".join(bit for bit in bits if bit)
+        target = None
+        if kpi_id == "grasp_time_p95_ms":
+            goal = tile.get("target") if _num(tile.get("target")) else 1000
+            target = {"value": goal, "kind": "limit", "label": f"target ≤ {goal:,} ms"}
+        elif kpi_id == "bench_score" and gates_held:
+            target = {"kind": "reference", "label": f"gates held {gates_held.get('k')} of {gates_held.get('n')} beside it, never averaged in"}
+        evidence = [run_id for run_id in tile.get("run_ids") or [] if run_id in latest_items]
+        out.append({
+            "id": kpi_id, "label": str(tile.get("title") or kpi_id), "slot": HEADER_SLOTS[kpi_id],
+            "unit": {"%": "%", "ms": "ms", "picks/h": "picks/h", "0-100": "points"}.get(unit, unit), "level": "header",
+            "direction": "lower" if kpi_id == "grasp_time_p95_ms" else "higher", "target": target, "baseline": None,
+            "values": column(_point(last_id, value, note=note or None, evidence=evidence) if value is not None else
+                             _point(last_id, None, note=f"the scoreboard has no value · {note}", evidence=evidence)),
+            "status": staled({"word": f"{status} · {better}",
+                              "tone": "ok" if status in ("measured", "sealed", "real") else "muted"}),
+            "note": f"{note}. Status '{status}': " + {
+                "estimate": "computed on a stand-in environment by the contract's constant-time identity; no interval.",
+                "stand-in": "a labelled, non-sealed number shown until the sealed hold-out version exists.",
+                "measured": "measured on the KPI's own environment, public seeds.",
+                "sealed": "measured by the runner on the sealed hold-out."}.get(status, "as the scoreboard states it."),
+            "aggregate": None, "provenance": prov(f"header.kpis[{kpi_id}]"),
+        })
+
+    gates = [gate for gate in board.get("gates") or [] if isinstance(gate, dict) and gate.get("kind", "gate") == "gate"]
+    if gates_held:
+        counts: dict[str, int] = {}
+        for gate in gates:
+            counts[str(gate.get("status"))] = counts.get(str(gate.get("status")), 0) + 1
+        words = " · ".join(f"{n} {word.replace('_', ' ')}" for word, n in sorted(counts.items()))
+        out.append({
+            "id": "gates_held", "label": "Gates held", "slot": "S2", "unit": "gates", "direction": "higher",
+            "level": "header", "target": {"value": gates_held.get("n"), "kind": "scope", "label": f"of {gates_held.get('n')} gates"},
+            "baseline": None,
+            "values": column(_point(last_id, float(gates_held["k"]) if _num(gates_held.get("k")) else None,
+                                    of=gates_held.get("n"), note=words or "no gates in the scoreboard")),
+            "status": staled({"word": f"{gates_held.get('k')} of {gates_held.get('n')} held · {words}", "tone": "ok"}),
+            "note": ("A gate is beaten when some non-privileged model family has a clean run for every training seed whose "
+                     "Wilson 95% lower bound clears the bar, on the gate protocol (MuJoCo at n = 1,000); held = beaten "
+                     "and not since failed the guard. The scoreboard's own verdicts, each gate a hard gate below."),
+            "aggregate": None, "provenance": prov("gates_held"),
+        })
+    canaries = [c for c in board.get("canaries") or [] if isinstance(c, dict)]
+    if canaries:
+        green = [str(c.get("env")) for c in canaries if c.get("status") == "green"]
+        other = [f"{c.get('env')} {c.get('status')}" for c in canaries if c.get("status") != "green"]
+        out.append({
+            "id": "canaries", "label": "Pipeline canaries (not gates)", "slot": "S5", "unit": "canaries",
+            "direction": "higher", "level": "header",
+            "target": {"value": len(canaries), "kind": "scope", "label": f"of {len(canaries)} canaries green"},
+            "baseline": None,
+            "values": column(_point(last_id, float(len(green)), of=len(canaries),
+                                    note=" · ".join(bit for bit in [f"green: {', '.join(green)}" if green else "",
+                                                                   ", ".join(other)] if bit))),
+            "status": staled({"word": " · ".join(bit for bit in [f"green: {', '.join(green)}" if green else "",
+                                                                  ", ".join(other)] if bit),
+                              "tone": "warn" if any(c.get("status") == "red" for c in canaries) else "ok"}),
+            "note": ("Former gates that random-on-object already passes (toy/x, toy/xy): a check that the pipeline still "
+                     "works, never counted in gates held."),
+            "aggregate": None, "provenance": prov("canaries"),
+        })
+    for gate in gates:
+        env_id, bar = str(gate.get("env")), gate.get("bar")
+        protocol = gate.get("protocol") if isinstance(gate.get("protocol"), dict) else {"name": gate.get("protocol")}
+        state = str(gate.get("status") or "unknown")
+        v4 = gate.get("v4") if isinstance(gate.get("v4"), dict) else None
+        v4_words = ""
+        if v4:
+            lb = f", worst-seed LB {v4['worst_seed_lb'] * 100:.2f} %" if _num(v4.get("worst_seed_lb")) else ""
+            v4_words = (f"v4 {v4.get('protocol')}: " + (f"beaten by {v4.get('holder')}{lb}" if v4.get("beaten")
+                                                           else f"not beaten{lb}"))
+        lb = gate.get("worst_seed_lb")
+        if state == "beaten":
+            why = f"beaten · {gate.get('holder')}" + ("" if gate.get("held", True) else " · not held (failed the guard)")
+            verdict = bool(gate.get("held", True))
+        elif state == "not_beaten":
+            why, verdict = f"not beaten · best {gate.get('best') or 'none'}", False
+        elif state == "awaiting_protocol":
+            why, verdict = f"awaiting {protocol.get('name')} runs" + (f" · {v4_words}" if v4_words else ""), None
+        else:
+            why, verdict = state.replace("_", " "), None
+        note = " · ".join(bit for bit in [why, f"worst-seed Wilson LB {lb * 100:.2f} %" if _num(lb) else "",
+                                         v4_words if state != "awaiting_protocol" else ""] if bit)
+        latest = _point(last_id, _pct(lb) if _num(lb) else None, note=note)
+        latest["verdict"] = {"pass": verdict, "why": why}
+        gate_pct = round(bar * 100.0, 6) if _num(bar) else None
+        out.append({
+            "id": f"gate_{env_id.replace('/', '_')}", "label": env_id, "slot": "S2", "unit": "%", "direction": "higher",
+            "level": "header",
+            "target": {"value": gate_pct, "gate": gate_pct, "kind": "gate",
+                       "label": f"worst-seed Wilson LB ≥ {gate_pct:g} % · {protocol.get('name')}"
+                                + (f" (n {protocol['episodes']:,})" if _num(protocol.get("episodes")) else "")
+                                + " · every training seed"},
+            "baseline": None, "values": column(latest),
+            "status": staled({"word": why, "tone": "ok" if verdict else "muted"}),
+            "note": "The scoreboard's gate verdict (loop contract v5 gates); the v4 n = 200 verdict is shown beside it.",
+            "aggregate": None, "provenance": prov(f"gates[{env_id}]"),
+        })
+    return out
+
+
+def scoreboard_sentence(board: dict[str, Any], stale: dict[str, Any] | None) -> tuple[str, bool]:
+    """(the header in one line, whether anything wants a look): champion, the four tiles with their status words,
+    gates held, canaries, stale. Copied from the scoreboard; numbers are only formatted."""
+
+    champ = ((board.get("header") or {}).get("champion") or {}).get("model")
+    tiles = {t.get("id"): t for t in (board.get("header") or {}).get("kpis") or [] if isinstance(t, dict)}
+
+    def tile(kpi_id: str, label: str) -> str:
+        t = tiles.get(kpi_id)
+        if not t or not _num(t.get("value")):
+            return f"{label} not measured"
+        value, unit = t["value"], t.get("unit")
+        text = (f"{value * 100:.1f}%" if unit == "%" else f"{value:,.0f} ms" if unit == "ms" else
+                f"{value:,.0f}" if unit == "picks/h" else f"{value:.1f}")
+        ci = t.get("ci95")
+        if isinstance(ci, list) and len(ci) == 2 and all(_num(x) for x in ci) and unit != "%":
+            text += f" [{ci[0]:.1f}, {ci[1]:.1f}]"
+        return f"{label} {text} ({t.get('status')})"
+
+    held = board.get("gates_held") if isinstance(board.get("gates_held"), dict) else {}
+    canaries = [c for c in board.get("canaries") or [] if isinstance(c, dict)]
+    red = [str(c.get("env")) for c in canaries if c.get("status") == "red"]
+    bits = [f"champion {champ}" if champ else "no champion yet", tile("picks_per_hour", "picks/h"),
+            tile("holdout_success", "hold-out"), tile("grasp_time_p95_ms", "decision p95"), tile("bench_score", "bench"),
+            f"gates held {held.get('k')} of {held.get('n')}" if held else "",
+            (f"canaries red: {', '.join(red)}" if red else "canaries green") if canaries else "",
+            f"scoreboard stale since {_local(stale['since'])}" if stale and stale.get("stale") else ""]
+    return " · ".join(bit for bit in bits if bit), bool(red) or bool(stale and stale.get("stale"))
 
 
 def load_roadmap(path: str | os.PathLike[str]) -> tuple[dict[str, Any] | None, str | None]:
@@ -885,6 +1101,8 @@ class Judged:
     verdict: Verdict | None
     unavailable: str | None
     info: dict[str, Any] | None
+    #: sha256 of the bytes this read parsed (the scoreboard's staleness compares its ledger hash to it).
+    sha256: str | None = None
 
 
 def judge(ledger_path: str, sources: dict[str, str], cur: Curriculum, bridge: Bridge | None) -> Judged:
@@ -911,8 +1129,9 @@ def judge(ledger_path: str, sources: dict[str, str], cur: Curriculum, bridge: Br
         for phase in all_phases:
             cumulative = sorted(cumulative + phase.runs, key=lambda run: run.index)
             cumulative_runs.append(cumulative)
+        digest = hashlib.sha256(data).hexdigest() if Path(ledger_path).is_file() else None
         if not runs:
-            return Judged(runs, bad_lines, all_phases, cumulative_runs, None, None, None)
+            return Judged(runs, bad_lines, all_phases, cumulative_runs, None, None, None, digest)
         bench, out, unavailable = bench_dir(sources)
         info: dict[str, Any] = {}
         if bench is not None:
@@ -925,14 +1144,14 @@ def judge(ledger_path: str, sources: dict[str, str], cur: Curriculum, bridge: Br
                 unavailable, moved = Verdict.problem(doc, runs, subsets, cur)
                 if unavailable is None:
                     info.update(ok=True, reason=None, attempts=attempt, seconds=time.monotonic() - started)
-                    return Judged(runs, bad_lines, all_phases, cumulative_runs, Verdict(doc, runs), None, info)
+                    return Judged(runs, bad_lines, all_phases, cumulative_runs, Verdict(doc, runs), None, info, digest)
                 if moved and attempt == 1:
                     previous = data
                     continue
                 if moved and previous != data:
                     unavailable = f"{LEDGER_CHANGED} ({unavailable})"
         info.update(ok=False, reason=unavailable, attempts=attempt, seconds=time.monotonic() - started)
-        return Judged(runs, bad_lines, all_phases, cumulative_runs, None, unavailable, info)
+        return Judged(runs, bad_lines, all_phases, cumulative_runs, None, unavailable, info, digest)
     raise AssertionError("unreachable")
 
 
@@ -965,10 +1184,13 @@ def build_track(work_track: Any, sources: dict[str, str], *, bridge: Bridge | No
     ledger_mtime, curriculum_mtime = _mtime_iso(ledger_file), _mtime_iso(curriculum_file)
     bench_root = curriculum_file.parent.parent.parent
     lane = bench_lane(bench_root)
-    status_file = Path(sources["grasping_rebuild_status"]) if sources.get("grasping_rebuild_status") else None
-    status_mtime = _mtime_iso(status_file) if status_file is not None and status_file.is_file() else None
-    rebuild_status, rebuild_problem = (load_rebuild_status(sources["grasping_rebuild_status_json"])
-                                       if sources.get("grasping_rebuild_status_json") else (None, None))
+    queue_md = Path(sources["grasping_queue_status"]) if sources.get("grasping_queue_status") else None
+    queue_md_mtime = _mtime_iso(queue_md) if queue_md is not None and queue_md.is_file() else None
+    runner, runner_problem = (load_runner_status(sources["grasping_queue_status_json"])
+                              if sources.get("grasping_queue_status_json") else (None, None))
+    board, board_problem = (load_scoreboard(sources["grasping_scoreboard"]) if sources.get("grasping_scoreboard")
+                            else (None, None))
+    stale = scoreboard_staleness(board, judged.sha256, judged.runs, ledger_mtime) if board is not None else None
     roadmap, roadmap_problem = (load_roadmap(sources["grasping_roadmap_v4"]) if sources.get("grasping_roadmap_v4")
                                 else (None, None))
 
@@ -1349,46 +1571,54 @@ def build_track(work_track: Any, sources: dict[str, str], *, bridge: Bridge | No
                             curriculum=curriculum_path, pointer="CELLS"),
     })
 
-    # S5 · evidence rebuild: recorded headline cells with a row in the rebuilt ledger (raw cell ids; no verdict needed)
+    # S5 · evidence rebuild: recorded headline cells with a row in the rebuilt ledger (raw cell ids; no verdict needed).
+    # WHY the ledger-vs-record count only since 2026-10-11: the rebuild loop finished (loop/status.json, all 9 steps);
+    # what runs now is the runner service, which has its own KPI below (queue/status.json).
     recorded_cells = record.cells() if record is not None else set()
-    if record is not None or (rebuild_status is not None and iterations):
-        status_words = f" · loop/STATUS.md written {_local(status_mtime)}" if status_mtime else ""
+    if record is not None:
         values = column(
             lambda rec: _point(record_id, 0.0, of=len(recorded_cells), note="the rebuild starts from this record"),
             lambda phase, snap: _point(
                 phase.id, float(len(recorded_cells & {run.cell_id for run in snap.runs})), of=len(recorded_cells),
-                note=f"recorded headline cells with a rebuilt ledger row{status_words}",
+                note="recorded headline cells with a rebuilt ledger row",
                 evidence=[run.run_id for run in phase.runs if run.cell_id in recorded_cells]))
         rebuilt, planned = int(values[-1]["value"]), len(recorded_cells)
-        status = {"word": f"{rebuilt} of {planned} re-run{status_words}", "tone": "ok" if rebuilt == planned else "muted"}
-        if rebuild_status is not None:
-            # WHY the latest column only: loop/status.json is the loop's reading now, of its own plan's cells; the
-            # earlier columns stay the ledger-vs-record count they were.
-            rebuilt, planned = rebuild_status.totals()
-            eta = rebuild_status.eta()
-            failed = len(rebuild_status.failures)
-            values[-1] = _point(values[-1]["iteration"], float(rebuilt), of=planned, evidence=values[-1]["evidence"],
-                                note=" · ".join(bit for bit in [
-                                    f"loop/status.json updated {_local(rebuild_status.updated)}",
-                                    rebuild_status.where(), f"ETA {eta}" if eta else "",
-                                    f"{failed} failed cells" if failed else ""] if bit))
-            status = {"word": " · ".join(bit for bit in [f"{rebuilt} of {planned} cells", rebuild_status.where(),
-                                                          f"ETA {eta}" if eta else ""] if bit),
-                      "tone": "warn" if failed else "ok" if rebuilt == planned else "muted"}
         kpis.append({
             "id": "rebuild_progress", "label": "Evidence rebuild · cells re-run", "slot": "S5", "unit": "cells",
-            "direction": "higher",
-            "target": {"value": planned, "kind": "scope",
-                       "label": f"of {planned} " + ("cells in the rebuild plan" if rebuild_status else "recorded cells")},
-            "baseline": None, "values": values, "status": status,
-            "note": ("Recorded headline cells with at least one row in the rebuilt ledger; when the rebuild loop writes "
-                     "loop/status.json, the latest reading is its own steps' cells done of cells total, its current "
-                     "step and cell and its ETA. Whether a re-run reproduces its recorded value is the rebuild's own "
-                     "comparison (docs/grasping/compare_rebuild.py), not this count."),
+            "direction": "higher", "target": {"value": planned, "kind": "scope", "label": f"of {planned} recorded cells"},
+            "baseline": None, "values": values,
+            "status": {"word": f"{rebuilt} of {planned} re-run", "tone": "ok" if rebuilt == planned else "muted"},
+            "note": ("Recorded headline cells with at least one row in the rebuilt ledger. Whether a re-run reproduces "
+                     "its recorded value is the rebuild's own comparison (docs/grasping/compare_rebuild.py), not this count."),
             "aggregate": None,
             "provenance": _prov(ledger_path, "distinct cell_ids of the record's headline runs present in runs.jsonl"
-                                + (f" · {record.path}" if record is not None else "")
-                                + (f" · latest: {rebuild_status.path}" if rebuild_status is not None else "")),
+                                + f" · {record.path}"),
+        })
+
+    # S4 · the runner service (loop contract v5 section 4): its own status file, read as written, on the latest column.
+    if sources.get("grasping_queue_status_json") and iterations:
+        early = "the runner reports only its current state, not a reading per phase"
+        if runner is not None:
+            word, tone, note = runner_reading(runner)
+            done = _count(runner.get("done_24h"))
+            latest = _point(iterations[-1]["id"], float(done) if done is not None else None, note=note
+                            if done is not None else f"{note} · done_24h not reported")
+            status = {"word": word, "tone": tone}
+        else:
+            reason = runner_problem or "runner not started yet (no out/queue/status.json)"
+            latest = _point(iterations[-1]["id"], None, note=reason)
+            status = {"word": "runner not started" if runner_problem is None else "runner status unreadable",
+                      "tone": "muted" if runner_problem is None else "warn"}
+        kpis.append({
+            "id": "runner_queue", "label": "Runner · runs done in 24 h", "slot": "S4", "unit": "runs", "direction": "higher",
+            "target": None, "baseline": None,
+            "values": [_point(item["id"], None, note=early) for item in iterations[:-1]] + [latest],
+            "status": status,
+            "note": ("The runner service (queue_service.py) runs every requested experiment: its state, what is running, "
+                     "the queue, runs done and failed in the last 24 h, its heartbeat and the last B0 canary, as it wrote "
+                     "them in queue/status.json (grasp-runner-status/1). It stops itself after 2 h idle or on STOP."),
+            "aggregate": None,
+            "provenance": _prov(sources["grasping_queue_status_json"], "grasp-runner-status/1 fields, read as written"),
         })
 
     # S5 · 3-seed rule on cells trained here. WHY still measured without the bench's verdict: it counts
@@ -1444,7 +1674,9 @@ def build_track(work_track: Any, sources: dict[str, str], *, bridge: Bridge | No
 
     # Hard gates · one per gated env: the bench's env_verdict (beaten on every frozen seed), stated on the point so the
     # page never recomputes pass/fail from value against target. A recorded value states "not yet re-proved".
-    for env_id, gate in cur.gates.items():
+    # WHY only without a scoreboard: the scoreboard's v5 gates (eval-1000, canaries apart) replace these v4 gallery
+    # verdicts, and carry each v4 verdict beside them; two verdict sets on one page would contradict each other.
+    for env_id, gate in (cur.gates.items() if board is None else ()):
         gate_pct = round(gate * 100, 2)
 
         def rec_gate(rec: Record, env_id: str = env_id, gate_pct: float = gate_pct) -> dict[str, Any]:
@@ -1499,8 +1731,16 @@ def build_track(work_track: Any, sources: dict[str, str], *, bridge: Bridge | No
                                 curriculum=curriculum_path, pointer="GATES"),
         })
 
+    if board is not None:
+        # WHY demoted, not deleted (contract P-W2): the gallery-verdict KPIs stay on the track page as detail under the
+        # champion's header; ``level`` says which is which for a page that folds detail away.
+        header = scoreboard_kpis(board, stale, iterations, sources["grasping_scoreboard"], by_iteration)
+        for kpi in kpis:
+            kpi["level"] = "detail"
+        kpis = header + kpis
     track["kpis"] = kpis
-    track["north_star"] = "envs_beaten"
+    track["north_star"] = "picks_per_hour" if board is not None and any(k["id"] == "picks_per_hour" for k in kpis) \
+        else "envs_beaten"
     if roadmap is not None:
         track["milestones"] = milestones(roadmap, sources["grasping_roadmap_v4"])
     by_kpi = {kpi["id"]: [evidence for point in kpi["values"] for evidence in point["evidence"]] for kpi in kpis}
@@ -1530,11 +1770,6 @@ def build_track(work_track: Any, sources: dict[str, str], *, bridge: Bridge | No
     toy_gated = [e for e in cur.gates if _family(e) == "toy"]
     rebuild = (f"{len(recorded_cells & {run.cell_id for run in runs})} of {len(recorded_cells)} recorded cells re-run"
                if record is not None else "")
-    if rebuild_status is not None:
-        done_cells, total_cells = rebuild_status.totals()
-        rebuild = " · ".join(bit for bit in [f"{done_cells} of {total_cells} cells (loop/status.json)",
-                                             rebuild_status.where(),
-                                             f"ETA {rebuild_status.eta()}" if rebuild_status.eta() else ""] if bit)
     tail = [f"last run started {_local(last_run.started_at)}" if last_run else "",
             f"ledger written {_local(ledger_mtime)}" if ledger_mtime else "no ledger file yet",
             f"{bad_lines} unreadable ledger lines skipped" if bad_lines else "", lane or ""]
@@ -1601,6 +1836,17 @@ def build_track(work_track: Any, sources: dict[str, str], *, bridge: Bridge | No
         if lane:
             summary += f" · {lane}"
         track["summary"] = summary
+    if board is not None and runs:
+        # WHY the champion is the one calm answer once a scoreboard exists (loop contract v5, kpi_header_rule): the
+        # header is the champion's four tiles; the frontier tier stays in the rung and the gallery counts in detail.
+        sentence, worry = scoreboard_sentence(board, stale)
+        runner_word = runner_reading(runner)[0] if runner is not None else "runner not started"
+        champ = ((board.get("header") or {}).get("champion") or {})
+        track["state"] = {"word": f"Champion {champ.get('model')}" if champ.get("model") else "No champion yet",
+                          "tone": "warn" if worry else "ok",
+                          "detail": " · ".join(bit for bit in [sentence, f"runner: {runner_word}"] + tail if bit),
+                          "since": champ.get("since") if isinstance(champ.get("since"), str) else None}
+        track["summary"] = " · ".join(bit for bit in [sentence, needs_words if needs else "", lane or ""] if bit)
     track["iteration"] = {"unit": "wave", "label": labels[-1] if labels else "none reported"}
     track["rung"] = _rung(cur, tier, runs) if verdict is not None else None
 
@@ -1611,9 +1857,11 @@ def build_track(work_track: Any, sources: dict[str, str], *, bridge: Bridge | No
         + [{"label": "Ledger (runs.jsonl)", "kind": "path", "value": ledger_path},
            {"label": "Curriculum (curriculum.py)", "kind": "path", "value": curriculum_path}]
         + ([{"label": f"Recovered record ({record.label})", "kind": "path", "value": record.path}] if record else [])
-        + ([{"label": "Rebuild status (loop/STATUS.md)", "kind": "path", "value": str(status_file)}] if status_mtime else [])
-        + ([{"label": "Rebuild status (loop/status.json)", "kind": "path", "value": rebuild_status.path}]
-           if rebuild_status else [])
+        + ([{"label": "Scoreboard (scoreboard.json)", "kind": "path", "value": sources["grasping_scoreboard"]}]
+           if board is not None else [])
+        + ([{"label": "Runner status (queue/STATUS.md)", "kind": "path", "value": str(queue_md)}] if queue_md_mtime else [])
+        + ([{"label": "Runner status (queue/status.json)", "kind": "path", "value": sources["grasping_queue_status_json"]}]
+           if runner is not None else [])
         + ([{"label": "Milestones (roadmap_v4.json)", "kind": "path", "value": sources["grasping_roadmap_v4"]}]
            if roadmap else [])
         + [{"label": "Rebuild the bench gallery", "kind": "command",
@@ -1631,7 +1879,7 @@ def build_track(work_track: Any, sources: dict[str, str], *, bridge: Bridge | No
     # a problem with the track's inputs, and the page's source panel is where an input problem is read.
     track["source"] = {"problems": [p for p in (unavailable_note,
                                                 f"{bad_lines} unreadable ledger lines skipped" if bad_lines else None,
-                                                record_problem, rebuild_problem, roadmap_problem) if p],
+                                                record_problem, runner_problem, board_problem, roadmap_problem) if p],
                        "bench_verdict": bridge_info}
     track["provenance"] = {
         "snapshot": None, "pointer": None, "source": ledger_path,

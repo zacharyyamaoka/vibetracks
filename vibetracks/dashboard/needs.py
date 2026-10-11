@@ -76,12 +76,16 @@ FALLBACK_TRACK_IDS = ["kinsim", "rig", "grasping", "detection", "pyblocks"]
 
 #: Where each prose-sourced track's answer goes back. WHY kept beside the parsers: the item text names model ids and
 #: rung ids verbatim, and these channels are how the session that owns the file reads them.
+#: The grasping loop's answers file (loop contract v5 paths.triage_answers); sources key ``grasping_triage_answers``.
+GRASPING_ANSWERS = "~/.local/share/grasp_bench/loop/triage_answers.jsonl"
 CHANNELS: dict[str, dict[str, Any]] = {
-    # WHY not session ebbbbd1c any more (2026-10-10): that Oct 4-6 session has ended; work order v4 section 6 names the
-    # grasping loop's own session, which owns roadmap_v4.json's needs_you.
-    "grasping": {"kind": "chat_paste", "target": "the grasping loop session (work order v4 section 10), or the coordinator",
-                 "row_schema": None,
-                 "read_back": "by hand: the loop edits roadmap_v4.json needs_you by id, so name D1/D2/D3 verbatim"},
+    # WHY jsonl_append (2026-10-11, loop contract v5 announced default): the grasping loop's orchestrator reads Zach's
+    # answers from this file at every tick (feedback intake, tick step 2), exactly as kinsim's integrator reads its own;
+    # before, answers went by chat paste to a session that may have ended.
+    "grasping": {"kind": "jsonl_append", "target": str(Path(GRASPING_ANSWERS).expanduser()), "row_schema": ANSWER_SCHEMA,
+                 "read_back": "at the next tick (the grasping loop's feedback intake); triage_id is the item id, so "
+                              "D1/D2/D3 verbatim",
+                 "alternatives": ["paste into the grasping loop session's chat"]},
     "detection": {"kind": "note_paste", "target": "Daily Note '# Hyper feedback', or the loop's start prompt",
                   "row_schema": None, "read_back": "no loop reads answers yet"},
 }
@@ -754,6 +758,24 @@ def _prose_item(track: str, local_id: str, *, kind: str, title: str, ask: str, c
     }
 
 
+def grasping_channel(sources: Mapping[str, str]) -> dict[str, Any]:
+    """The grasping answer channel with its target from the ``grasping_triage_answers`` key (default GRASPING_ANSWERS)."""
+
+    target = str(Path(sources.get("grasping_triage_answers") or GRASPING_ANSWERS).expanduser())
+    return {**CHANNELS["grasping"], "target": target}
+
+
+def _apply_answer(item: dict[str, Any], row: Mapping[str, Any] | None) -> dict[str, Any]:
+    """An item Zach answered in the answers file reads answered (his words quoted) until the loop folds it, as kinsim's."""
+
+    if row is None:
+        return item
+    item.update(answer={"choice": row.get("choice"), "note": row.get("note") or "", "ts": row.get("ts"), "by": "zach",
+                        "channel": "jsonl_append", "folded": False, "action_md": None, "quoted": True},
+                status="answered", group="answered", blocking_now=False)
+    return item
+
+
 def build_grasping(sources: Mapping[str, str], title: str = "grasping") -> dict[str, Any]:
     """The grasping loop's decisions: roadmap_v4.json ``needs_you`` (grasp-roadmap/1), at most three.
 
@@ -769,7 +791,8 @@ def build_grasping(sources: Mapping[str, str], title: str = "grasping") -> dict[
     path = sources.get("grasping_roadmap_v4")
     if not path or not Path(path).is_file():
         return _grasping_from_curriculum(sources, title)
-    channel = CHANNELS["grasping"]
+    channel = grasping_channel(sources)
+    answers = _latest_answers(_read_jsonl(Path(channel["target"])))
     roadmap, problem = grasping_adapter.load_roadmap(path)
     if roadmap is None:
         return _empty_doc("grasping", title, problem or f"roadmap_v4.json could not be read ({path})", paths=[path],
@@ -795,11 +818,13 @@ def build_grasping(sources: Mapping[str, str], title: str = "grasping") -> dict[
             applies_unit="unstated", blocks=blocks,
             evidence=[_file_line(path, _line_of(text, f'"id": "{need["id"]}"'), f"roadmap_v4.json needs_you {need['id']}")],
             asked_by="grasping loop (roadmap_v4.json needs_you)", updated_ts=updated, raw_status="open"))
+        _apply_answer(items[-1], answers.get(str(need["id"])))
     items.sort(key=_sort_key)
     more = len(asked) - len(shown)
     return {
         "schema": SCHEMA, "track": "grasping", "track_title": title, "generated_at": _now(), "iteration": None,
-        "source": {"adapter": "grasp_roadmap", "paths": [path], "commit": _git_last_commit(Path(path).parent, Path(path).name),
+        "source": {"adapter": "grasp_roadmap", "paths": [path, channel["target"]],
+                   "commit": _git_last_commit(Path(path).parent, Path(path).name),
                    "live": True,
                    "note": "roadmap_v4.json needs_you (grasp-roadmap/1), read live from the loop branch's checkout "
                            "(bam_ws main once merged), at most three at once (work order v4 section 7)"
@@ -826,8 +851,9 @@ def _grasping_from_curriculum(sources: Mapping[str, str], title: str = "grasping
     still say what waits on it.
     """
     # WHY its own read-back: in this fallback the questions are curriculum.py's, named by model id
-    channel = {**CHANNELS["grasping"],
-               "read_back": "by hand: the session edits curriculum.py CELLS by model id, so name model ids verbatim"}
+    channel = {**grasping_channel(sources),
+               "read_back": "at the next tick; the session edits curriculum.py CELLS by model id, so name model ids "
+                            "verbatim"}
     path = sources.get("grasping_curriculum")
     if not path or not Path(path).is_file():
         return _empty_doc("grasping", title, f"curriculum.py not found ({path or 'grasping_curriculum is not a sources key'})",
