@@ -67,7 +67,7 @@ READS = {"grasping_ledger": "heartbeat", "grasping_curriculum": "heartbeat", "gr
          "grasping_runner_py": "input", "grasping_contracts_py": "input", "grasping_bench_python": "input",
          "grasping_verdict_cache": "input", "grasping_bench_src": "input", "grasping_record": "input",
          "grasping_roadmap_v4": "input", "grasping_scoreboard": "heartbeat", "grasping_queue_status_json": "heartbeat",
-         "grasping_queue_status": "heartbeat"}
+         "grasping_queue_status": "heartbeat", "grasping_triage": "input"}
 #: WHY depth 2 for the bench package: its modules sit one folder down too (models/, envs/, evaluators/), and a change to
 #: any module the verdict imports must rerun this adapter (the bridge's own cache re-checks the exact imported set).
 DEPTH = {"grasping_bench_src": 2}
@@ -743,17 +743,20 @@ def runner_reading(status: dict[str, Any], now: float | None = None) -> tuple[st
     running = ", ".join(str(c.get("cell") or "?") + (f" s{c['training_seed']}" if c.get("training_seed") is not None else "")
                         for c in current) or "nothing"
     queued, done, failed = _count(status.get("queued")), _count(status.get("done_24h")), _count(status.get("failed_24h"))
+    runs_done, runs_failed = _count(status.get("runs_done_24h")), _count(status.get("runs_failed_24h"))
     beat = _parse_time(status["heartbeat_at"]) if isinstance(status.get("heartbeat_at"), str) else None
     age = ((now if now is not None else time.time()) - beat.timestamp()) if beat else None
     canary = status.get("last_canary") if isinstance(status.get("last_canary"), dict) else None
     bits = [state, f"running {running}", f"{queued if queued is not None else '?'} queued",
-            f"{done if done is not None else '?'} done · {failed if failed is not None else '?'} failed in 24 h",
+            (f"{runs_done} runs ({done if done is not None else '?'} requests) done · "
+             f"{runs_failed if runs_failed is not None else '?'} runs failed in 24 h" if runs_done is not None else
+             f"{done if done is not None else '?'} done · {failed if failed is not None else '?'} failed in 24 h"),
             f"heartbeat {_local(status['heartbeat_at'])}" if beat else "no heartbeat",
             (f"canary {'green' if canary.get('green') else 'red'} {_local(str(canary.get('at') or '') or None)}"
              if canary else ""),
             (f"stopped: {status['stop_reason']}" if status.get("stop_reason") else "")]
     word = " · ".join(bit for bit in bits if bit)
-    tone = "warn" if (failed or (age is not None and age > RUNNER_STALE_S and state != "stopping")
+    tone = "warn" if (failed or runs_failed or (age is not None and age > RUNNER_STALE_S and state != "stopping")
                       or (canary is not None and canary.get("green") is False)) else "ok" if state == "running" else "muted"
     return word, tone, word
 
@@ -798,7 +801,13 @@ def scoreboard_kpis(board: dict[str, Any], stale: dict[str, Any] | None, iterati
         return [_point(item["id"], None, note=early) for item in iterations[:-1]] + [latest]
 
     def staled(status: dict[str, str]) -> dict[str, str]:
-        return {"word": f"{stale_word} · {status['word']}", "tone": "warn"} if stale_word else status
+        # WHY "core" and "stale" beside "word" (proof phase, Oct 11): with the stale prefix first, a one-line card cut
+        # off the status word (estimate / stand-in) and the 'better elsewhere' line the contract requires. The page
+        # draws "stale" as its own warn line and "core" in full; "word" keeps the one-line form for other readers.
+        if not stale_word:
+            return status
+        return {"word": f"{stale_word} · {status['word']}", "tone": "warn", "core": status["word"],
+                "core_tone": status.get("tone"), "stale": stale_word}
 
     out: list[dict[str, Any]] = []
     tiles = {tile.get("id"): tile for tile in board["header"]["kpis"] if isinstance(tile, dict)}
@@ -888,18 +897,28 @@ def scoreboard_kpis(board: dict[str, Any], stale: dict[str, Any] | None, iterati
             v4_words = (f"v4 {v4.get('protocol')}: " + (f"beaten by {v4.get('holder')}{lb}" if v4.get("beaten")
                                                            else f"not beaten{lb}"))
         lb = gate.get("worst_seed_lb")
+        short = gate.get("seeds_short") if isinstance(gate.get("seeds_short"), dict) else None
         if state == "beaten":
             why = f"beaten · {gate.get('holder')}" + ("" if gate.get("held", True) else " · not held (failed the guard)")
             verdict = bool(gate.get("held", True))
+        elif state == "not_beaten" and short:
+            # WHY (proof phase, Oct 11): a learner that clears the bar on too few training seeds is named, with why.
+            short_lb = f", LB {short['worst_seed_lb'] * 100:.2f} %" if _num(short.get("worst_seed_lb")) else ""
+            why, verdict = (f"not beaten · {short.get('model')} clears the bar on {short.get('have')} of "
+                            f"{short.get('need')} training seeds{short_lb}"), False
         elif state == "not_beaten":
-            why, verdict = f"not beaten · best {gate.get('best') or 'none'}", False
+            floor = " (random floor)" if gate.get("best_is_floor") else ""
+            best_lb = f", LB {lb * 100:.2f} %" if _num(lb) else ""
+            why, verdict = f"not beaten · best so far {gate.get('best') or 'none'}{floor}{best_lb}", False
         elif state == "awaiting_protocol":
             why, verdict = f"awaiting {protocol.get('name')} runs" + (f" · {v4_words}" if v4_words else ""), None
         else:
             why, verdict = state.replace("_", " "), None
-        note = " · ".join(bit for bit in [why, f"worst-seed Wilson LB {lb * 100:.2f} %" if _num(lb) else "",
+        note = " · ".join(bit for bit in [why, f"worst-seed Wilson LB {lb * 100:.2f} %" if _num(lb) and state == "beaten" else "",
                                          v4_words if state != "awaiting_protocol" else ""] if bit)
-        latest = _point(last_id, _pct(lb) if _num(lb) else None, note=note)
+        # WHY a value only with a holder (proof phase, Oct 11): "now 0.62 %" beside an unheld gate was the random floor's
+        # lower bound, read as the gate's standing. Without a holder the words above name the model and its bound.
+        latest = _point(last_id, _pct(lb) if _num(lb) and state == "beaten" else None, note=note)
         latest["verdict"] = {"pass": verdict, "why": why}
         gate_pct = round(bar * 100.0, 6) if _num(bar) else None
         out.append({
@@ -1019,6 +1038,33 @@ def milestones(roadmap: dict[str, Any], path: str) -> dict[str, Any]:
         "needs_you": needs[:SHOWN], "needs_you_total": len(needs),
         "model_queue": next_of(roadmap.get("model_queue")), "env_queue": next_of(roadmap.get("env_queue")),
     }
+
+
+def load_triage(path: str | Path) -> tuple[list[dict[str, Any]] | None, str | None]:
+    """The loop's open decisions from triage.json (bam-triage/1): ``status == 'open'`` items, in file order.
+
+    WHY triage.json (proof phase, Oct 11): the loop and the bench views ask from it; roadmap_v4.json's needs_you kept an
+    obsolete D2 ("Start the loop") and an answer keyed D2/D3 matched nothing the loop reads. ``id`` is the answer key.
+    """
+    try:
+        document = json.loads(Path(path).expanduser().read_text(encoding="utf-8"))
+    except FileNotFoundError:
+        return None, None
+    except (OSError, ValueError) as error:
+        return None, f"triage.json unreadable · {path}: {error}"
+    if not isinstance(document, dict) or not isinstance(document.get("items"), list):
+        return None, f"triage.json has no items list · {path}"
+    open_items = []
+    for item in document["items"]:
+        if not isinstance(item, dict) or str(item.get("status") or "open") != "open":
+            continue
+        local_id = str(item.get("triage_id") or item.get("id") or "")
+        if not local_id:
+            continue
+        open_items.append({"id": local_id, "q": item.get("title") or item.get("question") or item.get("q"),
+                           "blocks": [], "default": item.get("default"), "applies": item.get("applies"),
+                           "recommendation": item.get("recommendation")})
+    return open_items, None
 
 
 # --------------------------------------------------------------------------------------------------------------------
@@ -1600,7 +1646,10 @@ def build_track(work_track: Any, sources: dict[str, str], *, bridge: Bridge | No
         early = "the runner reports only its current state, not a reading per phase"
         if runner is not None:
             word, tone, note = runner_reading(runner)
-            done = _count(runner.get("done_24h"))
+            # WHY runs first (proof phase, Oct 11): done_24h counts finished REQUESTS; labelled as runs it said "2 runs"
+            # while 10 had finished. A runner older than grasp_bench 5fd247f1 writes no runs_done_24h.
+            runs_done = _count(runner.get("runs_done_24h"))
+            done = runs_done if runs_done is not None else _count(runner.get("done_24h"))
             latest = _point(iterations[-1]["id"], float(done) if done is not None else None, note=note
                             if done is not None else f"{note} · done_24h not reported")
             status = {"word": word, "tone": tone}
@@ -1609,8 +1658,11 @@ def build_track(work_track: Any, sources: dict[str, str], *, bridge: Bridge | No
             latest = _point(iterations[-1]["id"], None, note=reason)
             status = {"word": "runner not started" if runner_problem is None else "runner status unreadable",
                       "tone": "muted" if runner_problem is None else "warn"}
+        counts_runs = runner is not None and _count(runner.get("runs_done_24h")) is not None
         kpis.append({
-            "id": "runner_queue", "label": "Runner · runs done in 24 h", "slot": "S4", "unit": "runs", "direction": "higher",
+            "id": "runner_queue", "label": "Runner · runs done in 24 h" if counts_runs or runner is None
+            else "Runner · requests done in 24 h", "slot": "S4", "unit": "runs" if counts_runs or runner is None
+            else "requests", "direction": "higher",
             "target": None, "baseline": None,
             "values": [_point(item["id"], None, note=early) for item in iterations[:-1]] + [latest],
             "status": status,
@@ -1737,6 +1789,12 @@ def build_track(work_track: Any, sources: dict[str, str], *, bridge: Bridge | No
         header = scoreboard_kpis(board, stale, iterations, sources["grasping_scoreboard"], by_iteration)
         for kpi in kpis:
             kpi["level"] = "detail"
+            # WHY relabelled (proof phase, Oct 11): "Toy · xy_rz_w 97.2%" beside the pooled 96.9% read as a second
+            # answer to one question; these are the v4 gallery's best single seeds, folded under the header.
+            if str(kpi.get("id", "")).startswith("tier_best_"):
+                kpi["label"] = f"{kpi['label']} · best single seed, v4 gallery"
+            elif kpi.get("id") == "envs_beaten":
+                kpi["label"] = "Gated envs beaten · v4 gallery verdict"
         kpis = header + kpis
     track["kpis"] = kpis
     track["north_star"] = "picks_per_hour" if board is not None and any(k["id"] == "picks_per_hour" for k in kpis) \
@@ -1756,12 +1814,25 @@ def build_track(work_track: Any, sources: dict[str, str], *, bridge: Bridge | No
         licence = f" Licence: {spec.licence}." if spec else ""
         needs.append({"id": f"grasping:download:{model_id}", "q": f"Approve the {title} download?{detail}{licence}",
                       "blocks": [cell.id for cell in cells], "default": None, "applies": None})
-    if roadmap is not None:
+    triage, _triage_problem = (load_triage(sources["grasping_triage"]) if sources.get("grasping_triage")
+                               else (None, None))
+    if triage is not None:
+        # WHY triage.json first (proof phase, Oct 11): the loop asks from it and reads answers keyed by its ids; the
+        # roadmap's needs_you is the fallback only when triage.json is missing (needs.py reads the same file).
+        needs = triage[:SHOWN]
+        needs_words = f"{len(triage)} decision{'' if len(triage) == 1 else 's'} open (triage.json)"
+        if isinstance(track.get("milestones"), dict):
+            # The milestone card's "Decisions from the loop" too: the roadmap's D2 ("Start the loop") was long obsolete.
+            track["milestones"].update(needs_you=[dict(need) for need in triage[:SHOWN]], needs_you_total=len(triage),
+                                       needs_you_source=str(sources["grasping_triage"]))
+    elif roadmap is not None:
         # WHY the roadmap's decisions replace the per-model approvals (coordinator, 2026-10-10): the eight download cells
         # are one question, D1, and at most three decisions are surfaced at once (needs.py reads the same file).
         needs = [dict(need) for need in milestones(roadmap, sources["grasping_roadmap_v4"])["needs_you"]]
+        needs_words = f"{len(needs)} decisions open (roadmap_v4.json)"
+    else:
+        needs_words = f"{len(needs)} download approvals open"
     track["needs_you"] = needs
-    needs_words = f"{len(needs)} " + ("decisions open (roadmap_v4.json)" if roadmap is not None else "download approvals open")
 
     # ---- state + summary
     latest = snaps[-1] if snaps else snapshot(None, [], cur, None)
@@ -1864,6 +1935,8 @@ def build_track(work_track: Any, sources: dict[str, str], *, bridge: Bridge | No
            if runner is not None else [])
         + ([{"label": "Milestones (roadmap_v4.json)", "kind": "path", "value": sources["grasping_roadmap_v4"]}]
            if roadmap else [])
+        + ([{"label": "Decisions (triage.json)", "kind": "path", "value": sources["grasping_triage"]}]
+           if sources.get("grasping_triage") and Path(sources["grasping_triage"]).expanduser().is_file() else [])
         + [{"label": "Rebuild the bench gallery", "kind": "command",
             "value": f"cd {bench_root} && env -u VIRTUAL_ENV GRASP_BENCH_OUT={out_root} .venv/bin/grasp-bench gallery"}]
     )

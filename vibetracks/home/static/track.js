@@ -53,13 +53,23 @@
   const nsTag = '<span class="pg-tag" title="the track\'s north-star KPI">north star</span>';
   const tone = (k) => (k.status && k.status.tone === 'warn' ? ' warn' : '');
 
+  // WHY a separate stale line and a wrapping status on header tiles (proof phase, Oct 11): with "stale since …" first
+  // in one ellipsised line, the card hid the status word (estimate / stand-in) and the "better elsewhere" line the
+  // grasping contract requires on every header tile. The adapter sends status.stale and status.core beside status.word.
+  function statusHtml(k) {
+    const st = k.status || {};
+    const core = st.core != null ? st.core : st.word;
+    const coreTone = st.core != null ? (st.core_tone === 'warn' ? ' warn' : '') : tone(k);
+    const wrap = k.level === 'header' ? ' wrap' : '';
+    return `${st.stale ? `<div class="pg-kst warn wrap" data-testid="vt-kpi-stale">${esc(st.stale)}</div>` : ''}<div class="pg-kst${wrap}${coreTone}" data-testid="vt-kpi-status">${esc(core || 'status unknown')}</div>`;
+  }
   function kpiCards(soft) {
     return `<div class="pg-kcards">${soft.map((k) => `<div class="pg-kcard${k.north_star ? ' ns' : ''}" data-testid="vt-kpi-card" data-kpi-id="${esc(k.id)}" title="${esc(kTitle(k))}">
       <div class="pg-kl"><span class="ell">${esc(k.label)}</span>${k.north_star ? nsTag : ''}</div>
       <div class="pg-kv">${valueHtml(k)}</div>
       <div class="pg-kt"><span class="faint ell">${esc(targetText(k))}</span></div>
       <div class="pg-ks" data-pgw="kcard">${spark(k, W.kcard, 40)}</div>
-      <div class="pg-kst${tone(k)}">${esc(k.status ? k.status.word : 'status unknown')}</div></div>`).join('')}</div>`;
+      ${statusHtml(k)}</div>`).join('')}</div>`;
   }
   function kpiRows(soft) {
     return `<div class="pg-tbl pg-krows"><div class="pg-th"><div>Soft KPI</div><div>Now</div><div class="pg-x">Target</div><div class="pg-x">Trend</div><div class="pg-x">Status</div></div>
@@ -77,7 +87,7 @@
       return `<div class="pg-gate" data-testid="vt-gate" data-kpi-id="${esc(g.id)}" data-pass="${pass}" title="${esc(kTitle(g))}">
         <span class="pg-gp p-${pass}">${mark}</span>
         <span class="pg-gl"><span class="t">${esc(g.label)}${g.north_star ? ' ' + nsTag : ''}</span><small class="faint">${esc(targetText(g))}</small></span>
-        <span class="pg-gw"><span class="${pass === 'false' ? 'errword' : pass === 'unknown' ? 'unk' : ''}">${esc(v.why || 'unknown')}</span><small class="faint">${now ? 'now ' + esc(now) + (v.iteration ? ' · ' + esc(v.iteration) : '') : 'no measured value'}</small></span></div>`;
+        <span class="pg-gw"><span class="${pass === 'false' ? 'errword' : pass === 'unknown' ? 'unk' : ''}">${esc(v.why || 'unknown')}</span><small class="faint">${now ? 'now ' + esc(now) + (v.iteration ? ' · ' + esc(v.iteration) : '') : v.pass === undefined || v.why === 'not measured yet' ? 'no measured value' : 'no holder yet'}</small></span></div>`;
     }).join('')}</div>`;
   }
 
@@ -146,7 +156,7 @@
     return `<h2 class="pg-h2">Milestones <span class="faint pg-hs">· the loop's ladder, current rung, today's value against the bar</span></h2>
       <div class="pg-card pg-gates" data-testid="vt-milestones">${rows}</div>
       <div class="pg-mq">
-        ${needs ? `<div class="pg-card"><div class="pg-mqh">Decisions from the loop${more}</div>${needs}</div>` : ''}
+        ${needs ? `<div class="pg-card"><div class="pg-mqh">Decisions from the loop${ms.needs_you_source ? ` <span class="faint">· ${esc(String(ms.needs_you_source).split('/').pop())}</span>` : ''}${more}</div>${needs}</div>` : ''}
         <div class="pg-card"><div class="pg-mqh">Next in the model queue</div>${queue(ms.model_queue)}</div>
         <div class="pg-card"><div class="pg-mqh">Next in the env queue</div>${queue(ms.env_queue)}</div></div>
       <div class="pg-note">${esc(ms.source || '')}${ms.as_of && ms.as_of.note ? ' · ' + esc(ms.as_of.note) : ''}</div>`;
@@ -159,7 +169,13 @@
     const nsGate = gl.find((g) => g.north_star);
     const toggle = `<span class="seg" data-testid="vt-kpi-toggle" title="Cards or Rows (K)"><button class="${S.kpiView === 'cards' ? 'on' : ''}" data-act="kpiview" data-id="cards">Cards</button><button class="${S.kpiView === 'rows' ? 'on' : ''}" data-act="kpiview" data-id="rows">Rows</button></span>`;
     let softHtml;
-    if (soft.length) softHtml = S.kpiView === 'rows' ? kpiRows(soft) : kpiCards(soft);
+    // WHY fold the detail (proof phase, Oct 11): when an adapter leads with a scoreboard header, its older KPIs (grasping:
+    // the v4 gallery's best single seeds) sat beside the header with equal weight and contradicted it. They stay one
+    // click away, closed by default.
+    const head = soft.filter((x) => x.level !== 'detail'), folded = soft.filter((x) => x.level === 'detail');
+    const view = (list) => (S.kpiView === 'rows' ? kpiRows(list) : kpiCards(list));
+    if (head.length && folded.length) softHtml = `${view(head)}<details class="pg-detail" data-testid="vt-kpi-detail"><summary>Detail (v4 gallery verdicts) · ${folded.length} KPI${folded.length === 1 ? '' : 's'}</summary>${view(folded)}</details>`;
+    else if (soft.length) softHtml = view(soft);
     else softHtml = `<p class="pg-p"><span class="unk pg-wrap">unknown: ${esc(k.unknown || (gl.length ? 'the loop reports only hard gates' : 'the loop reports no KPI'))}</span></p>`;
     const summary = k.summary ? `<div class="pg-summary"><span class="faint">Loop says</span> ${esc(k.summary)}</div>` : '';
     return `${summary}

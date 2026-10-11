@@ -116,6 +116,9 @@
 .pg-ks { margin: 6px 0 2px; min-width: 0; }
 .pg-kst { font-size: var(--fs-caption); color: var(--ink-3); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .pg-kst.warn { color: var(--warn-ink); }
+.pg-kst.wrap { white-space: normal; overflow: hidden; text-overflow: clip; display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 4; line-height: 1.35; }
+.pg-detail { margin-top: 10px; }
+.pg-detail > summary { cursor: pointer; font-size: var(--fs-footnote); color: var(--ink-3); padding: 4px 0 8px; }
 .pg-krows .pg-tr { min-height: 40px; }
 .pg-krows .pg-kst { font-size: var(--fs-footnote); }
 .pg-krows .nm { gap: 6px; }

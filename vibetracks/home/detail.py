@@ -289,7 +289,9 @@ def _kpis(projected: Mapping[str, Any] | None) -> dict[str, Any]:
         target = kpi.get("target") if isinstance(kpi.get("target"), Mapping) else None
         entry = {"id": kpi.get("id"), "label": kpi.get("label"), "unit": kpi.get("unit"), "direction": kpi.get("direction"),
                  "target": target, "baseline": kpi.get("baseline"), "status": kpi.get("status"), "note": kpi.get("note"),
-                 "north_star": kpi.get("id") == projected.get("north_star"), "series": _kpi_series(kpi, dates)}
+                 "north_star": kpi.get("id") == projected.get("north_star"), "series": _kpi_series(kpi, dates),
+                 # header | detail (adapters that lead with a scoreboard fold their older KPIs away; grasping, Oct 11)
+                 "level": kpi.get("level")}
         if target and target.get("kind") == "gate":
             entry["gate"] = gate_verdict(kpi)
             gates.append(entry)

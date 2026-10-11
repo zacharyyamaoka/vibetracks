@@ -83,8 +83,9 @@ CHANNELS: dict[str, dict[str, Any]] = {
     # answers from this file at every tick (feedback intake, tick step 2), exactly as kinsim's integrator reads its own;
     # before, answers went by chat paste to a session that may have ended.
     "grasping": {"kind": "jsonl_append", "target": str(Path(GRASPING_ANSWERS).expanduser()), "row_schema": ANSWER_SCHEMA,
-                 "read_back": "at the next tick (the grasping loop's feedback intake); triage_id is the item id, so "
-                              "D1/D2/D3 verbatim",
+                 "read_back": "at the next tick (the grasping loop's feedback intake); triage_id is the item id "
+                              "verbatim: triage.json's ids (D1, N1, N2, ...), or roadmap_v4.json's D1/D2/D3 when "
+                              "triage.json is missing",
                  "alternatives": ["paste into the grasping loop session's chat"]},
     "detection": {"kind": "note_paste", "target": "Daily Note '# Hyper feedback', or the loop's start prompt",
                   "row_schema": None, "read_back": "no loop reads answers yet"},
@@ -776,8 +777,51 @@ def _apply_answer(item: dict[str, Any], row: Mapping[str, Any] | None) -> dict[s
     return item
 
 
+def _grasping_from_triage(sources: Mapping[str, str], title: str, path: str) -> dict[str, Any]:
+    """The grasping loop's open decisions from its triage.json (bam-triage/1), at most three; ids are the answer keys.
+
+    WHY (proof phase, Oct 11): the loop and the bench views ask from triage.json. roadmap_v4.json's needs_you still
+    held D2 ("Start the loop", long since started) and D3, and an answer keyed D2/D3 landed under ids the loop's
+    triage file does not have. Every text field is the file's own words (title, recommendation, default).
+    """
+    channel = grasping_channel(sources)
+    answers = _latest_answers(_read_jsonl(Path(channel["target"])))
+    items_raw, problem = grasping_adapter.load_triage(path)
+    if items_raw is None:
+        return _empty_doc("grasping", title, problem or f"triage.json could not be read ({path})", paths=[path],
+                          channel=channel, adapter="grasp_triage")
+    try:
+        text = Path(path).read_text(encoding="utf-8")
+    except (OSError, UnicodeDecodeError):
+        text = ""
+    updated = _mtime_iso(path)
+    items = []
+    for need in items_raw[:grasping_adapter.SHOWN]:
+        default = need.get("default")
+        item = _prose_item(
+            "grasping", str(need["id"]), kind="decision", title=str(need["q"]), ask=str(need["q"]),
+            context_md=str(need["q"]), base_md="", question_md="", default_md=str(default) if default else None,
+            applies_unit="unstated", blocks=[],
+            evidence=[_file_line(path, _line_of(text, f'"id": "{need["id"]}"'), f"triage.json {need['id']}")],
+            asked_by="grasping loop (triage.json)", updated_ts=updated, raw_status="open")
+        if need.get("recommendation"):
+            item["recommendation_md"] = str(need["recommendation"])
+        items.append(_apply_answer(item, answers.get(str(need["id"]))))
+    items.sort(key=_sort_key)
+    more = len(items_raw) - len(items)
+    return {
+        "schema": SCHEMA, "track": "grasping", "track_title": title, "generated_at": _now(), "iteration": None,
+        "source": {"adapter": "grasp_triage", "paths": [path, channel["target"]], "commit": None, "live": True,
+                   "note": "triage.json open items (bam-triage/1), the loop's own decision file, at most three at once"
+                           + (f"; {more} more wait in the file" if more else "") + "."},
+        "answer_channel": channel,
+        "counts": _counts(items), "items": items,
+    }
+
+
 def build_grasping(sources: Mapping[str, str], title: str = "grasping") -> dict[str, Any]:
-    """The grasping loop's decisions: roadmap_v4.json ``needs_you`` (grasp-roadmap/1), at most three.
+    """The grasping loop's decisions: triage.json's open items when it exists, else roadmap_v4.json ``needs_you``
+    (grasp-roadmap/1), at most three.
 
     WHY the roadmap and not curriculum.py (Zach's coordinator, 2026-10-10): the eight per-model download approvals are
     one question, D1 (the download packet), and work order v4 section 7 surfaces at most three decisions at once. The
@@ -788,6 +832,9 @@ def build_grasping(sources: Mapping[str, str], title: str = "grasping") -> dict[
     file's rung or milestone ids is a ``rung`` (it holds the climb, so the item blocks); free words ("every milestone")
     are kept as a ``note`` block, which never blocks by itself.
     """
+    triage = sources.get("grasping_triage")
+    if triage and Path(triage).expanduser().is_file():
+        return _grasping_from_triage(sources, title, str(Path(triage).expanduser()))
     path = sources.get("grasping_roadmap_v4")
     if not path or not Path(path).is_file():
         return _grasping_from_curriculum(sources, title)

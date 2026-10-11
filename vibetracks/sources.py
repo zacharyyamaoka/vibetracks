@@ -105,6 +105,10 @@ WORKTRACK_SOURCES: dict[str, str] = {
     "grasping_queue_status_json": "{grasping_out_dir}/queue/status.json",
     "grasping_queue_status": "{grasping_out_dir}/queue/STATUS.md",
     "grasping_triage_answers": "~/.local/share/grasp_bench/loop/triage_answers.jsonl",
+    # Appended 2026-10-11 (proof phase): the loop's open decisions (bam-triage/1). WHY this and not roadmap_v4.json's
+    # needs_you: the views and the loop ask from triage.json; the roadmap's D2/D3 were obsolete, and an answer to them
+    # landed under ids the loop's triage file does not have.
+    "grasping_triage": "~/.local/share/grasp_bench/loop/triage.json",
 }
 _REFERENCE = re.compile(r"^\{(?P<key>[a-z0-9_]+)\}")
 
