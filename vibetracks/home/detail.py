@@ -90,6 +90,18 @@ def gate_verdict(kpi: Mapping[str, Any]) -> dict[str, Any]:
 
     target = kpi.get("target") if isinstance(kpi.get("target"), Mapping) else {}
     goal = target.get("value")
+    # WHY a verdict stated on the point wins (2026-10-10, grasping): when the loop owns the rule (the bench's
+    # gallery.env_verdict also needs the frozen protocol and every training seed), value-against-target is a replica
+    # that would say "pass" where the bench says "provisional", and "pass" on a recovered value nobody has re-proved.
+    # The latest point that states a verdict or carries a measured value decides; a stated null is "unknown" plus why.
+    decisive = [v for v in kpi.get("values") or [] if isinstance(v, Mapping) and (
+        isinstance(v.get("verdict"), Mapping) or (v.get("measured") and v.get("value") is not None))]
+    if decisive and isinstance(decisive[-1].get("verdict"), Mapping):
+        last, stated = decisive[-1], decisive[-1]["verdict"]
+        return {"pass": stated.get("pass") if isinstance(stated.get("pass"), bool) else None,
+                "why": str(stated.get("why") or "the loop stated a verdict without a reason"),
+                "value": last.get("value") if last.get("measured") else None, "of": last.get("of"),
+                "iteration": last.get("iteration")}
     measured = [v for v in kpi.get("values") or [] if isinstance(v, Mapping) and v.get("measured") and v.get("value") is not None]
     if not measured:
         return {"pass": None, "why": "not measured yet", "value": None, "of": None}
@@ -277,7 +289,9 @@ def _kpis(projected: Mapping[str, Any] | None) -> dict[str, Any]:
         target = kpi.get("target") if isinstance(kpi.get("target"), Mapping) else None
         entry = {"id": kpi.get("id"), "label": kpi.get("label"), "unit": kpi.get("unit"), "direction": kpi.get("direction"),
                  "target": target, "baseline": kpi.get("baseline"), "status": kpi.get("status"), "note": kpi.get("note"),
-                 "north_star": kpi.get("id") == projected.get("north_star"), "series": _kpi_series(kpi, dates)}
+                 "north_star": kpi.get("id") == projected.get("north_star"), "series": _kpi_series(kpi, dates),
+                 # header | detail (adapters that lead with a scoreboard fold their older KPIs away; grasping, Oct 11)
+                 "level": kpi.get("level")}
         if target and target.get("kind") == "gate":
             entry["gate"] = gate_verdict(kpi)
             gates.append(entry)
@@ -308,6 +322,9 @@ def build_track(doc: Mapping[str, Any], last: Mapping[str, Any], track_id: str) 
         "track": track,
         "project": {"id": project.get("id"), "name": project.get("name"), "color": project.get("color")},
         "kpis": _kpis(projected),
+        # WHY passed through as the adapter wrote it: a loop's milestone ladder (grasping: roadmap_v4.json) is its own
+        # document, read by its adapter; this page only lays it out. Null when the loop declares none.
+        "milestones": (projected or {}).get("milestones") if (projected or {}).get("reporting", True) is not False else None,
         "roadmap": {"href": f"../roadmap/doc?track={track_id}",
                     "note": "the roadmap projector's document for this track (vibetracks.roadmap); 404 when it has none"},
         "worked_daily": worked_daily(files, now),

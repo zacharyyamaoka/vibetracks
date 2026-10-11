@@ -24,8 +24,11 @@ import unittest
 from pathlib import Path
 
 from vibetracks.benches import grasp_bench_bridge
+from vibetracks.sources import load_sources
 
-LIVE_BENCH = Path("/home/bam/bam_ws/.claude/worktrees/grasping-agent-roadmap-ab12d8/src/core/mdp/agent/actor/policy/grasp_bench")
+# WHY from the sources map and not a pinned path: the pinned worktree (grasping-agent-roadmap-ab12d8) was swept on
+# Oct 6-10 and every live check here skipped silently; the map is what the dashboard itself reads.
+LIVE_BENCH = Path(load_sources()["grasping_bench_dir"])
 LIVE_PYTHON = LIVE_BENCH / ".venv" / "bin" / "python"
 
 # A real frozen row that beats toy/x (live ledger row 97 on 2026-10-05, artifacts emptied), and its legacy sparse form.

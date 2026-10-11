@@ -39,8 +39,16 @@ WORKTRACK_SOURCES: dict[str, str] = {
     "rig_loop_status": "{rig_loop_dir}/loop-status.json",
     "rig_events": "{rig_loop_dir}/loop_events.jsonl",
     "rig_ladder": "{rig_loop_dir}/ladder.json",
-    "grasping_bench_dir": "/home/bam/bam_ws/.claude/worktrees/grasping-agent-roadmap-ab12d8/src/core/mdp/agent/actor/policy/grasp_bench",
-    "grasping_ledger": "{grasping_bench_dir}/out/ledger/runs.jsonl",
+    # WHY the bench's code resolved from git and its data from a separate out root (2026-10-10, grasping restart): the
+    # old line pointed at worktree grasping-agent-roadmap-ab12d8, and its gitignored out/ (ledger, checkpoints,
+    # episodes) was deleted with that worktree on Oct 6-10, which blinded this track. The code still lives on an
+    # UNMERGED agent lane (claude/grasping-evidence-rebuild-cb787d), so a sweep can blind the code half again; the
+    # fallback is where it lands once Zach merges grasp_bench into bam_ws main. The data now lives outside every
+    # checkout, in $GRASP_BENCH_OUT's default (grasp_bench ledger.out_dir(), moved there the same day).
+    "grasping_bench_dir": "@worktree:/home/bam/bam_ws:claude/grasping-evidence-rebuild-cb787d:src/core/mdp/agent/actor/policy/grasp_bench"
+                          "|/home/bam/bam_ws/src/core/mdp/agent/actor/policy/grasp_bench",
+    "grasping_out_dir": "~/.local/share/grasp_bench/out",
+    "grasping_ledger": "{grasping_out_dir}/ledger/runs.jsonl",
     "grasping_curriculum": "{grasping_bench_dir}/src/grasp_bench/curriculum.py",
     "detection_repo": "/home/bam/spectralwaste-segmentation",
     "detection_queue_log": "{detection_repo}/logs/queue.log",
@@ -50,6 +58,7 @@ WORKTRACK_SOURCES: dict[str, str] = {
     "pyblocks_windows": "{pyblocks_repo}/reports/media/board/windows.jsonl",
     # Names agreed with the roadmap session (its grasping/detection projectors read these); aliases of the above.
     "grasp_bench_dir": "{grasping_bench_dir}",
+    "grasp_bench_out": "{grasping_out_dir}",
     "detection_dir": "/home/bam/bam_ws/.claude/worktrees/hyperspectral-synthetic-data-ddb809/docs/hyperspectral",
     # Appended 2026-10-04: every other file the adapters read, so each note can declare all of its inputs and a change
     # to any of them reruns the adapter (build.py caches on the declared sources only). Worktree-resident paths hang
@@ -58,7 +67,6 @@ WORKTRACK_SOURCES: dict[str, str] = {
     "rig_roadmap": "{rig_loop_dir}/ROADMAP.md",
     "rig_deployments_cache": "/archive/datasets/bam_rig/cache/runs",
     "rig_audits_dir": "{reports_media_dir}/audits",
-    "grasping_out_dir": "{grasping_bench_dir}/out",
     "detection_logs_dir": "{detection_repo}/logs",
     "detection_wandb_dir": "{detection_repo}/wandb",
     "detection_compile_results": "{detection_repo}/compile_results.py",
@@ -69,7 +77,7 @@ WORKTRACK_SOURCES: dict[str, str] = {
     # it runs the bench's own gallery.py in the bench's own venv (benches/grasp_bench_bridge.py). Every file that
     # verdict depends on is a key, so a change to any of them reruns the adapter; the cache folder lives in the data home.
     "grasping_bench_python": "{grasping_bench_dir}/.venv/bin/python",
-    "grasping_attestations": "{grasping_bench_dir}/out/ledger/attestations.jsonl",
+    "grasping_attestations": "{grasping_out_dir}/ledger/attestations.jsonl",
     "grasping_gallery_py": "{grasping_bench_dir}/src/grasp_bench/gallery.py",
     "grasping_ledger_py": "{grasping_bench_dir}/src/grasp_bench/ledger.py",
     "grasping_runner_py": "{grasping_bench_dir}/src/grasp_bench/runner.py",
@@ -78,6 +86,29 @@ WORKTRACK_SOURCES: dict[str, str] = {
     # Appended 2026-10-05 (audit finding 2): the verdict depends on modules no fixed list names (gallery.py imports
     # registry.py), so the whole bench package is a source and any module change reruns the adapter.
     "grasping_bench_src": "{grasping_bench_dir}/src/grasp_bench",
+    # Appended 2026-10-10 (grasping restart): the results record recovered from the Oct 4-6 report after the evidence
+    # loss (read-only, a frozen ruler), and the rebuild loop's progress file. Both live under the out root.
+    "grasping_record": "{grasping_out_dir}/record/report_record_2026-10-06.json",
+    "grasping_rebuild_status": "{grasping_out_dir}/loop/STATUS.md",
+    # Appended 2026-10-10 (follow-up): the rebuild loop's machine-readable progress (grasp-bench-rebuild-status/1),
+    # and the four-milestone roadmap (grasp-roadmap/1, work order v4 section 6). WHY the roadmap resolved like the
+    # bench code (branch first, bam_ws main once merged) and never a pinned worktree path: a pinned path is what the
+    # Oct 6-10 sweep blinded.
+    "grasping_rebuild_status_json": "{grasping_out_dir}/loop/status.json",
+    "grasping_roadmap_v4": "@worktree:/home/bam/bam_ws:claude/grasping-evidence-rebuild-cb787d:docs/grasping/roadmap_v4.json"
+                           "|/home/bam/bam_ws/docs/grasping/roadmap_v4.json",
+    # Appended 2026-10-11 (grasping loop contract v5, presentation lane P-W2): the scoreboard every grasping view reads
+    # (grasp-scoreboard/1, rewritten by the runner after each request), the runner service's status (grasp-runner-status/1)
+    # and its STATUS.md, which replace the finished rebuild's loop/status.json, and the answers file the grasping
+    # Needs-you channel appends to (bam-triage-answer/1, read back by the loop's feedback intake each tick).
+    "grasping_scoreboard": "{grasping_out_dir}/scoreboard/scoreboard.json",
+    "grasping_queue_status_json": "{grasping_out_dir}/queue/status.json",
+    "grasping_queue_status": "{grasping_out_dir}/queue/STATUS.md",
+    "grasping_triage_answers": "~/.local/share/grasp_bench/loop/triage_answers.jsonl",
+    # Appended 2026-10-11 (proof phase): the loop's open decisions (bam-triage/1). WHY this and not roadmap_v4.json's
+    # needs_you: the views and the loop ask from triage.json; the roadmap's D2/D3 were obsolete, and an answer to them
+    # landed under ids the loop's triage file does not have.
+    "grasping_triage": "~/.local/share/grasp_bench/loop/triage.json",
 }
 _REFERENCE = re.compile(r"^\{(?P<key>[a-z0-9_]+)\}")
 

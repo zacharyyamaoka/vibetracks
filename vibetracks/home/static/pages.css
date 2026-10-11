@@ -116,6 +116,9 @@
 .pg-ks { margin: 6px 0 2px; min-width: 0; }
 .pg-kst { font-size: var(--fs-caption); color: var(--ink-3); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .pg-kst.warn { color: var(--warn-ink); }
+.pg-kst.wrap { white-space: normal; overflow: hidden; text-overflow: clip; display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 4; line-height: 1.35; }
+.pg-detail { margin-top: 10px; }
+.pg-detail > summary { cursor: pointer; font-size: var(--fs-footnote); color: var(--ink-3); padding: 4px 0 8px; }
 .pg-krows .pg-tr { min-height: 40px; }
 .pg-krows .pg-kst { font-size: var(--fs-footnote); }
 .pg-krows .nm { gap: 6px; }
@@ -131,6 +134,14 @@
 .pg-gl small, .pg-gw small { font-size: var(--fs-footnote); overflow-wrap: anywhere; }
 .pg-gw { text-align: right; }
 .pg-gw .unk { display: inline; }
+.pg-ms { align-items: start; }
+.pg-ms .pg-rungs { margin: 3px 0 2px; }
+.pg-mq { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 10px; margin-top: 10px; }
+.pg-mqh { font-size: var(--fs-footnote); font-weight: 600; color: var(--ink-2); padding: 8px 10px 4px; }
+.pg-mqrow { display: grid; grid-template-columns: 34px minmax(0, 1fr); column-gap: 8px; padding: 6px 10px; font-size: 13px; line-height: 1.35; }
+.pg-mqrow + .pg-mqrow { border-top: 1px solid var(--line); }
+.pg-mqrow > span { display: flex; flex-direction: column; min-width: 0; }
+.pg-mqrow small { font-size: var(--fs-footnote); overflow-wrap: anywhere; }
 
 /* track: roadmap rung ladder */
 .pg-road { padding: 4px 14px 10px; }

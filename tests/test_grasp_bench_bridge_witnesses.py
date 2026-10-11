@@ -17,8 +17,11 @@ from unittest import mock
 
 from tests.test_grasp_bench_bridge_deps import make_bench
 from vibetracks.benches import grasp_bench_bridge
+from vibetracks.sources import load_sources
 
-LIVE_BENCH = Path("/home/bam/bam_ws/.claude/worktrees/grasping-agent-roadmap-ab12d8/src/core/mdp/agent/actor/policy/grasp_bench")
+# WHY from the sources map and not a pinned path: the pinned worktree (grasping-agent-roadmap-ab12d8) was swept on
+# Oct 6-10 and every live check here skipped silently; the map is what the dashboard itself reads.
+LIVE_BENCH = Path(load_sources()["grasping_bench_dir"])
 LIVE_PYTHON = LIVE_BENCH / ".venv" / "bin" / "python"
 
 Rewrite = Callable[[dict[str, Any], Path], dict[str, Any]]
@@ -104,9 +107,14 @@ class VerdictV2WitnessTest(unittest.TestCase):
             return doc
 
         with tempfile.TemporaryDirectory() as folder:
+            # WHY an empty ledger in a scratch out root: the import graph is the code's, not the data's, so this pin is
+            # checked against a real run of the live bench even while its own ledger is being rebuilt.
+            out = Path(folder) / "out"
+            (out / "ledger").mkdir(parents=True)
+            (out / "ledger" / "runs.jsonl").write_bytes(b"")
             doctored = Doctored(keep, (LIVE_BENCH / "src" / "grasp_bench").resolve())
             with mock.patch.object(grasp_bench_bridge.subprocess, "run", side_effect=doctored):
-                result = grasp_bench_bridge.verdict(LIVE_BENCH, cache_dir=Path(folder) / "cache")
+                result = grasp_bench_bridge.verdict(LIVE_BENCH, out_dir=out, cache_dir=Path(folder) / "cache")
         self.assertIsNone(result["error"], result["error"])
         # WHY a subset and not equality: a new import in the bench is still stamped for the cache and placed inside
         # src/grasp_bench; only losing a pinned witness (or importing it from elsewhere) refuses the verdict.

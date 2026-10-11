@@ -140,7 +140,8 @@ class Fixture:
         self.paths = {"kinsim_triage_dir": str(kinsim_dir), "kinsim_home": str(home), "rig_loop_dir": str(rig_dir),
                       "bam_ws_root": str(root / "no-repo"), "kinsim_loop_branch": "no-such-branch",
                       "rig_loop_branch": "no-such-branch", "grasping_curriculum": str(self.curriculum),
-                      "detection_plan_note": str(self.plan), "detection_ladder": str(self.ladder)}
+                      "detection_plan_note": str(self.plan), "detection_ladder": str(self.ladder),
+                      "grasping_triage_answers": str(root / "grasp_loop" / "triage_answers.jsonl")}
 
     @staticmethod
     def json(path: Path, data) -> None:
@@ -320,7 +321,10 @@ class GraspingItemsTest(unittest.TestCase):
         self.assertTrue(all(o["source"] == "dashboard" and not o["recommended"] for o in ggcnn["options"]),
                         "the answer affordances are the dashboard's, and the file records no recommendation")
         self.assertEqual(ggcnn["evidence"][0]["kind"], "file_line")
-        self.assertEqual(self.doc["answer_channel"]["kind"], "chat_paste")
+        # loop contract v5: the grasping loop reads Zach's answers from its own jsonl file each tick, as kinsim does
+        self.assertEqual(self.doc["answer_channel"]["kind"], "jsonl_append")
+        self.assertEqual(self.doc["answer_channel"]["target"], self.fx.paths["grasping_triage_answers"])
+        self.assertEqual(self.doc["answer_channel"]["row_schema"], "bam-triage-answer/1")
         self.assertIn("name model ids verbatim", self.doc["answer_channel"]["read_back"])
         self.assertTrue(self.doc["source"]["live"])
 

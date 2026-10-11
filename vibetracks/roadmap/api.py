@@ -130,6 +130,17 @@ RIG = LiveProjector(
     project=lambda sources, now: project_rig(Path(sources["rig_loop_dir"]), now=now),
     claims=lambda sources: [RootClaim("repo", Path(sources["rig_loop_dir"]), exact=False, entry="ladder.json")],
 )
+def _grasping_out(sources: Mapping[str, str]) -> Path:
+    """The bench's out root (its ``$GRASP_BENCH_OUT``): ``grasp_bench_out``, else the bench's old in-checkout ``out/``.
+
+    WHY a key of its own (2026-10-10): the ledger lived in the gitignored out/ of an agent worktree and was deleted with
+    it; the bench now keeps its data outside every checkout, so the code root no longer says where the ledger is.
+    """
+
+    out = sources.get("grasp_bench_out")
+    return Path(out) if out else Path(sources["grasp_bench_dir"]) / "out"
+
+
 def _grasping_inputs(sources: Mapping[str, str]) -> list[Path]:
     package = Path(sources["grasp_bench_dir"]) / "src" / "grasp_bench"
     # registry.py is read from the working tree (each gate's env and model scope), so an uncommitted edit to it moves no
@@ -140,7 +151,7 @@ def _grasping_inputs(sources: Mapping[str, str]) -> list[Path]:
     # bench's own code computes in its own venv, and gallery.py reaches registry/contracts/envs through imports; a fixed
     # list missed some, and a removed or replaced venv left the cached document looking fresh. A few dozen stats.
     bench = Path(sources["grasp_bench_dir"])
-    ledger = bench / "out" / "ledger"
+    ledger = _grasping_out(sources) / "ledger"
     code = sorted(package.rglob("*.py")) if package.is_dir() else []
     return [*code, bench / ".venv" / "bin" / "python", bench / ".venv" / "pyvenv.cfg", ledger / "runs.jsonl",
             ledger / "attestations.jsonl"]
@@ -149,11 +160,13 @@ def _grasping_inputs(sources: Mapping[str, str]) -> list[Path]:
 GRASPING = LiveProjector(
     name="grasping", loop="grasping", title="Grasp bench",
     present=lambda sources: (Path(sources["grasp_bench_dir"]) / "src" / "grasp_bench" / "curriculum.py").is_file(),
-    keys=frozenset({"grasp_bench_dir"}), inputs=_grasping_inputs, checkout=lambda sources: Path(sources["grasp_bench_dir"]),
-    project=lambda sources, now: project_grasping(Path(sources["grasp_bench_dir"]), now=now),
+    keys=frozenset({"grasp_bench_dir", "grasp_bench_out"}), inputs=_grasping_inputs,
+    checkout=lambda sources: Path(sources["grasp_bench_dir"]),
+    project=lambda sources, now: project_grasping(Path(sources["grasp_bench_dir"]), now=now,
+                                                  ledger_path=_grasping_out(sources) / "ledger" / "runs.jsonl"),
     claims=lambda sources: [RootClaim("repo", Path(sources["grasp_bench_dir"]), exact=False,
                                       entry="src/grasp_bench/curriculum.py"),
-                            RootClaim("data_home", Path(sources["grasp_bench_dir"]) / "out", exact=True)],
+                            RootClaim("data_home", _grasping_out(sources), exact=True)],
 )
 DETECTION = LiveProjector(
     name="detection", loop="detection", title="Hyperspectral ladder (planned)",

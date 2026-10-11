@@ -72,7 +72,7 @@ class RealRegistryTest(unittest.TestCase):
         self.assertEqual(by_id["rig"].children, ["can12", "can16"])
         self.assertEqual(by_id["kinsim"].roadmap, {"projector": "kinsim", "sources": ["kinsim_curriculum_dir", "kinsim_home"]})
         self.assertEqual(by_id["rig"].roadmap["projector"], "rig")
-        self.assertEqual(by_id["grasping"].roadmap, {"projector": "grasping", "sources": ["grasp_bench_dir"]})
+        self.assertEqual(by_id["grasping"].roadmap, {"projector": "grasping", "sources": ["grasp_bench_dir", "grasp_bench_out"]})
         self.assertEqual(by_id["detection"].roadmap, {"projector": "detection", "sources": ["detection_dir"]})
         self.assertIsNone(by_id["pyblocks"].roadmap)
         for track in tracks:

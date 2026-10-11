@@ -769,8 +769,9 @@ def project_grasping(grasp_bench_dir: Path, *, now: str, head: str | None = None
                      verdict_fn: Callable[..., Mapping[str, Any]] | None = None) -> dict[str, Any]:
     """bam-roadmap/1 for the grasping track, judged at ``head`` (default: the checkout's HEAD).
 
-    ``ledger_path`` defaults to ``<grasp_bench_dir>/out/ledger/runs.jsonl``, the ledger's own default (``$GRASP_BENCH_OUT``
-    is not read here: the projection must depend only on the paths it is given, so the validator can project it again).
+    ``ledger_path`` defaults to ``<grasp_bench_dir>/out/ledger/runs.jsonl``, the ledger's old default (``$GRASP_BENCH_OUT``
+    is not read here: the projection must depend only on the paths it is given, so the validator can project it again);
+    the live projector passes the out root's ledger (``grasp_bench_out``), and the bridge judges that same out root.
 
     ``verdict_fn(bench_dir)`` answers grasp_bench's own verdict (``grasp_bench_bridge.verdict``, the default, with its
     default cache, which the dashboard shares); tests inject a fake. Its ``error`` is a ``ProjectionError``.
@@ -793,7 +794,8 @@ def project_grasping(grasp_bench_dir: Path, *, now: str, head: str | None = None
     # (the bridge itself would answer "ledger missing", which is the state this projection already shows).
     judged: Mapping[str, Any] = {"envs": {}, "runs": {}, "headline": {}, "error": None}
     if ledger.is_file():
-        judged = (verdict_fn or grasp_bench_bridge.verdict)(bench)
+        # WHY out_dir named here: the bridge must judge the ledger this projection read, wherever its out root is.
+        judged = (verdict_fn or grasp_bench_bridge.verdict)(bench, out_dir=ledger.parent.parent)
         if judged.get("error"):
             raise ProjectionError(f"bench verdict unavailable: {judged['error']}")
     return _GraspingProjector(bench=bench, curriculum=curriculum, protocols=protocols, ledger=ledger, repo=repo,

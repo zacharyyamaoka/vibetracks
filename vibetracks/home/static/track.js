@@ -53,13 +53,23 @@
   const nsTag = '<span class="pg-tag" title="the track\'s north-star KPI">north star</span>';
   const tone = (k) => (k.status && k.status.tone === 'warn' ? ' warn' : '');
 
+  // WHY a separate stale line and a wrapping status on header tiles (proof phase, Oct 11): with "stale since …" first
+  // in one ellipsised line, the card hid the status word (estimate / stand-in) and the "better elsewhere" line the
+  // grasping contract requires on every header tile. The adapter sends status.stale and status.core beside status.word.
+  function statusHtml(k) {
+    const st = k.status || {};
+    const core = st.core != null ? st.core : st.word;
+    const coreTone = st.core != null ? (st.core_tone === 'warn' ? ' warn' : '') : tone(k);
+    const wrap = k.level === 'header' ? ' wrap' : '';
+    return `${st.stale ? `<div class="pg-kst warn wrap" data-testid="vt-kpi-stale">${esc(st.stale)}</div>` : ''}<div class="pg-kst${wrap}${coreTone}" data-testid="vt-kpi-status">${esc(core || 'status unknown')}</div>`;
+  }
   function kpiCards(soft) {
     return `<div class="pg-kcards">${soft.map((k) => `<div class="pg-kcard${k.north_star ? ' ns' : ''}" data-testid="vt-kpi-card" data-kpi-id="${esc(k.id)}" title="${esc(kTitle(k))}">
       <div class="pg-kl"><span class="ell">${esc(k.label)}</span>${k.north_star ? nsTag : ''}</div>
       <div class="pg-kv">${valueHtml(k)}</div>
       <div class="pg-kt"><span class="faint ell">${esc(targetText(k))}</span></div>
       <div class="pg-ks" data-pgw="kcard">${spark(k, W.kcard, 40)}</div>
-      <div class="pg-kst${tone(k)}">${esc(k.status ? k.status.word : 'status unknown')}</div></div>`).join('')}</div>`;
+      ${statusHtml(k)}</div>`).join('')}</div>`;
   }
   function kpiRows(soft) {
     return `<div class="pg-tbl pg-krows"><div class="pg-th"><div>Soft KPI</div><div>Now</div><div class="pg-x">Target</div><div class="pg-x">Trend</div><div class="pg-x">Status</div></div>
@@ -77,7 +87,7 @@
       return `<div class="pg-gate" data-testid="vt-gate" data-kpi-id="${esc(g.id)}" data-pass="${pass}" title="${esc(kTitle(g))}">
         <span class="pg-gp p-${pass}">${mark}</span>
         <span class="pg-gl"><span class="t">${esc(g.label)}${g.north_star ? ' ' + nsTag : ''}</span><small class="faint">${esc(targetText(g))}</small></span>
-        <span class="pg-gw"><span class="${pass === 'false' ? 'errword' : pass === 'unknown' ? 'unk' : ''}">${esc(v.why || 'unknown')}</span><small class="faint">${now ? 'now ' + esc(now) + (v.iteration ? ' · ' + esc(v.iteration) : '') : 'no measured value'}</small></span></div>`;
+        <span class="pg-gw"><span class="${pass === 'false' ? 'errword' : pass === 'unknown' ? 'unk' : ''}">${esc(v.why || 'unknown')}</span><small class="faint">${now ? 'now ' + esc(now) + (v.iteration ? ' · ' + esc(v.iteration) : '') : v.pass === undefined || v.why === 'not measured yet' ? 'no measured value' : 'no holder yet'}</small></span></div>`;
     }).join('')}</div>`;
   }
 
@@ -122,6 +132,36 @@
       <div class="pg-note">${esc(doc.title || '')} · as of ${esc((doc.as_of && doc.as_of.branch) || 'unknown branch')} ${esc(((doc.as_of && doc.as_of.head) || '').slice(0, 8))} · generated ${esc(VT.ago(doc.generated_at))}</div></div>`;
   }
 
+  // ------------------------------------------------------------------ milestones: the loop's own milestone ladder
+  // WHY rendered as written: the adapter reads the loop's milestone file (grasping: roadmap_v4.json, grasp-roadmap/1);
+  // today's value carries the label it came with ("recorded …, not yet re-proved"), never a verdict computed here.
+  function milestoneLadder(ms) {
+    if (!ms || !(ms.items || []).length) return '';
+    const rows = ms.items.map((m) => {
+      const r = m.rung;
+      const sq = (m.rungs || []).map((x) => `<i class="pg-rung s-${esc(x.status)}${r && x.id === r.id ? ' front' : ''}" title="${esc(`${x.id} · ${x.title} · ${RUNG_WORD[x.status] || x.status}`)}"></i>`).join('');
+      const today = m.today || {};
+      const bar = m.bar ? `<small class="faint pg-wrap" title="${esc((m.bar.done_when || []).join('\n\n'))}">bar · ${esc(m.bar.rung)} ${esc(m.bar.title || '')}${m.bar.metric ? ' · ' + esc(m.bar.metric) : ''}</small>` : '<small class="unk">no done rung named</small>';
+      const blocked = (m.blocked_by || []).length ? `<small class="warnword pg-wrap">blocked by ${esc(m.blocked_by.join(' · '))}</small>` : '';
+      return `<div class="pg-gate pg-ms" data-testid="vt-milestone" data-milestone-id="${esc(m.id)}" data-status="${esc(m.status)}">
+        <span class="pg-gp p-${m.status === 'green' || m.status === 'done' ? 'true' : 'unknown'}">${esc(RUNG_WORD[m.status] || m.status || 'unknown')}</span>
+        <span class="pg-gl"><span class="t">${esc(m.title || m.id)} <span class="faint">${esc(m.id)}</span></span>
+          <span class="pg-rungs">${sq}</span>
+          <small>${r ? `current rung ${esc(r.id)} · ${esc(r.title || '')} · ${esc(RUNG_WORD[r.status] || r.status)}` : 'every rung green'}</small>${bar}${blocked}</span>
+        <span class="pg-gw"><span class="pg-wrap">${today.display ? esc(today.display) : '<span class="unk">no value yet</span>'}</span><small class="faint">${esc(today.label || '')}${m.bar && m.bar.comparison === 'published' && !today.comparable_to_published ? ' · not comparable to published' : ''}</small></span></div>`;
+    }).join('');
+    const needs = (ms.needs_you || []).map((n) => `<div class="pg-mqrow"><b>${esc(n.id)}</b><span class="pg-wrap">${esc(n.q || '')}<small class="faint">default if you say nothing: ${esc(n.default || 'none stated')}</small></span></div>`).join('');
+    const queue = (list) => (list || []).map((q) => `<div class="pg-mqrow"><b>${esc(q.id)}</b><span class="pg-wrap">${esc(q.title || '')}<small class="faint">${esc(q.status || '')}${(q.unlocks || []).length ? ' · unlocks ' + esc(q.unlocks.join(', ')) : ''}</small></span></div>`).join('') || '<p class="faint pg-p">nothing next</p>';
+    const more = ms.needs_you_total > (ms.needs_you || []).length ? ` <span class="faint">· ${ms.needs_you_total - ms.needs_you.length} more in the file</span>` : '';
+    return `<h2 class="pg-h2">Milestones <span class="faint pg-hs">· the loop's ladder, current rung, today's value against the bar</span></h2>
+      <div class="pg-card pg-gates" data-testid="vt-milestones">${rows}</div>
+      <div class="pg-mq">
+        ${needs ? `<div class="pg-card"><div class="pg-mqh">Decisions from the loop${ms.needs_you_source ? ` <span class="faint">· ${esc(String(ms.needs_you_source).split('/').pop())}</span>` : ''}${more}</div>${needs}</div>` : ''}
+        <div class="pg-card"><div class="pg-mqh">Next in the model queue</div>${queue(ms.model_queue)}</div>
+        <div class="pg-card"><div class="pg-mqh">Next in the env queue</div>${queue(ms.env_queue)}</div></div>
+      <div class="pg-note">${esc(ms.source || '')}${ms.as_of && ms.as_of.note ? ' · ' + esc(ms.as_of.note) : ''}</div>`;
+  }
+
   function overview(t, d) {
     const k = d.kpis || {};
     const soft = (k.soft || []).slice().sort((a, b) => (b.north_star ? 1 : 0) - (a.north_star ? 1 : 0));
@@ -129,13 +169,20 @@
     const nsGate = gl.find((g) => g.north_star);
     const toggle = `<span class="seg" data-testid="vt-kpi-toggle" title="Cards or Rows (K)"><button class="${S.kpiView === 'cards' ? 'on' : ''}" data-act="kpiview" data-id="cards">Cards</button><button class="${S.kpiView === 'rows' ? 'on' : ''}" data-act="kpiview" data-id="rows">Rows</button></span>`;
     let softHtml;
-    if (soft.length) softHtml = S.kpiView === 'rows' ? kpiRows(soft) : kpiCards(soft);
+    // WHY fold the detail (proof phase, Oct 11): when an adapter leads with a scoreboard header, its older KPIs (grasping:
+    // the v4 gallery's best single seeds) sat beside the header with equal weight and contradicted it. They stay one
+    // click away, closed by default.
+    const head = soft.filter((x) => x.level !== 'detail'), folded = soft.filter((x) => x.level === 'detail');
+    const view = (list) => (S.kpiView === 'rows' ? kpiRows(list) : kpiCards(list));
+    if (head.length && folded.length) softHtml = `${view(head)}<details class="pg-detail" data-testid="vt-kpi-detail"><summary>Detail (v4 gallery verdicts) · ${folded.length} KPI${folded.length === 1 ? '' : 's'}</summary>${view(folded)}</details>`;
+    else if (soft.length) softHtml = view(soft);
     else softHtml = `<p class="pg-p"><span class="unk pg-wrap">unknown: ${esc(k.unknown || (gl.length ? 'the loop reports only hard gates' : 'the loop reports no KPI'))}</span></p>`;
     const summary = k.summary ? `<div class="pg-summary"><span class="faint">Loop says</span> ${esc(k.summary)}</div>` : '';
     return `${summary}
       <h2 class="pg-h2 bar2">Soft KPIs <span class="faint pg-hs">· every dimension side by side, so a trade-off shows</span><span class="spacer"></span>${soft.length ? toggle : ''}</h2>
       ${nsGate ? `<p class="pg-p faint">The north star, ${esc(nsGate.label)}, is a hard gate below.</p>` : ''}${softHtml}
       <h2 class="pg-h2">Hard gates <span class="faint pg-hs">· pass / fail, never averaged in</span></h2>${gates(gl)}
+      ${milestoneLadder(d.milestones)}
       <h2 class="pg-h2">Roadmap <span class="faint pg-hs">· rung ladder</span></h2>${roadmap(t, d)}`;
   }
 
