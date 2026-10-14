@@ -18,12 +18,13 @@ views:
       - vibe-status
       - vibe-depends-on
       - vibe-areas
+      - vibe-priority
 
 vibetracks:
   version: 1
   id: vibe-tracks
   title: Vibe Tracks
-  description: ""
+  description: "Vibe Tracks' own plan: one note per feature in features/, projected as the vibetracks track's roadmap on the home's track page."
   vaultRoot: .
   source: features
   idPrefix: VT
@@ -33,8 +34,28 @@ vibetracks:
   #   areas:
   #     backend: Server, model, and storage work
   areas:
+    # Zach's five areas (Daily Note Oct 9, "Major Areas") plus the two layers under them; the roadmap's axes.
+    sidebar: The always-on left panel in Claude Code's visual language — projects, tracks, sessions, dots, account
+    home: The home page — every track's derived state, Rows / Table / Board / Cards, the one number on top
+    review: Review — Zen over the loops' questions, inbox, media-first decisions, answers that reach the loops
+    project-page: A project's page — Codex-model folders, north star (lagging) over the tracks' KPIs (leading)
+    track-page: A track's page — KPIs, gates, roadmap rungs, activity, sessions, auditor, experiments
+    data: Data / backend — derived state, adapters, projectors, write routes, sources, the agent protocol
+    multi-machine: Several machines — per-host share, hub, phone, setup on another box
+    # The Aug 25 feature panel's areas (Graph / Kanban / Focus); kept as secondary tags on VT-001…VT-008.
     model: Descriptor parsing, note reading, project assembly
     writes: Fenced atomic note mutations and scaffolding
     renderer: The browser panel — views, styling, polling
     agent: Dispatcher protocol, skills, and install surface
     obsidian: Vault-host integration and live-buffer safety
+  # The roadmap projector (vibetracks/roadmap/projector/features.py) draws one axis per entry, in this order; a
+  # feature sits on the first of its vibe-areas listed here. vibe-commits on a done note is its proof (landed here).
+  roadmap:
+    axes:
+      sidebar: Sidebar
+      home: Home
+      review: Review
+      project-page: Project page
+      track-page: Track page
+      data: Data / Backend
+      multi-machine: Multi-machine
