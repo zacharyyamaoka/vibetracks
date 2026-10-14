@@ -84,6 +84,17 @@
   --shadow: inset 0 0 0 1px rgba(255, 255, 255, .06), 0 4px 24px rgba(0, 0, 0, .4);
 }
 
+/* ---- The Stable/Preview chip wears this page's theme. The switcher runtime injects its chip into every page of every
+   channel (stable_preview_switcher CONTRACT §10.5, §10.12) and the chip reads the app's shadcn token names through
+   inheritance, else a light neutral. This page has no shadcn tokens, so in Zach's dark theme the chip was a white pill
+   (2026-10-10, docs/peps/0004). WHY aliases and not values: they follow light, dark and a pinned theme with the tokens
+   above, and no value here is retuned. WHY --ink-2 for the chip's muted text: --ink-3 is 3.5:1 on white at 11 px. */
+:root {
+  --background: var(--surface); --foreground: var(--ink); --border: var(--line);
+  --muted-foreground: var(--ink-2); --secondary: var(--alpha-1); --secondary-foreground: var(--ink);
+  --destructive: var(--danger);
+}
+
 /* ---- Claude's status dots (.status-dot, 6 px), the same meaning everywhere on this page:
    awaiting = amber (waits on you) · running = muted grey, blinking (working) · ready = blue (new since you last
    looked) · idle = hollow ring at 50 % · error = a warning glyph, not a dot. */
