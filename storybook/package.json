@@ -1,0 +1,28 @@
+{
+  "name": "vibetracks-storybook",
+  "private": true,
+  "type": "module",
+  "description": "The Vibe Tracks component storyboard: the home's real static parts and the shared viz components (vt-map, kpi-panel), in isolation, on real and synthetic fixtures. Dev-only; the home itself stays a no-build static page.",
+  "scripts": {
+    "storybook": "storybook dev --host 127.0.0.1 -p 6126 --exact-port --no-open --ci",
+    "build-storybook": "storybook build -o storybook-static",
+    "test": "vitest run --project=storybook",
+    "fixtures": "python3 scripts/make_fixtures.py",
+    "capture": "python3 scripts/capture_real.py",
+    "geo": "node scripts/build_geo.mjs",
+    "shots": "node scripts/shoot.mjs"
+  },
+  "devDependencies": {
+    "@storybook/addon-a11y": "10.6.1",
+    "@storybook/addon-vitest": "10.6.1",
+    "@storybook/html-vite": "10.6.1",
+    "@vitest/browser-playwright": "5.0.3",
+    "mapshaper": "0.7.83",
+    "maplibre-gl": "6.13.0",
+    "mockdate": "3.0.5",
+    "playwright": "1.63.0",
+    "storybook": "10.6.1",
+    "vite": "8.2.2",
+    "vitest": "5.0.3"
+  }
+}

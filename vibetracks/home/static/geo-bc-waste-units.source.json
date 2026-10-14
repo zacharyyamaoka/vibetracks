@@ -1,0 +1,14 @@
+{
+ "level": "district",
+ "source": "BC Data Catalogue: Regional Districts and Municipalities, Legally Defined Administrative Areas of BC (ABMS), via openmaps.gov.bc.ca WFS",
+ "url": [
+  "https://openmaps.gov.bc.ca/geo/pub/wfs?service=WFS&version=2.0.0&request=GetFeature&outputFormat=json&srsName=EPSG:4326&typeName=pub:WHSE_LEGAL_ADMIN_BOUNDARIES.ABMS_REGIONAL_DISTRICTS_SP",
+  "https://openmaps.gov.bc.ca/geo/pub/wfs?service=WFS&version=2.0.0&request=GetFeature&outputFormat=json&srsName=EPSG:4326&typeName=pub:WHSE_LEGAL_ADMIN_BOUNDARIES.ABMS_MUNICIPALITIES_SP&CQL_FILTER=ADMIN_AREA_NAME%3D'Northern%20Rockies%20Regional%20Municipality'"
+ ],
+ "licence": "Open Government Licence – British Columbia",
+ "attribution": "Contains information licensed under the Open Government Licence – British Columbia",
+ "key": "the BC disposal table's Regional_District name; Comox Valley + Strathcona dissolved (they report together)",
+ "parent": "CA-BC",
+ "retrieved": "2026-10-10",
+ "simplified": "Visvalingam 4% kept (the coast stays readable at Metro Vancouver zoom), keep-shapes, precision 0.001°"
+}

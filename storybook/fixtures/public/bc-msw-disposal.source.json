@@ -1,0 +1,14 @@
+{
+ "title": "BC Municipal Solid Waste Disposal Rates, by regional district, 1990–2024",
+ "publisher": "Government of British Columbia, BC Data Catalogue",
+ "url": "https://catalogue.data.gov.bc.ca/dataset/d21ed158-0ac7-4afd-a03b-ce22df0096bc/resource/d2648733-e484-40f2-b589-48192c16686b/download/bc_municipal_solid_waste_disposal.csv",
+ "page": "https://catalogue.data.gov.bc.ca/dataset/d21ed158-0ac7-4afd-a03b-ce22df0096bc",
+ "licence": "Open Government Licence – British Columbia",
+ "attribution": "Contains information licensed under the Open Government Licence – British Columbia",
+ "definition": "kg of municipal solid waste disposed per person per year (Disposal_Rate_kg); a disposal rate, NOT a diversion rate, and lower is better",
+ "caveats": [
+  "a year with 0 tonnes disposed is a missing report, not zero waste (Central Coast 2024: 0 t after ~1,600 t a year; 1990s rows: 0 t and no population): the stories read it as no data and say so",
+  "Comox-Strathcona and Northern Rockies are reporting units, not regional districts (see geo-bc-waste-units.source.json)"
+ ],
+ "retrieved": "2026-10-10"
+}

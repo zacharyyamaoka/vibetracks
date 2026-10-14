@@ -1,0 +1,946 @@
+Regional_District,Year,Total_Disposed_Tonnes,Population,Disposal_Rate_kg
+Alberni-Clayoquot,1990,16641,30257,550
+Alberni-Clayoquot,1991,0,,
+Alberni-Clayoquot,1992,0,,
+Alberni-Clayoquot,1993,0,,
+Alberni-Clayoquot,1994,0,,
+Alberni-Clayoquot,1995,0,,
+Alberni-Clayoquot,1996,14100,30000,470
+Alberni-Clayoquot,1997,15248,28824,529
+Alberni-Clayoquot,1998,13861,26914,515
+Alberni-Clayoquot,1999,20332,34000,598
+Alberni-Clayoquot,2000,17374,34000,511
+Alberni-Clayoquot,2001,16965,31186,544
+Alberni-Clayoquot,2002,17274,31753,544
+Alberni-Clayoquot,2003,23748,31877,745
+Alberni-Clayoquot,2004,27821,32312,861
+Alberni-Clayoquot,2005,27429,32692,839
+Alberni-Clayoquot,2006,25292,32260,784
+Alberni-Clayoquot,2007,27645,31138,888
+Alberni-Clayoquot,2008,0,,
+Alberni-Clayoquot,2009,0,,
+Alberni-Clayoquot,2010,23220,31635,734
+Alberni-Clayoquot,2011,0,,
+Alberni-Clayoquot,2012,23611,31090,759
+Alberni-Clayoquot,2013,22725,30863,736
+Alberni-Clayoquot,2014,21825,30876,707
+Alberni-Clayoquot,2015,22808,30106,758
+Alberni-Clayoquot,2016,24070,30721,784
+Alberni-Clayoquot,2017,25863,30456,849
+Alberni-Clayoquot,2018,23171,36555,634
+Alberni-Clayoquot,2019,22250,37731,590
+Alberni-Clayoquot,2020,21573,33885,637
+Alberni-Clayoquot,2021,22951,38132,602
+Alberni-Clayoquot,2022,22524,38529,585
+Alberni-Clayoquot,2023,21195,39171,541
+Alberni-Clayoquot,2024,20826,36222,575
+Bulkley-Nechako,1990,25995,37136,700
+Bulkley-Nechako,1991,0,,
+Bulkley-Nechako,1992,0,,
+Bulkley-Nechako,1993,0,,
+Bulkley-Nechako,1994,0,,
+Bulkley-Nechako,1995,0,,
+Bulkley-Nechako,1996,29272,43047,680
+Bulkley-Nechako,1997,27484,41642,660
+Bulkley-Nechako,1998,24796,42899,578
+Bulkley-Nechako,1999,28348,43545,651
+Bulkley-Nechako,2000,26964,44204,610
+Bulkley-Nechako,2001,18014,42890,420
+Bulkley-Nechako,2002,17362,43513,399
+Bulkley-Nechako,2003,21705,42643,509
+Bulkley-Nechako,2004,21426,43815,489
+Bulkley-Nechako,2005,20649,43933,470
+Bulkley-Nechako,2006,22014,40393,545
+Bulkley-Nechako,2007,19293,38471,501
+Bulkley-Nechako,2008,0,,
+Bulkley-Nechako,2009,0,,
+Bulkley-Nechako,2010,21276,39183,543
+Bulkley-Nechako,2011,0,,
+Bulkley-Nechako,2012,23783,39679,599
+Bulkley-Nechako,2013,23754,40066,593
+Bulkley-Nechako,2014,23209,40387,575
+Bulkley-Nechako,2015,25845.81,40059,645
+Bulkley-Nechako,2016,24239,40383,600
+Bulkley-Nechako,2017,22490,39803,565
+Bulkley-Nechako,2018,24079,44134,546
+Bulkley-Nechako,2019,24249,43689,555
+Bulkley-Nechako,2020,25834,43788,590
+Bulkley-Nechako,2021,26286,39814,660
+Bulkley-Nechako,2022,26235,40201,653
+Bulkley-Nechako,2023,30927,39370,786
+Bulkley-Nechako,2024,21558,39417,547
+Capital,1990,180966,291880,620
+Capital,1991,0,,
+Capital,1992,0,,
+Capital,1993,0,,
+Capital,1994,0,,
+Capital,1995,0,,
+Capital,1996,135827,328880,413
+Capital,1997,162922,329135,495
+Capital,1998,130600,334871,390
+Capital,1999,134159,339643,395
+Capital,2000,136656,334940,408
+Capital,2001,134235,341564,393
+Capital,2002,140724,341563,412
+Capital,2003,144121,344787,418
+Capital,2004,150789,347439,434
+Capital,2005,158662,351022,452
+Capital,2006,70835,160260,442
+Capital,2007,174537,359272,486
+Capital,2008,0,,
+Capital,2009,0,,
+Capital,2010,143723,372339,386
+Capital,2011,0,,
+Capital,2012,145279,368728,394
+Capital,2013,136236,371265,367
+Capital,2014,137305,372463,369
+Capital,2015,130442,377810,345
+Capital,2016,135251.84,382645,353
+Capital,2017,159368,392046,407
+Capital,2018,156931,413406,380
+Capital,2019,160027,418511,382
+Capital,2020,168044,425503,395
+Capital,2021,172886,432062,400
+Capital,2022,180004,439950,409
+Capital,2023,184566,453425,407
+Capital,2024,157189,460317,341
+Cariboo,1990,23456,58641,400
+Cariboo,1991,0,,
+Cariboo,1992,0,,
+Cariboo,1993,0,,
+Cariboo,1994,0,,
+Cariboo,1995,0,,
+Cariboo,1996,25255,69192,365
+Cariboo,1997,23779,66607,357
+Cariboo,1998,26289,73024,360
+Cariboo,1999,26276,72988,360
+Cariboo,2000,26478,73549,360
+Cariboo,2001,26185,68728,381
+Cariboo,2002,26502,69558,381
+Cariboo,2003,27783,68600,405
+Cariboo,2004,28144,69835,403
+Cariboo,2005,28554,70329,406
+Cariboo,2006,0,,
+Cariboo,2007,34000,63436,536
+Cariboo,2008,0,,
+Cariboo,2009,0,,
+Cariboo,2010,46223,65471,706
+Cariboo,2011,0,,
+Cariboo,2012,44597,62861,709
+Cariboo,2013,44609.58,62885,709
+Cariboo,2014,45264,63111,717
+Cariboo,2015,44440.28999999999,62252,714
+Cariboo,2016,47178,63111,748
+Cariboo,2017,44557,63364,703
+Cariboo,2018,50633,65312,775
+Cariboo,2019,41297.57,65456,631
+Cariboo,2020,41882,65575,639
+Cariboo,2021,42743,65548,652
+Cariboo,2022,41974,65855,637
+Cariboo,2023,38109,66291,575
+Cariboo,2024,36914,66801,553
+Central Coast,1990,1400,3500,400
+Central Coast,1991,0,,
+Central Coast,1992,0,,
+Central Coast,1993,0,,
+Central Coast,1994,0,,
+Central Coast,1995,0,,
+Central Coast,1996,1419,4055,350
+Central Coast,1997,1508,4310,350
+Central Coast,1998,1372,3921,350
+Central Coast,1999,1512,4320,350
+Central Coast,2000,1516,4332,350
+Central Coast,2001,1502,3973,378
+Central Coast,2002,1517,4013,378
+Central Coast,2003,1498,3902,384
+Central Coast,2004,1500,3866,388
+Central Coast,2005,1000,3905,256
+Central Coast,2006,0,,
+Central Coast,2007,1500,3169,473
+Central Coast,2008,0,,
+Central Coast,2009,0,,
+Central Coast,2010,0,3174,0
+Central Coast,2011,0,,
+Central Coast,2012,0,3258,0
+Central Coast,2013,1300,3263,398
+Central Coast,2014,1300,3240,401
+Central Coast,2015,1458.4,3239,450
+Central Coast,2016,1364.4,3248,420
+Central Coast,2017,1534.4,3215,477
+Central Coast,2018,1372,3505,391
+Central Coast,2019,1372,3584,383
+Central Coast,2020,1372,3584,383
+Central Coast,2021,1547,3624,427
+Central Coast,2022,1576,3688,427
+Central Coast,2023,1644,3850,427
+Central Coast,2024,0,4022,0
+Central Kootenay,1990,34760,49587,701
+Central Kootenay,1991,0,,
+Central Kootenay,1992,0,,
+Central Kootenay,1993,0,,
+Central Kootenay,1994,0,,
+Central Kootenay,1995,0,,
+Central Kootenay,1996,26086,58099,449
+Central Kootenay,1997,20586,60725,339
+Central Kootenay,1998,13429,61602,218
+Central Kootenay,1999,17026,61466,277
+Central Kootenay,2000,18599,61790,301
+Central Kootenay,2001,17148,59540,288
+Central Kootenay,2002,22039,59245,372
+Central Kootenay,2003,20471,60209,340
+Central Kootenay,2004,24488,59874,409
+Central Kootenay,2005,29757,60237,494
+Central Kootenay,2006,31271,58891,531
+Central Kootenay,2007,29354,57613,510
+Central Kootenay,2008,0,,
+Central Kootenay,2009,0,,
+Central Kootenay,2010,39668,60378,657
+Central Kootenay,2011,0,,
+Central Kootenay,2012,28064,58864,477
+Central Kootenay,2013,28505.86,59385,480
+Central Kootenay,2014,27147,60013,452
+Central Kootenay,2015,29045.27,60102,483
+Central Kootenay,2016,28437.2,60775,468
+Central Kootenay,2017,33766.44,60803,555
+Central Kootenay,2018,29416.8,62668,469
+Central Kootenay,2019,29486,63311,466
+Central Kootenay,2020,31292,63911,490
+Central Kootenay,2021,32265.64,64464,501
+Central Kootenay,2022,29920,63121,474
+Central Kootenay,2023,29795,67129,444
+Central Kootenay,2024,28910,68723,421
+Central Okanagan,1990,124998,103304,1210
+Central Okanagan,1991,0,,
+Central Okanagan,1992,0,,
+Central Okanagan,1993,0,,
+Central Okanagan,1994,0,,
+Central Okanagan,1995,0,,
+Central Okanagan,1996,84862,141673,599
+Central Okanagan,1997,105279,145213,725
+Central Okanagan,1998,94152,147113,640
+Central Okanagan,1999,95850,150000,639
+Central Okanagan,2000,97736,152000,643
+Central Okanagan,2001,98842,154440,640
+Central Okanagan,2002,111876,156033,717
+Central Okanagan,2003,76341,160718,475
+Central Okanagan,2004,84916,162986,521
+Central Okanagan,2005,82625,167936,492
+Central Okanagan,2006,144407,170091,849
+Central Okanagan,2007,146700,173730,844
+Central Okanagan,2008,0,,
+Central Okanagan,2009,0,,
+Central Okanagan,2010,129625,185443,699
+Central Okanagan,2011,0,,
+Central Okanagan,2012,112046,183912,609
+Central Okanagan,2013,115348.7,185944,620
+Central Okanagan,2014,122953,189289,650
+Central Okanagan,2015,126870,195466,649
+Central Okanagan,2016,139270,197075,707
+Central Okanagan,2017,146528.81,199103,736
+Central Okanagan,2018,158680,208852,760
+Central Okanagan,2019,146152.27000000002,217214,673
+Central Okanagan,2020,142390,222748,639
+Central Okanagan,2021,152316.5,229401,664
+Central Okanagan,2022,146833,235472,624
+Central Okanagan,2023,146455,246789,593
+Central Okanagan,2024,146006,251723,580
+Columbia-Shuswap,1990,28762,40510,710
+Columbia-Shuswap,1991,0,,
+Columbia-Shuswap,1992,0,,
+Columbia-Shuswap,1993,0,,
+Columbia-Shuswap,1994,0,,
+Columbia-Shuswap,1995,0,,
+Columbia-Shuswap,1996,23865,48115,496
+Columbia-Shuswap,1997,26223,48115,545
+Columbia-Shuswap,1998,22157,52256,424
+Columbia-Shuswap,1999,21738,52256,416
+Columbia-Shuswap,2000,21613,52973,408
+Columbia-Shuswap,2001,21581,50305,429
+Columbia-Shuswap,2002,21804,50826,429
+Columbia-Shuswap,2003,30219,51306,589
+Columbia-Shuswap,2004,29378,52367,561
+Columbia-Shuswap,2005,32107,53245,603
+Columbia-Shuswap,2006,42836,52367,818
+Columbia-Shuswap,2007,42834,51587,830
+Columbia-Shuswap,2008,0,,
+Columbia-Shuswap,2009,0,,
+Columbia-Shuswap,2010,31349,53680,584
+Columbia-Shuswap,2011,0,,
+Columbia-Shuswap,2012,30677,50993,602
+Columbia-Shuswap,2013,30677,51107,600
+Columbia-Shuswap,2014,33997,51789,656
+Columbia-Shuswap,2015,30698,51379,597
+Columbia-Shuswap,2016,33471,52021,643
+Columbia-Shuswap,2017,32335,53028,610
+Columbia-Shuswap,2018,40510,55465,730
+Columbia-Shuswap,2019,41796,55823,749
+Columbia-Shuswap,2020,34182,56899,601
+Columbia-Shuswap,2021,36909,57567,641
+Columbia-Shuswap,2022,47195,58878,802
+Columbia-Shuswap,2023,40062,61505,651
+Columbia-Shuswap,2024,40039,62401,642
+Comox-Strathcona,1990,53546,82378,650
+Comox-Strathcona,1991,0,,
+Comox-Strathcona,1992,0,,
+Comox-Strathcona,1993,0,,
+Comox-Strathcona,1994,0,,
+Comox-Strathcona,1995,0,,
+Comox-Strathcona,1996,62800,97667,643
+Comox-Strathcona,1997,68637,103995,660
+Comox-Strathcona,1998,49127,101085,486
+Comox-Strathcona,1999,48764,105321,463
+Comox-Strathcona,2000,48818,105439,463
+Comox-Strathcona,2001,45180,100401,450
+Comox-Strathcona,2002,46983,101038,465
+Comox-Strathcona,2003,47408,101953,465
+Comox-Strathcona,2004,48020,103268,465
+Comox-Strathcona,2005,48977,105327,465
+Comox-Strathcona,2006,68690,106661,644
+Comox-Strathcona,2007,69002,104918,658
+Comox-Strathcona,2008,0,,
+Comox-Strathcona,2009,0,,
+Comox-Strathcona,2010,71468,109028,656
+Comox-Strathcona,2011,0,,
+Comox-Strathcona,2012,71661,107613,666
+Comox-Strathcona,2013,64670,108671,595
+Comox-Strathcona,2014,69269,109508,633
+Comox-Strathcona,2015,61433,110102,558
+Comox-Strathcona,2016,63284,111022,570
+Comox-Strathcona,2017,64313,112738,570
+Comox-Strathcona,2018,66260,119662,554
+Comox-Strathcona,2019,65268,121710,536
+Comox-Strathcona,2020,63752,122972,518
+Comox-Strathcona,2021,69525,124893,557
+Comox-Strathcona,2022,65288,126291,517
+Comox-Strathcona,2023,63990,129382,495
+Comox-Strathcona,2024,73547,130741,563
+Cowichan Valley,1990,45475,59059,770
+Cowichan Valley,1991,0,,
+Cowichan Valley,1992,0,,
+Cowichan Valley,1993,0,,
+Cowichan Valley,1994,0,,
+Cowichan Valley,1995,0,,
+Cowichan Valley,1996,41025,70978,578
+Cowichan Valley,1997,41820,72691,575
+Cowichan Valley,1998,38323,73735,520
+Cowichan Valley,1999,31911,76386,418
+Cowichan Valley,2000,28088,76820,366
+Cowichan Valley,2001,26699,71998,371
+Cowichan Valley,2002,27941,73129,382
+Cowichan Valley,2003,29762,74260,401
+Cowichan Valley,2004,33112,75392,439
+Cowichan Valley,2005,31781,76523,415
+Cowichan Valley,2006,32316,76929,420
+Cowichan Valley,2007,31541,78060,404
+Cowichan Valley,2008,33606,80936,415
+Cowichan Valley,2009,33407,81796,408
+Cowichan Valley,2010,31994,82871,386
+Cowichan Valley,2011,25936,80332,323
+Cowichan Valley,2012,24299,81780,297
+Cowichan Valley,2013,23333.34,81704,286
+Cowichan Valley,2014,22782,82407,276
+Cowichan Valley,2015,24595,82786,297
+Cowichan Valley,2016,29105,84014,346
+Cowichan Valley,2017,30607.66,85459,358
+Cowichan Valley,2018,33797.229999999996,90380,374
+Cowichan Valley,2019,35272.92,90448,390
+Cowichan Valley,2020,38598,90776,425
+Cowichan Valley,2021,41952.32,91913,456
+Cowichan Valley,2022,40612,92756,438
+Cowichan Valley,2023,42454,94941,447
+Cowichan Valley,2024,41725,95264,438
+East Kootenay,1990,34141,48773,700
+East Kootenay,1991,0,,
+East Kootenay,1992,0,,
+East Kootenay,1993,0,,
+East Kootenay,1994,0,,
+East Kootenay,1995,0,,
+East Kootenay,1996,55209,58608,942
+East Kootenay,1997,54673,59557,918
+East Kootenay,1998,54169,60054,902
+East Kootenay,1999,40111,61145,656
+East Kootenay,2000,44564,62240,716
+East Kootenay,2001,44943,58903,763
+East Kootenay,2002,45959,60234,763
+East Kootenay,2003,41020,60146,682
+East Kootenay,2004,54314,60958,891
+East Kootenay,2005,54006,61862,873
+East Kootenay,2006,0,,
+East Kootenay,2007,55598,57031,975
+East Kootenay,2008,0,,
+East Kootenay,2009,0,,
+East Kootenay,2010,59242,60267,983
+East Kootenay,2011,0,,
+East Kootenay,2012,46725,57093,818
+East Kootenay,2013,40800.7,57642,708
+East Kootenay,2014,42137,70621,597
+East Kootenay,2015,39423.6,70204,562
+East Kootenay,2016,42055.06,74975,561
+East Kootenay,2017,42107,72000,585
+East Kootenay,2018,42715.5,64004,667
+East Kootenay,2019,44238.57,79555,556
+East Kootenay,2020,47361,80254,590
+East Kootenay,2021,48612.63,80145,607
+East Kootenay,2022,50026,81677,612
+East Kootenay,2023,50279,83670,601
+East Kootenay,2024,49388,72534,681
+Fraser-Fort George,1990,60180,85971,700
+Fraser-Fort George,1991,0,,
+Fraser-Fort George,1992,0,,
+Fraser-Fort George,1993,0,,
+Fraser-Fort George,1994,0,,
+Fraser-Fort George,1995,0,,
+Fraser-Fort George,1996,101745,98974,1028
+Fraser-Fort George,1997,107025,101349,1056
+Fraser-Fort George,1998,84997,103782,819
+Fraser-Fort George,1999,75666,106273,712
+Fraser-Fort George,2000,76029,106933,711
+Fraser-Fort George,2001,73063,100224,729
+Fraser-Fort George,2002,75475,100366,752
+Fraser-Fort George,2003,76355,100600,759
+Fraser-Fort George,2004,85042,102214,832
+Fraser-Fort George,2005,82500,101601,812
+Fraser-Fort George,2006,89128,97301,916
+Fraser-Fort George,2007,95998,94911,1011
+Fraser-Fort George,2008,0,,
+Fraser-Fort George,2009,0,,
+Fraser-Fort George,2010,82668,96575,856
+Fraser-Fort George,2011,0,,
+Fraser-Fort George,2012,81911,94064,871
+Fraser-Fort George,2013,81216,94193,862
+Fraser-Fort George,2014,80005,93645,854
+Fraser-Fort George,2015,76052,91299,833
+Fraser-Fort George,2016,79758,94506,844
+Fraser-Fort George,2017,79140,99479,796
+Fraser-Fort George,2018,79331,100359,790
+Fraser-Fort George,2019,79916.5,103392,773
+Fraser-Fort George,2020,74564,103975,717
+Fraser-Fort George,2021,82784,104339,793
+Fraser-Fort George,2022,74956,96979,773
+Fraser-Fort George,2023,72904,104141,700
+Fraser-Fort George,2024,74170,106248,698
+Fraser Valley,1990,198111,209641,945
+Fraser Valley,1991,0,,
+Fraser Valley,1992,0,,
+Fraser Valley,1993,0,,
+Fraser Valley,1994,0,,
+Fraser Valley,1995,0,,
+Fraser Valley,1996,101191,222397,455
+Fraser Valley,1997,124104,234159,530
+Fraser Valley,1998,118327,237128,499
+Fraser Valley,1999,118331,240022,493
+Fraser Valley,2000,121990,243008,502
+Fraser Valley,2001,126012,249035,506
+Fraser Valley,2002,140883,253844,555
+Fraser Valley,2003,166159,254065,654
+Fraser Valley,2004,150699,260725,578
+Fraser Valley,2005,131921,264370,499
+Fraser Valley,2006,122930,269583,456
+Fraser Valley,2007,145987,271262,538
+Fraser Valley,2008,0,,
+Fraser Valley,2009,0,,
+Fraser Valley,2010,136513,284995,479
+Fraser Valley,2011,0,,
+Fraser Valley,2012,202612,285735,709
+Fraser Valley,2013,138649.26,286980,483
+Fraser Valley,2014,131353,288682,455
+Fraser Valley,2015,125848.08,296429,425
+Fraser Valley,2016,139825.96,301238,464
+Fraser Valley,2017,132134.7,303701,435
+Fraser Valley,2018,143585.53,319120,450
+Fraser Valley,2019,140670.04,331533,424
+Fraser Valley,2020,149639,335229,446
+Fraser Valley,2021,175837.75,340003,517
+Fraser Valley,2022,138226,345588,400
+Fraser Valley,2023,190267,353301,539
+Fraser Valley,2024,260435,362635,718
+Kitimat-Stikine,1990,27602,39431,700
+Kitimat-Stikine,1991,0,,
+Kitimat-Stikine,1992,0,,
+Kitimat-Stikine,1993,0,,
+Kitimat-Stikine,1994,0,,
+Kitimat-Stikine,1995,0,,
+Kitimat-Stikine,1996,29660,43618,680
+Kitimat-Stikine,1997,24252,43618,556
+Kitimat-Stikine,1998,17140,46449,369
+Kitimat-Stikine,1999,21785,46449,469
+Kitimat-Stikine,2000,21982,46870,469
+Kitimat-Stikine,2001,21661,42894,505
+Kitimat-Stikine,2002,21672,42914,505
+Kitimat-Stikine,2003,20438,42669,479
+Kitimat-Stikine,2004,20445,43043,475
+Kitimat-Stikine,2005,20429,42919,476
+Kitimat-Stikine,2006,0,,
+Kitimat-Stikine,2007,17735,38320,463
+Kitimat-Stikine,2008,0,,
+Kitimat-Stikine,2009,0,,
+Kitimat-Stikine,2010,0,39642,0
+Kitimat-Stikine,2011,0,,
+Kitimat-Stikine,2012,28364,37818,750
+Kitimat-Stikine,2013,29015,38687,750
+Kitimat-Stikine,2014,29377,39169,750
+Kitimat-Stikine,2015,28887.75,38517,750
+Kitimat-Stikine,2016,27878.5,36270,769
+Kitimat-Stikine,2017,17183,36270,474
+Kitimat-Stikine,2018,20086.88,39263,512
+Kitimat-Stikine,2019,23083.9,39150,590
+Kitimat-Stikine,2020,32105,39921,804
+Kitimat-Stikine,2021,26911.52,40423,666
+Kitimat-Stikine,2022,32054,40880,784
+Kitimat-Stikine,2023,28694,40558,707
+Kitimat-Stikine,2024,25958,41438,626
+Kootenay Boundary,1990,25861,30425,850
+Kootenay Boundary,1991,0,,
+Kootenay Boundary,1992,0,,
+Kootenay Boundary,1993,0,,
+Kootenay Boundary,1994,0,,
+Kootenay Boundary,1995,0,,
+Kootenay Boundary,1996,13393,32906,407
+Kootenay Boundary,1997,21191,32906,644
+Kootenay Boundary,1998,18870,34309,550
+Kootenay Boundary,1999,19879,34156,582
+Kootenay Boundary,2000,16147,34065,474
+Kootenay Boundary,2001,16592,33184,500
+Kootenay Boundary,2002,17431,33013,528
+Kootenay Boundary,2003,15100,33261,454
+Kootenay Boundary,2004,16103,32863,490
+Kootenay Boundary,2005,15599,33118,471
+Kootenay Boundary,2006,0,,
+Kootenay Boundary,2007,14517,31389,462
+Kootenay Boundary,2008,0,,
+Kootenay Boundary,2009,0,,
+Kootenay Boundary,2010,14635,31885,459
+Kootenay Boundary,2011,0,,
+Kootenay Boundary,2012,20831,31168,668
+Kootenay Boundary,2013,20831,30563,682
+Kootenay Boundary,2014,20656,30307,682
+Kootenay Boundary,2015,16804,29349,573
+Kootenay Boundary,2016,18323,29926,612
+Kootenay Boundary,2017,16688.629999999997,29205,571
+Kootenay Boundary,2018,19666.39,33149,593
+Kootenay Boundary,2019,18102.62,33432,541
+Kootenay Boundary,2020,17203,33430,515
+Kootenay Boundary,2021,21760.57,33650,647
+Kootenay Boundary,2022,19311,34080,567
+Kootenay Boundary,2023,16181,35189,460
+Kootenay Boundary,2024,17762,35360,502
+Metro-Vancouver,1990,1594790,1610899,990
+Metro-Vancouver,1991,0,,
+Metro-Vancouver,1992,0,,
+Metro-Vancouver,1993,0,,
+Metro-Vancouver,1994,1680750,1732567,970
+Metro-Vancouver,1995,1529763,1784656,857
+Metro-Vancouver,1996,1360882,1906492,714
+Metro-Vancouver,1997,1457086,1954523,745
+Metro-Vancouver,1998,1348233,1984743,679
+Metro-Vancouver,1999,1467408,2013201,729
+Metro-Vancouver,2000,1473465,2041399,722
+Metro-Vancouver,2001,1432719,2073662,691
+Metro-Vancouver,2002,1433449,2102244,682
+Metro-Vancouver,2003,1361065,2128965,639
+Metro-Vancouver,2004,1476703,2153998,686
+Metro-Vancouver,2005,1544382,2188573,706
+Metro-Vancouver,2006,1640004,2218026,739
+Metro-Vancouver,2007,1617391,2251887,718
+Metro-Vancouver,2008,1499231,2273095,660
+Metro-Vancouver,2009,1452001,2314163,627
+Metro-Vancouver,2010,1399275,2351496,595
+Metro-Vancouver,2011,1370902,2395520,572
+Metro-Vancouver,2012,1356966,2417081,561
+Metro-Vancouver,2013,1323845.99,2442604,542
+Metro-Vancouver,2014,1295673,2474123,524
+Metro-Vancouver,2015,1218109,2513856,485
+Metro-Vancouver,2016,1082274,2558029,423
+Metro-Vancouver,2017,1237715,2592227,477
+Metro-Vancouver,2018,1262959,2654226,476
+Metro-Vancouver,2019,1299005,2691343,483
+Metro-Vancouver,2020,1305010,2737681,477
+Metro-Vancouver,2021,1315462.39,2807469,469
+Metro-Vancouver,2022,1250964,2854375,438
+Metro-Vancouver,2023,1281423,2988227,429
+Metro-Vancouver,2024,1312447,3108926,422
+Mount Waddington,1990,12677,14086,900
+Mount Waddington,1991,0,,
+Mount Waddington,1992,0,,
+Mount Waddington,1993,0,,
+Mount Waddington,1994,0,,
+Mount Waddington,1995,0,,
+Mount Waddington,1996,11117,13896,800
+Mount Waddington,1997,7357,15392,478
+Mount Waddington,1998,6330,15000,422
+Mount Waddington,1999,6132,14601,420
+Mount Waddington,2000,7951,15058,528
+Mount Waddington,2001,7738,13768,562
+Mount Waddington,2002,7074,13656,518
+Mount Waddington,2003,7104,13531,525
+Mount Waddington,2004,7310,13537,540
+Mount Waddington,2005,7198,13684,526
+Mount Waddington,2006,0,,
+Mount Waddington,2007,7761,11914,651
+Mount Waddington,2008,0,,
+Mount Waddington,2009,0,,
+Mount Waddington,2010,7065,12057,586
+Mount Waddington,2011,0,,
+Mount Waddington,2012,6561,11452,573
+Mount Waddington,2013,7233,11590,624
+Mount Waddington,2014,6246,11523,542
+Mount Waddington,2015,6300,11368,554
+Mount Waddington,2016,7568,11139,679
+Mount Waddington,2017,7463.7,11127,671
+Mount Waddington,2018,7579,11594,654
+Mount Waddington,2019,7763,11667,665
+Mount Waddington,2020,7948,11770,675
+Mount Waddington,2021,7761.67,11684,664
+Mount Waddington,2022,7762,11899,652
+Mount Waddington,2023,8142,11425,713
+Mount Waddington,2024,7157,11411,627
+Nanaimo,1990,50533,91879,550
+Nanaimo,1991,0,,
+Nanaimo,1992,0,,
+Nanaimo,1993,0,,
+Nanaimo,1994,0,,
+Nanaimo,1995,0,,
+Nanaimo,1996,62750,125000,502
+Nanaimo,1997,69564,132000,527
+Nanaimo,1998,58010,132442,438
+Nanaimo,1999,58909,137637,428
+Nanaimo,2000,55623,137003,406
+Nanaimo,2001,58281,132456,440
+Nanaimo,2002,57079,133988,426
+Nanaimo,2003,65840,136315,483
+Nanaimo,2004,65662,137946,476
+Nanaimo,2005,69976,141080,496
+Nanaimo,2006,0,,
+Nanaimo,2007,75000,142996,524
+Nanaimo,2008,0,,
+Nanaimo,2009,0,,
+Nanaimo,2010,62419,149686,417
+Nanaimo,2011,0,,
+Nanaimo,2012,52516,148464,354
+Nanaimo,2013,50321.89,150806,334
+Nanaimo,2014,48524,152518,318
+Nanaimo,2015,48587.850000000006,154546,314
+Nanaimo,2016,53702.880000000005,157599,341
+Nanaimo,2017,61760,160942,384
+Nanaimo,2018,66330.93,167156,397
+Nanaimo,2019,66079.54,169960,389
+Nanaimo,2020,61076,171990,355
+Nanaimo,2021,68589,173721,395
+Nanaimo,2022,75553,176382,428
+Nanaimo,2023,75835,183039,414
+Nanaimo,2024,79311,186121,426
+North Coast,1990,17933,22700,790
+North Coast,1991,0,,
+North Coast,1992,0,,
+North Coast,1993,0,,
+North Coast,1994,0,,
+North Coast,1995,0,,
+North Coast,1996,16695,23123,722
+North Coast,1997,14373,22814,630
+North Coast,1998,17530,24795,707
+North Coast,1999,16019,25467,629
+North Coast,2000,13803,25514,541
+North Coast,2001,14767,22788,648
+North Coast,2002,14801,22912,646
+North Coast,2003,0,22312,0
+North Coast,2004,0,22507,0
+North Coast,2005,0,22464,0
+North Coast,2006,0,,
+North Coast,2007,14800,19755,749
+North Coast,2008,0,,
+North Coast,2009,0,,
+North Coast,2010,15715,19497,806
+North Coast,2011,0,,
+North Coast,2012,14739,18948,778
+North Coast,2013,13386,18536,722
+North Coast,2014,13623,18165,750
+North Coast,2015,12081.41,17531,689
+North Coast,2016,17036.09,17389,980
+North Coast,2017,14997.95,16842,891
+North Coast,2018,11717.47,18814,623
+North Coast,2019,12122.84,19303,628
+North Coast,2020,12654,19414,652
+North Coast,2021,13172,19497,676
+North Coast,2022,13657,19575,698
+North Coast,2023,13060,19133,683
+North Coast,2024,13798,19074,723
+North Okanagan,1990,59915,57611,1040
+North Okanagan,1991,0,,
+North Okanagan,1992,0,,
+North Okanagan,1993,0,,
+North Okanagan,1994,0,,
+North Okanagan,1995,0,,
+North Okanagan,1996,55536,73266,758
+North Okanagan,1997,44839,73266,612
+North Okanagan,1998,43263,75240,575
+North Okanagan,1999,43011,77497,555
+North Okanagan,2000,43555,79047,551
+North Okanagan,2001,39353,76413,515
+North Okanagan,2002,42806,77268,554
+North Okanagan,2003,45142,77965,579
+North Okanagan,2004,56396,79097,713
+North Okanagan,2005,52630,80474,654
+North Okanagan,2006,62260,81173,767
+North Okanagan,2007,58527,80110,731
+North Okanagan,2008,0,,
+North Okanagan,2009,0,,
+North Okanagan,2010,48054,83139,578
+North Okanagan,2011,0,,
+North Okanagan,2012,40000,81739,489
+North Okanagan,2013,41326,82031,504
+North Okanagan,2014,40218,82783,486
+North Okanagan,2015,39690,84587,469
+North Okanagan,2016,42186.25,85164,495
+North Okanagan,2017,46165,86451,534
+North Okanagan,2018,48395,89738,539
+North Okanagan,2019,47583,90865,524
+North Okanagan,2020,47057,92184,510
+North Okanagan,2021,49767,93425,533
+North Okanagan,2022,46148,94903,486
+North Okanagan,2023,46538,98529,472
+North Okanagan,2024,45161,99800,453
+Northern Rockies,1990,8217,4565,1800
+Northern Rockies,1991,0,,
+Northern Rockies,1992,0,,
+Northern Rockies,1993,0,,
+Northern Rockies,1994,0,,
+Northern Rockies,1995,0,,
+Northern Rockies,1996,6998,5856,1195
+Northern Rockies,1997,11545,6414,1800
+Northern Rockies,1998,11999,6500,1846
+Northern Rockies,1999,4498,6500,692
+Northern Rockies,2000,7000,6434,1088
+Northern Rockies,2001,8069,6049,1334
+Northern Rockies,2002,9754,6131,1591
+Northern Rockies,2003,11231,6127,1833
+Northern Rockies,2004,11883,6451,1842
+Northern Rockies,2005,11199,6607,1695
+Northern Rockies,2006,12340,6447,1914
+Northern Rockies,2007,14023,6125,2289
+Northern Rockies,2008,0,,
+Northern Rockies,2009,0,,
+Northern Rockies,2010,0,6209,0
+Northern Rockies,2011,0,,
+Northern Rockies,2012,0,6035,0
+Northern Rockies,2013,11316.86,6053,1870
+Northern Rockies,2014,3038,6032,504
+Northern Rockies,2015,2845,5963,477
+Northern Rockies,2016,2563,5992,428
+Northern Rockies,2017,2085.42,5879,355
+Northern Rockies,2018,2253.59,5524,408
+Northern Rockies,2019,1968.8,4956,397
+Northern Rockies,2020,2359,4996,472
+Northern Rockies,2021,2159,4926,438
+Northern Rockies,2022,1845,3947,467
+Northern Rockies,2023,1865,3947,473
+Northern Rockies,2024,1617,4641,348
+Okanagan-Similkameen,1990,79487,66239,1200
+Okanagan-Similkameen,1991,0,,
+Okanagan-Similkameen,1992,0,,
+Okanagan-Similkameen,1993,0,,
+Okanagan-Similkameen,1994,0,,
+Okanagan-Similkameen,1995,0,,
+Okanagan-Similkameen,1996,73655,75933,970
+Okanagan-Similkameen,1997,90400,80000,1130
+Okanagan-Similkameen,1998,85390,78700,1085
+Okanagan-Similkameen,1999,89541,79100,1132
+Okanagan-Similkameen,2000,86482,80448,1075
+Okanagan-Similkameen,2001,81636,79645,1025
+Okanagan-Similkameen,2002,79472,79472,1000
+Okanagan-Similkameen,2003,80834,80996,998
+Okanagan-Similkameen,2004,83217,81665,1019
+Okanagan-Similkameen,2005,83120,83037,1001
+Okanagan-Similkameen,2006,0,,
+Okanagan-Similkameen,2007,81477,81322,1002
+Okanagan-Similkameen,2008,0,,
+Okanagan-Similkameen,2009,0,,
+Okanagan-Similkameen,2010,53960,82760,652
+Okanagan-Similkameen,2011,0,,
+Okanagan-Similkameen,2012,54253,81954,662
+Okanagan-Similkameen,2013,54253,81152,669
+Okanagan-Similkameen,2014,44540,81940,544
+Okanagan-Similkameen,2015,45076,81898,550
+Okanagan-Similkameen,2016,43583.36,80622,541
+Okanagan-Similkameen,2017,45486.5,87161,522
+Okanagan-Similkameen,2018,49666,88545,561
+Okanagan-Similkameen,2019,49873,88326,565
+Okanagan-Similkameen,2020,50805,90057,564
+Okanagan-Similkameen,2021,51824.66,91212,568
+Okanagan-Similkameen,2022,52927,91749,577
+Okanagan-Similkameen,2023,51958,94533,550
+Okanagan-Similkameen,2024,51940,93912,553
+Peace River,1990,46076,50083,920
+Peace River,1991,0,,
+Peace River,1992,0,,
+Peace River,1993,0,,
+Peace River,1994,0,,
+Peace River,1995,0,,
+Peace River,1996,38659,55545,696
+Peace River,1997,38205,59695,640
+Peace River,1998,51480,60000,858
+Peace River,1999,43500,60000,725
+Peace River,2000,44103,57726,764
+Peace River,2001,51350,57957,886
+Peace River,2002,53156,58997,901
+Peace River,2003,46552,58704,793
+Peace River,2004,53589,62096,863
+Peace River,2005,61015,62967,969
+Peace River,2006,67465,61165,1103
+Peace River,2007,71225,60214,1183
+Peace River,2008,0,,
+Peace River,2009,0,,
+Peace River,2010,49934,63368,788
+Peace River,2011,0,,
+Peace River,2012,54250,62273,871
+Peace River,2013,52093.44,64480,808
+Peace River,2014,54932,66321,828
+Peace River,2015,58921,63897,922
+Peace River,2016,45535.02,66504,685
+Peace River,2017,52689.95,62231,847
+Peace River,2018,52207,65901,792
+Peace River,2019,58013.32,66880,867
+Peace River,2020,58552,67284,870
+Peace River,2021,59387.36,67483,880
+Peace River,2022,51883,67272,771
+Peace River,2023,52649,65487,804
+Peace River,2024,51407,67374,763
+qathet,1990,12922,18728,690
+qathet,1991,0,,
+qathet,1992,0,,
+qathet,1993,0,,
+qathet,1994,0,,
+qathet,1995,0,,
+qathet,1996,5604,20603,272
+qathet,1997,6240,19936,313
+qathet,1998,5260,21124,249
+qathet,1999,5433,21060,258
+qathet,2000,5286,21060,251
+qathet,2001,5285,20645,256
+qathet,2002,5320,20781,256
+qathet,2003,5069,20775,244
+qathet,2004,4913,20906,235
+qathet,2005,4751,21114,225
+qathet,2006,0,,
+qathet,2007,4453,19791,225
+qathet,2008,0,,
+qathet,2009,0,,
+qathet,2010,11087,20455,542
+qathet,2011,0,,
+qathet,2012,7776,20091,387
+qathet,2013,7798,19910,392
+qathet,2014,8664,19921,435
+qathet,2015,8921,19481,458
+qathet,2016,9112,20328,448
+qathet,2017,12327,20014,616
+qathet,2018,12370,21358,579
+qathet,2019,10377,21102,492
+qathet,2020,10381,21224,489
+qathet,2021,11208,21441,523
+qathet,2022,11830,21647,546
+qathet,2023,10653,22768,468
+qathet,2024,11411,23056,495
+Squamish-Lillooet,1990,38924,32437,1200
+Squamish-Lillooet,1991,0,,
+Squamish-Lillooet,1992,0,,
+Squamish-Lillooet,1993,0,,
+Squamish-Lillooet,1994,0,,
+Squamish-Lillooet,1995,0,,
+Squamish-Lillooet,1996,22084,31548,700
+Squamish-Lillooet,1997,21440,34031,630
+Squamish-Lillooet,1998,26483,42714,620
+Squamish-Lillooet,1999,23270,35911,648
+Squamish-Lillooet,2000,29635,45523,651
+Squamish-Lillooet,2001,21726,35042,620
+Squamish-Lillooet,2002,22406,35565,630
+Squamish-Lillooet,2003,32225,49961,645
+Squamish-Lillooet,2004,33838,52058,650
+Squamish-Lillooet,2005,30119,54367,554
+Squamish-Lillooet,2006,31746,54266,585
+Squamish-Lillooet,2007,37975,37124,1023
+Squamish-Lillooet,2008,0,,
+Squamish-Lillooet,2009,0,,
+Squamish-Lillooet,2010,32487,40356,805
+Squamish-Lillooet,2011,0,,
+Squamish-Lillooet,2012,27990,56092,499
+Squamish-Lillooet,2013,30829.8,56092,550
+Squamish-Lillooet,2014,29545,56721,521
+Squamish-Lillooet,2015,30524.8,55603,549
+Squamish-Lillooet,2016,34103.03,62665,544
+Squamish-Lillooet,2017,31649.460000000003,63274,500
+Squamish-Lillooet,2018,30126.609999999997,68518,440
+Squamish-Lillooet,2019,29971.32,69020,434
+Squamish-Lillooet,2020,30622,62679,489
+Squamish-Lillooet,2021,29184,66293,440
+Squamish-Lillooet,2022,26265,73110,359
+Squamish-Lillooet,2023,29250,82439,355
+Squamish-Lillooet,2024,29700,56433,526
+Sunshine Coast,1990,17207,19119,900
+Sunshine Coast,1991,0,,
+Sunshine Coast,1992,0,,
+Sunshine Coast,1993,0,,
+Sunshine Coast,1994,0,,
+Sunshine Coast,1995,0,,
+Sunshine Coast,1996,12582,24914,505
+Sunshine Coast,1997,12256,25911,473
+Sunshine Coast,1998,11776,26947,437
+Sunshine Coast,1999,11990,27755,432
+Sunshine Coast,2000,11606,27438,423
+Sunshine Coast,2001,11724,26586,441
+Sunshine Coast,2002,12281,27110,453
+Sunshine Coast,2003,12955,27389,473
+Sunshine Coast,2004,14073,27702,508
+Sunshine Coast,2005,14079,28557,493
+Sunshine Coast,2006,0,,
+Sunshine Coast,2007,14088,28590,493
+Sunshine Coast,2008,0,,
+Sunshine Coast,2009,0,,
+Sunshine Coast,2010,12983,29984,433
+Sunshine Coast,2011,0,,
+Sunshine Coast,2012,11679,29115,401
+Sunshine Coast,2013,10229.13,29098,352
+Sunshine Coast,2014,11785,29584,398
+Sunshine Coast,2015,12360.61,29177,424
+Sunshine Coast,2016,12676.92,29243,434
+Sunshine Coast,2017,12975.72,29390,442
+Sunshine Coast,2018,12894,31977,403
+Sunshine Coast,2019,13563,31810,426
+Sunshine Coast,2020,13360,31723,421
+Sunshine Coast,2021,13612,32307,421
+Sunshine Coast,2022,12239,32865,372
+Sunshine Coast,2023,11865,34104,348
+Sunshine Coast,2024,11797,34208,345
+Thompson-Nicola,1990,69939,104386,670
+Thompson-Nicola,1991,0,,
+Thompson-Nicola,1992,0,,
+Thompson-Nicola,1993,0,,
+Thompson-Nicola,1994,0,,
+Thompson-Nicola,1995,0,,
+Thompson-Nicola,1996,70345,124725,564
+Thompson-Nicola,1997,82698,125681,658
+Thompson-Nicola,1998,65680,126796,518
+Thompson-Nicola,1999,73643,128298,574
+Thompson-Nicola,2000,75772,130192,582
+Thompson-Nicola,2001,93044,124891,745
+Thompson-Nicola,2002,93999,126173,745
+Thompson-Nicola,2003,82354,125924,654
+Thompson-Nicola,2004,80728,127532,633
+Thompson-Nicola,2005,88865,128790,690
+Thompson-Nicola,2006,80033,128671,622
+Thompson-Nicola,2007,135890,127335,1067
+Thompson-Nicola,2008,0,,
+Thompson-Nicola,2009,0,,
+Thompson-Nicola,2010,86225,131641,655
+Thompson-Nicola,2011,0,,
+Thompson-Nicola,2012,82183,130541,630
+Thompson-Nicola,2013,58307,131730,443
+Thompson-Nicola,2014,58308,133270,438
+Thompson-Nicola,2015,71800,133256,539
+Thompson-Nicola,2016,80406.45999999999,135074,595
+Thompson-Nicola,2017,83952.26,138423,606
+Thompson-Nicola,2018,88991,142299,625
+Thompson-Nicola,2019,94359,146096,646
+Thompson-Nicola,2020,94949,147432,644
+Thompson-Nicola,2021,94692,148289,639
+Thompson-Nicola,2022,98055,150365,652
+Thompson-Nicola,2023,92121,156094,590
+Thompson-Nicola,2024,78300,158876,493

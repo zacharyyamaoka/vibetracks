@@ -1,0 +1,9 @@
+{
+ "level": "country",
+ "source": "Natural Earth 5.1.2, admin-0 countries 1:110m",
+ "url": "https://cdn.jsdelivr.net/gh/nvkelso/natural-earth-vector@v5.1.2/geojson/ne_110m_admin_0_countries.geojson",
+ "licence": "Public domain (naturalearthdata.com/about/terms-of-use)",
+ "key": "ADM0_A3",
+ "retrieved": "2026-10-10",
+ "simplified": "precision 0.01°"
+}

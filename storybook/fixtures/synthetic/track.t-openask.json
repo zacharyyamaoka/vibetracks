@@ -1,0 +1,281 @@
+{
+ "schema": "vibetracks-home-track/1",
+ "generated_at": "2026-10-09T12:00:00-07:00",
+ "track": {
+  "id": "t-openask",
+  "title": "Open question fixture",
+  "kind": "activity",
+  "adapter": null,
+  "project": "Fixture Robotics",
+  "revision": "fixture-rev-1",
+  "status": "running",
+  "priority": 5,
+  "target": null,
+  "purpose": "The open question fixture: one rule case for tests/test_home_rules.py.",
+  "stall_hours": 24.0,
+  "state": {
+   "word": "needs_you",
+   "label": "Needs you",
+   "rule": "open_question",
+   "why": "unanswered question “Which gripper should the bench use?” (50 min ago)",
+   "since": null
+  },
+  "health": {
+   "color": "yellow",
+   "rule": "yellow: waiting on you"
+  },
+  "progress": {
+   "label": null,
+   "value": null,
+   "of": null,
+   "unit": null,
+   "unknown": "no KPI adapter yet",
+   "source": null
+  },
+  "mode": {
+   "word": "discover",
+   "why": "no KPI adapter yet: nothing is measured, so it is still finding what to measure"
+  },
+  "worked": {
+   "h24_s": 780,
+   "d7_s": 780
+  },
+  "last_action": {
+   "ts": "2026-10-09T11:58:00-07:00",
+   "age_s": 120,
+   "type": "action",
+   "body": "Bash"
+  },
+  "last_loop_write": null,
+  "last_error": null,
+  "needs_you": {
+   "blocking": null,
+   "open": null,
+   "oldest_age_s": null,
+   "unknown_ages": 0,
+   "source": "no triage file: an activity-only track",
+   "waiting_sessions": 0,
+   "open_questions": [
+    {
+     "ts": "2026-10-09T11:10:00-07:00",
+     "age_s": 3000,
+     "question": "Which gripper should the bench use?"
+    }
+   ],
+   "review": null
+  },
+  "sessions": [
+   {
+    "id": "11111111-0000-4000-8000-000000000006",
+    "account": "fixa",
+    "title": "Open question fixture session",
+    "branch": "claude/t-openask-ee55",
+    "cwd": "/home/fix/openask",
+    "transcript": "/home/fix/claude-fixa/projects/-home-fix-openask/11111111-0000-4000-8000-000000000006.jsonl",
+    "subagent_files": 0,
+    "open_questions": 0,
+    "last_action": {
+     "ts": "2026-10-09T11:58:00-07:00",
+     "age_s": 120,
+     "type": "action",
+     "body": "Bash"
+    },
+    "last_error": null,
+    "worked": {
+     "h24_s": 480,
+     "d7_s": 480
+    },
+    "join": {
+     "by": "branch",
+     "value": "claude/t-openask-*"
+    },
+    "pid": 1005,
+    "live": true,
+    "status": "idle",
+    "waiting_for": null,
+    "status_since": "2026-10-09T11:59:00-07:00",
+    "entrypoint": "claude-desktop",
+    "state": {
+     "word": "working",
+     "label": "Working"
+    },
+    "open": {
+     "desktop": "claude://code/continue?session=local_fix_1005",
+     "remote_control": null,
+     "resume": "CLAUDE_CONFIG_DIR=/home/fix/claude-fixa claude --resume 11111111-0000-4000-8000-000000000006"
+    }
+   },
+   {
+    "id": "11111111-0000-4000-8000-000000000005",
+    "account": "fixa",
+    "title": null,
+    "branch": "claude/t-openask-ee55",
+    "cwd": "/home/fix/openask",
+    "transcript": "/home/fix/claude-fixa/projects/-home-fix-openask/11111111-0000-4000-8000-000000000005.jsonl",
+    "subagent_files": 0,
+    "open_questions": 1,
+    "last_action": {
+     "ts": "2026-10-09T11:10:00-07:00",
+     "age_s": 3000,
+     "type": "elicitation",
+     "body": "Which gripper should the bench use?"
+    },
+    "last_error": null,
+    "worked": {
+     "h24_s": 300,
+     "d7_s": 300
+    },
+    "join": {
+     "by": "branch",
+     "value": "claude/t-openask-*"
+    },
+    "pid": null,
+    "live": false,
+    "status": null,
+    "waiting_for": null,
+    "status_since": null,
+    "entrypoint": null,
+    "state": {
+     "word": "needs_you",
+     "label": "Needs you"
+    },
+    "open": {
+     "desktop": null,
+     "remote_control": null,
+     "resume": "CLAUDE_CONFIG_DIR=/home/fix/.claude-fixa claude --resume 11111111-0000-4000-8000-000000000005"
+    }
+   }
+  ],
+  "links": {
+   "track": null,
+   "review": null
+  },
+  "provenance": {
+   "note": "/home/fix/workspace/tracks/t-openask.md",
+   "state": "open_question",
+   "loop": null,
+   "projection": false,
+   "transcripts": [
+    "/home/fix/claude-fixa/projects/-home-fix-openask/11111111-0000-4000-8000-000000000005.jsonl",
+    "/home/fix/claude-fixa/projects/-home-fix-openask/11111111-0000-4000-8000-000000000006.jsonl"
+   ],
+   "join": {
+    "branch": 2,
+    "cwd": 0,
+    "title": 0
+   }
+  },
+  "problems": []
+ },
+ "project": {
+  "id": "fixture-robotics",
+  "name": "Fixture Robotics",
+  "color": "#8d7cc3"
+ },
+ "kpis": {
+  "north_star": null,
+  "soft": [],
+  "gates": [],
+  "iterations": [],
+  "unknown": "no KPI adapter yet"
+ },
+ "roadmap": {
+  "href": "../roadmap/doc?track=t-openask",
+  "note": "the roadmap projector's document for this track (vibetracks.roadmap); 404 when it has none"
+ },
+ "worked_daily": [
+  {
+   "date": "2026-10-03",
+   "s": 0
+  },
+  {
+   "date": "2026-10-04",
+   "s": 0
+  },
+  {
+   "date": "2026-10-05",
+   "s": 0
+  },
+  {
+   "date": "2026-10-06",
+   "s": 0
+  },
+  {
+   "date": "2026-10-07",
+   "s": 0
+  },
+  {
+   "date": "2026-10-08",
+   "s": 0
+  },
+  {
+   "date": "2026-10-09",
+   "s": 780
+  }
+ ],
+ "timeline": [
+  {
+   "ts": "2026-10-09T11:58:00-07:00",
+   "kind": "action",
+   "title": "Last agent entry · Open question fixture session",
+   "detail": "action: Bash",
+   "source": "/home/fix/claude-fixa/projects/-home-fix-openask/11111111-0000-4000-8000-000000000006.jsonl",
+   "session": "11111111-0000-4000-8000-000000000006",
+   "account": "fixa"
+  },
+  {
+   "ts": "2026-10-09T11:30:00-07:00",
+   "kind": "session",
+   "title": "Session started · Open question fixture session",
+   "detail": "fixa · claude/t-openask-ee55",
+   "source": "/home/fix/claude-fixa/projects/-home-fix-openask/11111111-0000-4000-8000-000000000006.jsonl",
+   "session": "11111111-0000-4000-8000-000000000006",
+   "account": "fixa"
+  },
+  {
+   "ts": "2026-10-09T11:10:00-07:00",
+   "kind": "action",
+   "title": "Last agent entry · 11111111",
+   "detail": "elicitation: Which gripper should the bench use?",
+   "source": "/home/fix/claude-fixa/projects/-home-fix-openask/11111111-0000-4000-8000-000000000005.jsonl",
+   "session": "11111111-0000-4000-8000-000000000005",
+   "account": "fixa"
+  },
+  {
+   "ts": "2026-10-09T11:10:00-07:00",
+   "kind": "question",
+   "title": "Asked you · 11111111",
+   "detail": "Which gripper should the bench use?",
+   "source": "/home/fix/claude-fixa/projects/-home-fix-openask/11111111-0000-4000-8000-000000000005.jsonl",
+   "session": "11111111-0000-4000-8000-000000000005",
+   "account": "fixa"
+  },
+  {
+   "ts": "2026-10-09T11:05:00-07:00",
+   "kind": "session",
+   "title": "Session started · 11111111",
+   "detail": "fixa · claude/t-openask-ee55",
+   "source": "/home/fix/claude-fixa/projects/-home-fix-openask/11111111-0000-4000-8000-000000000005.jsonl",
+   "session": "11111111-0000-4000-8000-000000000005",
+   "account": "fixa"
+  }
+ ],
+ "audits": {
+  "globs": [],
+  "rounds": [],
+  "unknown": "no vibe-audits glob in the track's note"
+ },
+ "agents": {
+  "11111111-0000-4000-8000-000000000006": {
+   "provider": "claude-code",
+   "model": "claude-opus-5-5",
+   "model_source": "the transcript's last assistant line"
+  },
+  "11111111-0000-4000-8000-000000000005": {
+   "provider": "claude-code",
+   "model": "claude-opus-5-5",
+   "model_source": "the transcript's last assistant line"
+  }
+ },
+ "timing_ms": null
+}

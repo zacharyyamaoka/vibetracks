@@ -1,0 +1,204 @@
+{
+ "schema": "vibetracks-home-track/1",
+ "generated_at": "2026-10-09T12:00:00-07:00",
+ "track": {
+  "id": "t-subagent",
+  "title": "Subagent fixture",
+  "kind": "activity",
+  "adapter": null,
+  "project": "Fixture Robotics",
+  "revision": "fixture-rev-1",
+  "status": "running",
+  "priority": 6,
+  "target": null,
+  "purpose": "The subagent fixture: one rule case for tests/test_home_rules.py.",
+  "stall_hours": 24.0,
+  "state": {
+   "word": "working",
+   "label": "Working",
+   "rule": "recent",
+   "why": "last action 4 min ago",
+   "since": null
+  },
+  "health": {
+   "color": "green",
+   "rule": "green: moving or idle, nothing open"
+  },
+  "progress": {
+   "label": null,
+   "value": null,
+   "of": null,
+   "unit": null,
+   "unknown": "no KPI adapter yet",
+   "source": null
+  },
+  "mode": {
+   "word": "discover",
+   "why": "no KPI adapter yet: nothing is measured, so it is still finding what to measure"
+  },
+  "worked": {
+   "h24_s": 4560,
+   "d7_s": 4560
+  },
+  "last_action": {
+   "ts": "2026-10-09T11:56:00-07:00",
+   "age_s": 240,
+   "type": "action",
+   "body": "Edit"
+  },
+  "last_loop_write": null,
+  "last_error": null,
+  "needs_you": {
+   "blocking": null,
+   "open": null,
+   "oldest_age_s": null,
+   "unknown_ages": 0,
+   "source": "no triage file: an activity-only track",
+   "waiting_sessions": 0,
+   "open_questions": [],
+   "review": null
+  },
+  "sessions": [
+   {
+    "id": "11111111-0000-4000-8000-000000000007",
+    "account": "fixa",
+    "title": "Subagent fixture session",
+    "branch": "claude/t-subagent-ff66",
+    "cwd": "/home/fix/subagent",
+    "transcript": "/home/fix/claude-fixa/projects/-home-fix-subagent/11111111-0000-4000-8000-000000000007.jsonl",
+    "subagent_files": 2,
+    "open_questions": 0,
+    "last_action": {
+     "ts": "2026-10-09T11:56:00-07:00",
+     "age_s": 240,
+     "type": "action",
+     "body": "Edit"
+    },
+    "last_error": null,
+    "worked": {
+     "h24_s": 4560,
+     "d7_s": 4560
+    },
+    "join": {
+     "by": "branch",
+     "value": "claude/t-subagent-*"
+    },
+    "pid": 1006,
+    "live": true,
+    "status": "idle",
+    "waiting_for": null,
+    "status_since": "2026-10-09T11:59:00-07:00",
+    "entrypoint": "claude-desktop",
+    "state": {
+     "word": "working",
+     "label": "Working"
+    },
+    "open": {
+     "desktop": "claude://code/continue?session=local_fix_1006",
+     "remote_control": null,
+     "resume": "CLAUDE_CONFIG_DIR=/home/fix/claude-fixa claude --resume 11111111-0000-4000-8000-000000000007"
+    }
+   }
+  ],
+  "links": {
+   "track": null,
+   "review": null
+  },
+  "provenance": {
+   "note": "/home/fix/workspace/tracks/t-subagent.md",
+   "state": "recent",
+   "loop": null,
+   "projection": false,
+   "transcripts": [
+    "/home/fix/claude-fixa/projects/-home-fix-subagent/11111111-0000-4000-8000-000000000007.jsonl",
+    "/home/fix/claude-fixa/projects/-home-fix-subagent/11111111-0000-4000-8000-000000000007/subagents/agent-a1b2c3d4e5f60718.jsonl",
+    "/home/fix/claude-fixa/projects/-home-fix-subagent/11111111-0000-4000-8000-000000000007/subagents/workflows/wf_fix0001-001/agent-a9f8e7d6c5b4a392.jsonl"
+   ],
+   "join": {
+    "branch": 1,
+    "cwd": 0,
+    "title": 0
+   }
+  },
+  "problems": []
+ },
+ "project": {
+  "id": "fixture-robotics",
+  "name": "Fixture Robotics",
+  "color": "#8d7cc3"
+ },
+ "kpis": {
+  "north_star": null,
+  "soft": [],
+  "gates": [],
+  "iterations": [],
+  "unknown": "no KPI adapter yet"
+ },
+ "roadmap": {
+  "href": "../roadmap/doc?track=t-subagent",
+  "note": "the roadmap projector's document for this track (vibetracks.roadmap); 404 when it has none"
+ },
+ "worked_daily": [
+  {
+   "date": "2026-10-03",
+   "s": 0
+  },
+  {
+   "date": "2026-10-04",
+   "s": 0
+  },
+  {
+   "date": "2026-10-05",
+   "s": 0
+  },
+  {
+   "date": "2026-10-06",
+   "s": 0
+  },
+  {
+   "date": "2026-10-07",
+   "s": 0
+  },
+  {
+   "date": "2026-10-08",
+   "s": 0
+  },
+  {
+   "date": "2026-10-09",
+   "s": 4560
+  }
+ ],
+ "timeline": [
+  {
+   "ts": "2026-10-09T11:56:00-07:00",
+   "kind": "action",
+   "title": "Last agent entry · Subagent fixture session",
+   "detail": "action: Edit",
+   "source": "/home/fix/claude-fixa/projects/-home-fix-subagent/11111111-0000-4000-8000-000000000007.jsonl",
+   "session": "11111111-0000-4000-8000-000000000007",
+   "account": "fixa"
+  },
+  {
+   "ts": "2026-10-09T09:00:00-07:00",
+   "kind": "session",
+   "title": "Session started · Subagent fixture session",
+   "detail": "fixa · claude/t-subagent-ff66",
+   "source": "/home/fix/claude-fixa/projects/-home-fix-subagent/11111111-0000-4000-8000-000000000007.jsonl",
+   "session": "11111111-0000-4000-8000-000000000007",
+   "account": "fixa"
+  }
+ ],
+ "audits": {
+  "globs": [],
+  "rounds": [],
+  "unknown": "no vibe-audits glob in the track's note"
+ },
+ "agents": {
+  "11111111-0000-4000-8000-000000000007": {
+   "provider": "claude-code",
+   "model": "claude-opus-5-5",
+   "model_source": "the transcript's last assistant line"
+  }
+ },
+ "timing_ms": null
+}

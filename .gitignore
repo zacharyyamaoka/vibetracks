@@ -20,3 +20,12 @@ clank/storybook-static/
 # never in this public repo. Only their README is tracked.
 clank/stories/fixtures/**
 !clank/stories/fixtures/README.md
+# The storyboard (storybook/): its install, its static build, and REAL fixtures captured from a running home
+# (scripts/capture_real.py): BAM loop data, local only, never in this public repo. Synthetic fixtures are committed.
+storybook/node_modules/
+storybook/storybook-static/
+storybook/fixtures/real/**
+!storybook/fixtures/real/README.md
+storybook/.geo-cache/
+storybook/fixtures/local/**
+!storybook/fixtures/local/README.md

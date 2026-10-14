@@ -1,0 +1,9 @@
+/* Storybook chrome only (never shipped): the page's own background, and the fixture-provenance chip. */
+html, body { background: var(--page); color: var(--ink); font-family: var(--font); margin: 0; }
+.sb-fixture { position: absolute; right: 8px; top: 4px; z-index: 50; font: 11px/16px var(--font); color: var(--ink-2);
+  background: var(--surface); box-shadow: 0 0 0 1px var(--line); border-radius: 999px; padding: 1px 8px; pointer-events: none; }
+.sb-pad { padding: 20px 24px; }
+.sb-grid { display: grid; gap: 12px 20px; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); align-items: start; }
+.sb-cap { font-size: 12px; color: var(--ink-2); margin: 0 0 4px; }
+.sb-row { display: flex; gap: 16px; align-items: center; flex-wrap: wrap; }
+.sb-part { display: block; }
