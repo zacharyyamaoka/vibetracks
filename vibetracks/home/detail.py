@@ -208,6 +208,48 @@ def serve_audit(doc: Mapping[str, Any], track_id: str, name: str) -> tuple[int, 
     return None
 
 
+# ------------------------------------------------------------------------------------------------ agents
+
+_MODELS: dict[tuple[str, int], str | None] = {}
+
+
+def _model(path: str | None) -> str | None:
+    """``message.model`` of the transcript's last assistant line (the session hook's own reader), cached by size."""
+
+    if not path:
+        return None
+    try:
+        size = os.stat(path).st_size
+    except OSError:
+        return None
+    key = (path, size)
+    if key not in _MODELS:
+        from ..remote.session_hook import model_of  # noqa: PLC0415 - stdlib-only; read once per transcript size
+
+        if len(_MODELS) > 1024:
+            _MODELS.clear()
+        _MODELS[key] = model_of(path)
+    return _MODELS[key]
+
+
+def agents(track: Mapping[str, Any]) -> dict[str, dict[str, Any]]:
+    """Per session of the track, what the Agents tab shows beyond the home document: provider and model. WHY here and
+    not on /home: a model costs one 256 KB tail read per transcript, which only this page needs (r3, Zach Oct 9: "Here
+    is where you can put info on the agent provider")."""
+
+    out: dict[str, dict[str, Any]] = {}
+    for session in track.get("sessions") or []:
+        remote = session.get("remote") or {}
+        if remote:
+            out[session["id"]] = {"provider": remote.get("agent") or "claude-code", "model": remote.get("model"),
+                                  "model_source": f"the session card {remote.get('host')} published"}
+            continue
+        model = _model(session.get("transcript"))
+        out[session["id"]] = {"provider": "claude-code", "model": model,
+                              "model_source": "the transcript's last assistant line" if model else "no assistant line read"}
+    return out
+
+
 # ------------------------------------------------------------------------------------------------ the timeline
 
 
@@ -330,6 +372,7 @@ def build_track(doc: Mapping[str, Any], last: Mapping[str, Any], track_id: str) 
         "worked_daily": worked_daily(files, now),
         "timeline": timeline(track, records, projected, last["needs"].get(track_id), rounds["rounds"]),
         "audits": rounds,
+        "agents": agents(track),
         "timing_ms": round((time.perf_counter() - started) * 1000, 1),
     }
 

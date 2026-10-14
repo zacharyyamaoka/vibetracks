@@ -15,19 +15,35 @@
   const STORE = 'vt-home-ui-v1';
   const SEEN = 'vt-home-seen-v1';
   VT.POLL_MS = 10000;
-  VT.DEFAULTS = { view: 'rows', group: 'project', order: 'attention', tabset: 'active', subs: true, ended: false,
-    props: { target: 1, health: 1, prog: 1, state: 1, work: 1 }, collapsed: {}, otherOpen: false,
-    theme: 'system', side: {}, kpiView: 'cards', trackTab: 'overview' };
+  // WHY subs off (Zach, Oct 9: "you have made agents too primary. Agents work on tracks"): a track row says how many
+  // agents work on it; the sessions themselves are one toggle (Display) or one click (the track's Agents tab) away.
+  VT.DEFAULTS = { v: 2, view: 'rows', group: 'project', order: 'attention', tabset: 'active', subs: false, ended: false,
+    props: { target: 1, health: 1, prog: 1, state: 1, agents: 1, work: 1 }, collapsed: {},
+    theme: 'system', side: {}, sideW: null, kpiView: 'cards', trackTab: 'overview' };
+  /** The sidebar's width: Claude's default (tokens.css --side-w), dragged between these bounds, remembered per viewer. */
+  VT.SIDE = { def: 288, min: 220, max: 480 };
 
   // ------------------------------------------------------------------ persisted preferences (per viewer)
   function load() {
     try {
       const saved = JSON.parse(localStorage.getItem(STORE) || '{}');
+      // v1 (B2) saved "sessions under tracks" on by default; v2 starts everyone on the new default once.
+      if ((saved.v || 1) < 2) { delete saved.subs; delete saved.otherOpen; saved.v = 2; }
+      if (saved.trackTab === 'sessions') saved.trackTab = 'agents';
       return Object.assign({}, VT.DEFAULTS, saved, { props: Object.assign({}, VT.DEFAULTS.props, saved.props || {}),
         collapsed: Object.assign({}, saved.collapsed || {}), side: Object.assign({}, saved.side || {}) });
     } catch (e) { return JSON.parse(JSON.stringify(VT.DEFAULTS)); }
   }
   VT.S = load();
+  VT.clampSide = (w) => Math.round(Math.max(VT.SIDE.min, Math.min(VT.SIDE.max, w)));
+  /** Puts the remembered width on #vt-home (it survives every re-render: only its children are replaced). */
+  VT.applySideWidth = () => {
+    const el = document.getElementById('vt-home');
+    if (!el) return;
+    if (VT.S.sideW) el.style.setProperty('--side-w', VT.clampSide(VT.S.sideW) + 'px');
+    else el.style.removeProperty('--side-w');
+  };
+  VT.applySideWidth();
   VT.save = () => { try { localStorage.setItem(STORE, JSON.stringify(VT.S)); } catch (e) { /* private window */ } };
   VT.applyTheme = () => {
     const t = VT.S.theme;
@@ -130,6 +146,8 @@
     const w = t.state.word;
     if (w === 'needs_you') return 'awaiting';
     if (w === 'error') return 'error';
+    // WHY a track working only because another machine reports it still blinks: the dot is the track's derived state
+    // (B2's contract, tests/browser/home_b2.py); the "as of" lives on its sessions' still dots and in its why.
     if (w === 'working') return 'running';
     if (w === 'done' || w === 'archived') return 'done';
     const last = t.last_action ? Date.parse(t.last_action.ts) : 0, at = VT.seenAt(t.id);
@@ -138,11 +156,19 @@
   };
   VT.sessionDot = (s) => {
     const w = s.state.word;
+    // Another machine's session (r3): never Claude's blinking "running" (that means live here); a still dot says
+    // "working as of its host's last report" (VT.asOf prints how old).
+    if (s.remote) return s.remote.current && w === 'working' ? 'asof' : (w === 'ended' ? 'done' : 'idle');
     if (w === 'needs_you') return 'awaiting';
     if (w === 'error') return 'error';
     if (w === 'working') return 'running';
     return 'idle';
   };
+  /** "as of 3 min ago" for another machine's session: its host's last report, never a live claim. */
+  VT.asOf = (s) => (s && s.remote ? `as of ${VT.ago(s.remote.as_of)}` : '');
+  VT.remoteTitle = (s) => s.remote ? `on ${s.remote.host}: ${s.remote.current ? 'reported' : 'last reported'} by its session hook, as of ${VT.ago(s.remote.as_of)} (${s.remote.host} ${s.remote.host_status}${s.remote.last_event ? ', last event ' + s.remote.last_event + ' ' + VT.ago(s.remote.last_event_ts) : ''}); not observed live from here` : '';
+  /** The machines a track runs on, besides this one (sources supplied there, or a current session). */
+  VT.hostChips = (t) => (t.hosts || []).map((h) => `<span class="hostchip ${h.status === 'online' ? '' : 'old'}" data-testid="vt-host-chip" title="${VT.esc(`runs on ${h.host} (${h.via.join(' and ')}) · ${h.host} last synced ${h.last_sync ? VT.ago(h.last_sync) : 'never'} (${h.status})`)}">${VT.esc(h.host)}</span>`).join('');
   VT.dotTitle = (t) => `${VT.WORD[t.state.word] || t.state.word}: ${t.state.why}`;
   VT.health = (c) => `<span class="hl ${c}">${VT.ic(c)}${VT.HEALTH[c]}</span>`;
   VT.stateWord = (t, opts) => {
@@ -161,9 +187,11 @@
   VT.openLinks = (s) => {
     const out = [];
     if (s.open && s.open.desktop) out.push(`<a class="openag" data-testid="vt-open-desktop" href="${VT.esc(s.open.desktop)}" title="Claude Desktop's own link for this session (${VT.esc(s.open.desktop)}). The system handler gives claude:// links to your primary Desktop profile; this session is on ${VT.esc(s.account)}.">${VT.ic('open')}Open</a>`);
-    if (s.open && s.open.remote_control) out.push(`<a class="openag" href="${VT.esc(s.open.remote_control)}" target="_blank" rel="noopener" title="Remote Control: this session on claude.ai">${VT.ic('open')}Web</a>`);
+    if (s.open && s.open.remote_control) out.push(`<a class="openag" href="${VT.esc(s.open.remote_control)}" target="_blank" rel="noopener" title="Remote Control: this session on claude.ai${s.remote ? ' (on ' + VT.esc(s.remote.host) + ')' : ''}">${VT.ic('open')}${s.remote && s.remote.demo ? 'Demo link' : 'Web'}</a>`);
     if (s.open && s.open.resume && !s.live) out.push(`<button class="openag" data-act="copy" data-text="${VT.esc(s.open.resume)}" title="${VT.esc(s.open.resume)}">${VT.ic('copy')}Resume</button>`);
-    if (!out.length) out.push(`<span class="openag none" title="live in ${VT.esc(s.entrypoint || 'Claude Code')} with no Desktop id or Remote Control link; resuming a live session could fork it">no link</span>`);
+    if (!out.length) out.push(s.remote
+      ? `<span class="openag none" title="on ${VT.esc(s.remote.host)}: its card has no Remote Control link (remoteControlAtStartup off there)">no link</span>`
+      : `<span class="openag none" title="live in ${VT.esc(s.entrypoint || 'Claude Code')} with no Desktop id or Remote Control link; resuming a live session could fork it">no link</span>`);
     return out.join('');
   };
 

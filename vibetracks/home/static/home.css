@@ -33,12 +33,18 @@ h2 { font-size: 15px; font-weight: 600; margin: 0; }
 .side { width: var(--side-w); flex: none; background: var(--side); border-right: 1px solid var(--line); display: flex; flex-direction: column;
   padding: var(--side-inset); position: sticky; top: 0; height: 100vh; z-index: 40; font-size: var(--row-font); line-height: 1.5; }
 .side-top { display: flex; flex-direction: column; padding-bottom: 6px; }
+/* the resize handle: an 8 px strip centred on the right edge, a hairline on hover or while dragging (Claude's edge) */
+.side-resize { position: absolute; top: 0; bottom: 0; right: -4px; width: 8px; cursor: col-resize; z-index: 41; touch-action: none; }
+.side-resize::after { content: ""; position: absolute; top: 0; bottom: 0; left: 3px; width: 2px; background: transparent; transition: background .12s; }
+.side-resize:hover::after, .side-resize:focus-visible::after, .vt-resizing .side-resize::after { background: var(--alpha-3); }
+.side-resize:focus-visible { outline: none; }
+html.vt-resizing, html.vt-resizing * { cursor: col-resize !important; user-select: none !important; }
 .side-list { flex: 1; min-height: 0; overflow-y: auto; overflow-x: clip; margin: 0 calc(-1 * var(--side-inset)); padding: 0 var(--side-inset); }
 /* a row: h 26, 2 px side padding, the 24 px leading slot (dot centred), 4 px gap, 13 px text-secondary, radius 6,
    2 px stack gap (pitch 28) */
 .srow { display: flex; align-items: center; gap: var(--row-gap); height: var(--row-h); padding: 0 var(--row-pad-end) 0 var(--row-px); margin-bottom: var(--row-stack-gap);
   width: 100%; border-radius: var(--radius); color: var(--ink-2); font-size: var(--row-font); font-weight: 400; white-space: nowrap; }
-.srow:hover { background: var(--hover); }
+.srow:hover { background: var(--side-hover); }
 .srow.sel { background: var(--selected); color: var(--ink); }
 .srow.sel:hover { background: var(--selected); }
 .srow .t { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
@@ -46,6 +52,15 @@ h2 { font-size: 15px; font-weight: 600; margin: 0; }
 .srow .meta .n { font-variant-numeric: tabular-nums; min-width: 8px; text-align: right; }
 .srow .meta .count { min-width: 18px; height: 16px; padding: 0 5px; border-radius: 8px; background: var(--warn); color: #1a1200; font-size: 10.5px; font-weight: 650; display: inline-grid; place-items: center; }
 .srow.loose, .srow.empty { color: var(--ink-3); }
+/* another machine's name beside a track or a session (r3): quiet, like the folder count */
+.hostchip { display: inline-flex; align-items: center; height: 16px; padding: 0 5px; margin: 0 6px 0 0; border-radius: 4px; background: var(--alpha-1);
+  color: var(--ink-3); font-size: var(--fs-caption); white-space: nowrap; flex: none; vertical-align: 1px; }
+.tl .hostchip { margin: 0 0 0 6px; }
+.hostchip.old { opacity: .6; }
+.nm .t2 .tl { display: flex; align-items: center; min-width: 0; }
+.nm .t2 .tl .t { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.stw .asof { color: var(--ink-3); font-size: var(--fs-footnote); }
+.srow .meta .host { font-size: var(--fs-caption); color: var(--ink-3); max-width: 96px; overflow: hidden; text-overflow: ellipsis; }
 .srow.empty:hover { background: none; }
 .sd.lead { color: var(--ink-3); }
 .sd.lead svg.i { width: var(--icon); height: var(--icon); }
@@ -55,6 +70,16 @@ h2 { font-size: 15px; font-weight: 600; margin: 0; }
 .sgh { flex: 1; min-width: 0; display: flex; align-items: center; gap: 4px; height: 100%; padding: 0 var(--row-px) 0 calc(var(--row-px) + var(--label-inset));
   color: var(--ink-3); font-size: var(--group-font); line-height: 16px; font-weight: 400; border-radius: var(--radius); }
 .sgh .nm { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* inline rename (rename.js): the name becomes its own text, selected, in place (Claude's rename) */
+.rn { flex: 1; min-width: 0; width: 100%; font: inherit; color: var(--ink); background: var(--surface); border: 1px solid var(--accent);
+  border-radius: 4px; padding: 0 4px; height: 22px; outline: none; margin: 0; }
+.rn::selection { background: color-mix(in srgb, var(--accent) 45%, transparent); }
+.rn.h1 { height: auto; font-size: inherit; font-weight: inherit; letter-spacing: inherit; padding: 0 6px; max-width: 100%; }
+h1.editing { flex: 1; min-width: 0; }
+.srow.editing, .sgh.editing { cursor: default; }
+.sgh.editing { color: var(--ink); }
+[data-rename] { cursor: default; }
+a[data-rename], button[data-rename] { cursor: pointer; }
 .sgh:hover { color: var(--ink-2); }
 .sgh .caret { display: inline-grid; place-items: center; width: 12px; height: 12px; opacity: 0; transition: opacity .1s; }
 .sgh .caret svg { width: 11px; height: 11px; }
@@ -65,7 +90,7 @@ h2 { font-size: 15px; font-weight: 600; margin: 0; }
 .sgh.static:hover { color: var(--ink-3); }
 .sgh-go { flex: none; width: 22px; height: 22px; display: inline-grid; place-items: center; border-radius: var(--radius); color: var(--ink-3); opacity: .7; }
 .sgh-go svg.i { width: 13px; height: 13px; }
-.sgh-go:hover, .sgh-go.sel { background: var(--hover); color: var(--ink); opacity: 1; }
+.sgh-go:hover, .sgh-go.sel { background: var(--side-hover); color: var(--ink); opacity: 1; }
 /* the account button: 28 px, avatar, 13 px name text-secondary with a muted suffix */
 .side-foot { display: flex; align-items: center; gap: 4px; border-top: 1px solid var(--line); margin: 6px calc(-1 * var(--side-inset)) 0; padding: 8px var(--side-inset) 0; }
 .acct { display: flex; align-items: center; gap: var(--row-gap); height: var(--foot-btn-h); max-width: 100%; padding: 0 8px 0 var(--row-px); border-radius: var(--radius); color: var(--ink-2); font-size: var(--row-font); white-space: nowrap; }
@@ -126,10 +151,6 @@ h2 { font-size: 15px; font-weight: 600; margin: 0; }
 .pill { padding: 2px 11px; border-radius: 999px; color: var(--ink-2); font-size: 13px; }
 .pill:hover { background: var(--hover); color: var(--ink); }
 .pill.on { background: var(--alpha-2); color: var(--ink); font-weight: 500; }
-.vseg { display: inline-flex; margin-left: 10px; background: var(--alpha-1); border-radius: 8px; padding: 2px; gap: 2px; }
-.vseg button { display: inline-flex; align-items: center; gap: 5px; padding: 2px 8px; border-radius: 6px; color: var(--ink-2); font-size: var(--fs-footnote); }
-.vseg button.on { background: var(--surface); color: var(--ink); box-shadow: 0 0 0 1px var(--alpha-2); }
-.vseg svg.i { width: 13px; height: 13px; }
 .btn { display: inline-flex; align-items: center; gap: 6px; height: 28px; padding: 0 10px; border-radius: var(--radius); border: 1px solid var(--line); font-size: 13px; background: var(--surface); color: var(--ink); white-space: nowrap; }
 .btn:hover { background: var(--hover); }
 .btn.on { background: var(--alpha-2); }
@@ -145,6 +166,29 @@ h2 { font-size: 15px; font-weight: 600; margin: 0; }
 /* ================================================================== Rows / Table: ONE grid for every row */
 :root { --ind: 22px; }
 .thead, .tr { display: grid; grid-template-columns: var(--cols); align-items: center; column-gap: 14px; padding: 0 8px; }
+/* Columns drop by the page's own width (views.js colStyle: --cols-mid, --cols-narrow), never into sideways scroll.
+   main is the query container, so a sidebar dragged wider drops columns exactly like a narrower window. */
+.main { container-type: inline-size; container-name: main; }
+@media (min-width: 761px) {
+  @container main (max-width: 1099px) {
+    .tree .thead, .tree .tr { grid-template-columns: var(--cols-mid); }
+    .tree .c-target, .tree .c-work { display: none; }
+    .board { grid-template-columns: 140px repeat(var(--bcols), minmax(0, 1fr)); }
+  }
+  @container main (max-width: 971px) {
+    .tree .thead, .tree .tr { grid-template-columns: var(--cols-narrow); }
+    .tree .c-health, .tree .c-prog { display: none; }
+    .board { grid-template-columns: 112px repeat(var(--bcols), minmax(0, 1fr)); }
+  }
+  @container main (max-width: 579px) {
+    .page, .page.wide { padding-left: 20px; padding-right: 20px; }
+    .tree .thead, .tree .tr { grid-template-columns: minmax(0, 1fr) minmax(0, 150px); column-gap: 8px; }
+    .tree .c-agents { display: none; }
+    .board { grid-template-columns: 1fr; }
+    .board .bh { display: none; }
+    .board .cell { border-left: 0; }
+  }
+}
 .thead { color: var(--ink-3); font-size: var(--fs-footnote); height: 32px; border-bottom: 1px solid var(--line); }
 .tr { min-height: 44px; border-bottom: 1px solid var(--line); cursor: pointer; }
 .tr:hover { background: var(--hover); }
@@ -174,6 +218,10 @@ a.t:hover { text-decoration: underline; text-decoration-color: var(--alpha-3); }
 .meter b { display: block; height: 100%; background: var(--ink-3); }
 .roll { display: inline-flex; gap: 9px; font-size: var(--fs-footnote); color: var(--ink-2); white-space: nowrap; }
 .roll span { display: inline-flex; align-items: center; gap: 4px; }
+/* a track's agent count: the agents are detail, so the count is quiet text that opens the track's Agents tab */
+.agn { font-size: var(--fs-footnote); color: var(--ink-2); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; display: block; }
+a.agn:hover { color: var(--ink); text-decoration: underline; }
+.agn.none { color: var(--ink-3); }
 .wk { display: flex; flex-direction: column; line-height: 1.25; font-size: var(--fs-footnote); color: var(--ink-2); white-space: nowrap; min-width: 0; }
 .wk small { color: var(--ink-3); font-size: var(--fs-footnote); overflow: hidden; text-overflow: ellipsis; }
 
@@ -250,6 +298,7 @@ a.t:hover { text-decoration: underline; text-decoration-color: var(--alpha-3); }
 
 /* ================================================================== phone: the sidebar is a drawer */
 @media (max-width: 760px) {
+  .side-resize { display: none; }
   .side { position: fixed; left: 0; top: 0; bottom: 0; height: auto; width: min(300px, 86vw); transform: translateX(-105%); transition: transform .18s ease; box-shadow: var(--shadow); }
   .vlm.drawer .side { transform: none; }
   .vlm.drawer .scrim { display: block; position: fixed; inset: 0; background: rgba(0, 0, 0, .25); z-index: 35; }
@@ -259,10 +308,8 @@ a.t:hover { text-decoration: underline; text-decoration-color: var(--alpha-3); }
   .tree { --cols: minmax(0, 1fr) minmax(0, 112px) !important; }
   .tr.sess .chip, .tr.sess .opens { display: none; }
   .ph { display: inline; }
-  .tree .c-target, .tree .c-health, .tree .c-prog, .tree .c-work { display: none; }
+  .tree .c-target, .tree .c-health, .tree .c-prog, .tree .c-agents, .tree .c-work { display: none; }
   .thead, .tr { column-gap: 8px; padding: 0 4px; }
-  .vseg .vl { display: none; }
-  .vseg { margin-left: 0; }
   .board { grid-template-columns: 1fr; border: 0; }
   .board .bh { display: none; }
   .board .lane { border-bottom: 0; padding: 12px 0 4px; }

@@ -204,14 +204,14 @@
     const title = s.title || s.id.slice(0, 8);
     const st = `<span class="stw ${esc(s.state.word)}" title="${esc(s.live ? 'live · ' + (s.status || 'unknown status') : 'ended')}">${esc(VT.WORD[s.state.word] || s.state.word)}</span>`;
     return `<div class="pg-tr pg-ses" data-testid="vt-project-session" data-session-id="${esc(s.id)}">
-      <div class="nm">${VT.sd(VT.sessionDot(s), s.live ? 'live · ' + (s.status || 'unknown status') : 'ended')}<span class="chip"><b>${esc(s.account)}</b></span><span class="t2"><span class="t" title="${esc(title + ' · ' + (s.cwd || ''))}">${esc(title)}</span><small title="${esc(s.cwd || '')}">${where} · ${esc(s.branch || 'no branch')}</small></span></div>
+      <div class="nm">${VT.sd(VT.sessionDot(s), s.live ? 'live · ' + (s.status || 'unknown status') : 'ended')}<span class="t2"><span class="t" title="${esc(title + ' · ' + (s.cwd || '') + ' · ' + s.account)}">${esc(title)}</span><small title="${esc(s.cwd || '')}">${where} · ${esc(s.branch || 'no branch')}</small></span></div>
       <div>${st}</div><div class="pg-x"><span class="wk"><span>${s.last_action ? VT.ago(s.last_action.ts) : 'unknown'}</span><small>${s.worked && s.worked.h24_s ? 'worked ' + VT.dur(s.worked.h24_s) + ' today' : 'no work today'}</small></span></div>
       <div class="pg-open">${VT.openLinks(s)}</div></div>`;
   }
   function sessions(p) {
     const byLive = (a, b) => (b.live - a.live) || ((b.last_action ? Date.parse(b.last_action.ts) : 0) - (a.last_action ? Date.parse(a.last_action.ts) : 0));
     const onTracks = [];
-    for (const t of p.tracks) for (const s of t.sessions) if (s.live) onTracks.push([s, t]);
+    for (const t of p.tracks) for (const s of t.sessions) if (s.live || (s.remote && s.remote.current)) onTracks.push([s, t]);
     onTracks.sort((a, b) => byLive(a[0], b[0]));
     const loose = (p.sessions_unpinned || []).slice().sort(byLive);
     let h = `<div class="pg-tbl pg-sess" data-testid="vt-project-sessions"><div class="pg-th"><div>Session</div><div>State</div><div class="pg-x">Last action</div><div class="pg-x">Open</div></div>`;
@@ -268,7 +268,7 @@
         : `<div class="pg-card pg-chart" data-testid="vt-project-chart">${e.error ? `<div class="banner">The project document could not be read: ${esc(e.error)}</div>` : '<p class="faint">Reading the north star and the tracks\' KPIs…</p>'}</div>`;
       return `<div class="page pg" data-testid="vt-project-page" data-project-id="${esc(p.id)}">
         <div class="crumb"><a href="#/">Home</a> / <span>${esc(p.name)}</span></div>
-        <h1 class="pg-h1"><span class="pico" style="background:${esc(p.color)}">${esc((p.name || '?')[0].toUpperCase())}</span>${esc(p.name)}</h1>
+        <h1 class="pg-h1"${VT.isRenaming('project', p.id, 'title') ? '' : ` data-rename="project:${encodeURIComponent(p.id)}:title" title="double-click to rename"`}><span class="pico" style="background:${esc(p.color)}">${esc((p.name || '?')[0].toUpperCase())}</span>${VT.isRenaming('project', p.id, 'title') ? VT.rnInput('h1') : esc(p.name)}</h1>
         <p class="sub">${sub}</p>
         ${callouts(p)}${body}
         <h2 class="pg-h2">Tracks <span class="faint">${p.tracks.length}</span></h2>${trackRows(p)}

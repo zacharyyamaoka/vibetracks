@@ -17,8 +17,12 @@ pointed into ``hosts/<host>/files/``) and runs the ordinary ``vibetracks.dashboa
 ``$VIBETRACKS_SOURCES`` naming it. WHY a subprocess: ``load_sources()`` is read at import time in several dashboard
 modules, so the only clean way to swap the map is a fresh interpreter.
 
-HTTP: ``/`` (the app), ``/api/state``, ``/api/track/<id>``, ``/api/events`` (SSE: ``revision`` and ``check``
-events), ``/api/health``; and two JSON POSTs, ``/api/refresh`` (check + pull + rebuild now, answered when done) and
+HTTP (r3, 2026-10-09: the phone and other machines see the same home as the dock icon): ``/`` sends the browser to
+``/home/``, the Vibe Tracks home (vibetracks/home: the page and its documents, built here over this workspace, the
+hub's projection and the share's other machines; read-only, no links into Clank), with ``/needs`` and ``/roadmap``
+beside it as on the dashboard backend; the original hub app moved to ``/hub/`` with its API unchanged:
+``/api/state``, ``/api/track/<id>``, ``/api/events`` (SSE: ``revision`` and ``check`` events), ``/api/health``; and
+two JSON POSTs, ``/api/refresh`` (check + pull + rebuild now, answered when done) and
 ``/api/poke`` (202 at once, the check follows within a second). POSTs need an allowed Host (403), ``Content-Type:
 application/json`` (415) and a body of at most 4 KB (413).
 """
@@ -40,8 +44,8 @@ import traceback
 from http import HTTPStatus
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
-from typing import Any
-from urllib.parse import unquote, urlparse
+from typing import Any, Iterable
+from urllib.parse import parse_qs, unquote, urlparse
 
 from . import share as layout
 from . import sync
@@ -49,13 +53,17 @@ from .. import sources as vt_sources
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 STATIC_DIR = Path(__file__).resolve().parent / "static"
-STATIC_FILES = {"/": ("index.html", "text/html; charset=utf-8"),
-                "/index.html": ("index.html", "text/html; charset=utf-8"),
+STATIC_FILES = {"/index.html": ("index.html", "text/html; charset=utf-8"),
                 "/static/hub.css": ("hub.css", "text/css; charset=utf-8"),
                 "/static/hub.js": ("hub.js", "text/javascript; charset=utf-8")}
 LOOPBACK = {"127.0.0.1", "localhost", "::1"}
 CSP = ("default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self' data:; connect-src 'self'; "
        "base-uri 'none'; frame-ancestors 'none'")
+#: The home's pages set column widths and project colours in style attributes, and load Anthropic Sans from /home/font/.
+HOME_CSP = ("default-src 'none'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; "
+            "font-src 'self'; connect-src 'self'; base-uri 'none'; frame-ancestors 'none'")
+#: The dashboard backend's read-only mounts the home's pages fetch (clank/backend/mounts.py), served here too.
+HOME_MOUNTS = {"/home": "home", "/needs": "needs", "/roadmap": "roadmap"}
 REMOTE_SOURCES = "remote-sources.json"
 BUILD_TIMEOUT_S = 600
 #: A host is online while its last sync is younger than 3 sync intervals plus this grace, stale up to an hour.
@@ -75,16 +83,20 @@ VOLATILE = {"generated_at", "last_pull", "last_check", "next_check_in_s", "check
 # --------------------------------------------------------------------------------------------- reading the share
 
 
-def _merge(share: str | os.PathLike[str]) -> tuple[dict[str, str], dict[str, str], list[dict[str, Any]]]:
-    """({key: absolute path}, {key: host}, problems) over every ``hosts/*/sources.json``."""
+def _merge(share: str | os.PathLike[str], exclude: Iterable[str] = ()) -> tuple[dict[str, str], dict[str, str], list[dict[str, Any]]]:
+    """({key: absolute path}, {key: host}, problems) over every ``hosts/*/sources.json``; host folders named in
+    ``exclude`` (lower-case) are skipped (the home skips this machine's own: vibetracks/home/remote.py)."""
 
     paths: dict[str, str] = {}
     owners: dict[str, str] = {}
     synced: dict[str, float] = {}
     problems: list[dict[str, Any]] = []
     claims: dict[str, list[str]] = {}
+    skip = {name.lower() for name in exclude}
     for folder in layout.host_dirs(share):
         host = folder.name
+        if host.lower() in skip:
+            continue
         manifest = layout.read_json(folder / layout.SOURCES_JSON)
         if manifest is None:
             continue
@@ -113,11 +125,11 @@ def _merge(share: str | os.PathLike[str]) -> tuple[dict[str, str], dict[str, str
     return paths, owners, problems
 
 
-def merge_sources(share: str | os.PathLike[str]) -> tuple[dict[str, str], list[dict[str, Any]]]:
+def merge_sources(share: str | os.PathLike[str], exclude: Iterable[str] = ()) -> tuple[dict[str, str], list[dict[str, Any]]]:
     """{source key: absolute path under ``hosts/<host>/``}, and problems. Two hosts giving the same key: the host
     whose host.json ``last_sync`` is newer wins, and a ``duplicate_key`` problem names both."""
 
-    paths, _, problems = _merge(share)
+    paths, _, problems = _merge(share, exclude)
     return paths, problems
 
 
@@ -403,7 +415,7 @@ class Hub:
     def __init__(self, share: str | os.PathLike[str], workspace: str | os.PathLike[str],
                  data_home: str | os.PathLike[str], *, host_name: str, check_fast: float = 5.0,
                  check_slow: float = 60.0, fast_window: float = 120.0, rebuild_interval: float = 300.0,
-                 log=None, clock=time.monotonic):
+                 log=None, clock=time.monotonic, home_options: dict[str, Any] | None = None):
         self.share = Path(share).resolve()
         self.workspace = Path(workspace).resolve()
         self.data_home = Path(data_home).resolve()
@@ -433,7 +445,31 @@ class Hub:
         self._wake = threading.Event()
         self._refresh_guard = threading.Lock()
         self._refresh_job: dict[str, Any] | None = None
+        # WHY read now: main() later points $VIBETRACKS_SOURCES at the merged map for the in-process pages (/needs,
+        # /roadmap), and the merge must keep reading this machine's own map, not its own output.
+        self.local_sources_file = vt_sources.sources_file()
+        self.home_options = dict(home_options or {})
+        self._home_context = None
         self.state = self._compute(time.time())
+
+    def home_context(self):
+        """The home's document context on the hub: this workspace, the share (minus this machine's own folder), the
+        hub's projection, no writes and no Clank links."""
+
+        if self._home_context is None:
+            from ..home.api import Context  # noqa: PLC0415 - the home is only needed once a page asks
+            from ..home.remote import this_host_names  # noqa: PLC0415
+
+            options = self.home_options
+            own = options.get("own_hosts")
+            if own is None:
+                own = {self.host_name.lower()} | this_host_names()
+            self._home_context = Context(
+                workspace=self.workspace, share=self.share, own_hosts=own,
+                projection=lambda: self.projection or {"schema": "vibetracks-dashboard/1", "tracks": []},
+                writable=False, workbench=False, cache_dir=options.get("cache_dir", self.data_home / "home-cache"),
+                claude_homes=options.get("claude_homes"), proc_root=options.get("proc_root", "/proc"))
+        return self._home_context
 
     # ---------------------------------------------------------------- state
     def check_mode(self) -> str:
@@ -486,7 +522,7 @@ class Hub:
 
     def write_sources(self) -> Path:
         paths, _ = merge_sources(self.share)
-        local = layout.read_json(vt_sources.sources_file())
+        local = layout.read_json(self.local_sources_file)
         merged = {key: value for key, value in (local if isinstance(local, dict) else {}).items() if isinstance(value, str)}
         merged.update(paths)
         # WHY pin the dashboard data home here: adapters keep caches under ``{dashboard_data_home}`` (the grasping
@@ -696,13 +732,59 @@ def make_handler(hub: Hub, allowed: set[str]):
         def _json(self, payload: Any, status: HTTPStatus = HTTPStatus.OK) -> None:
             self._send(json.dumps(payload, ensure_ascii=False).encode("utf-8"), "application/json; charset=utf-8", status)
 
+        def _mount(self, prefix: str, path: str, query: str) -> None:
+            """One of the home's read-only routes, answered by the same handler the dashboard backend mounts."""
+
+            subpath = path[len(prefix):]
+            parsed = parse_qs(query)
+            headers = {key: value for key, value in self.headers.items()}
+            try:
+                if prefix == "/home":
+                    from ..home import api as home_api  # noqa: PLC0415
+
+                    status, out, chunks = home_api.handle("GET", subpath, parsed, headers, context=hub.home_context())
+                elif prefix == "/needs":
+                    from ..dashboard import needs  # noqa: PLC0415
+
+                    status, out, chunks = needs.handle("GET", subpath, parsed, headers, workspace=hub.workspace)
+                else:
+                    from ..roadmap import api as roadmap_api  # noqa: PLC0415
+
+                    status, out, chunks = roadmap_api.handle("GET", subpath, parsed, headers)
+                body = b"".join(chunks)
+            except Exception as error:  # noqa: BLE001 - one route failing never takes the hub down
+                traceback.print_exc(file=sys.stderr)
+                self._json({"error": f"{prefix} failed: {type(error).__name__}: {error}"}, HTTPStatus.INTERNAL_SERVER_ERROR)
+                return
+            self.send_response(status)
+            for key, value in out.items():
+                if key.lower() not in ("content-length", "content-security-policy"):
+                    self.send_header(key, value)
+            self.send_header("Content-Length", str(len(body)))
+            self.send_header("X-Content-Type-Options", "nosniff")
+            self.send_header("Content-Security-Policy", HOME_CSP)
+            self.end_headers()
+            self.wfile.write(body)
+
         def do_GET(self) -> None:  # noqa: N802 (http.server's name)
             if not host_allowed(self.headers.get("Host"), allowed):
                 self._json({"error": "Forbidden host"}, HTTPStatus.FORBIDDEN)
                 return
-            path = urlparse(self.path).path
+            url = urlparse(self.path)
+            path = url.path
             try:
-                if path in STATIC_FILES:
+                prefix = next((p for p in HOME_MOUNTS if path == p or path.startswith(p + "/")), None)
+                if path == "/":
+                    # WHY the home first: one page everywhere (dock icon, phone, other machines); /hub/ keeps the old app.
+                    self.send_response(HTTPStatus.FOUND)
+                    self.send_header("Location", "/home/")
+                    self.send_header("Content-Length", "0")
+                    self.end_headers()
+                elif prefix is not None:
+                    self._mount(prefix, path, url.query)
+                elif path in ("/hub", "/hub/", "/hub/index.html"):
+                    self._send((STATIC_DIR / "index.html").read_bytes(), "text/html; charset=utf-8")
+                elif path in STATIC_FILES:
                     name, content_type = STATIC_FILES[path]
                     self._send((STATIC_DIR / name).read_bytes(), content_type)
                 elif path == "/api/state":
@@ -821,6 +903,14 @@ def main(argv: list[str] | None = None) -> int:
 
     hub = Hub(args.share, args.workspace, args.data_home, host_name=args.host_name, check_fast=args.check_fast,
               check_slow=args.check_slow, fast_window=args.fast_window, rebuild_interval=args.rebuild_interval)
+    # WHY these two in the hub's own environment: the home's pages read /needs and /roadmap in this process, and those
+    # modules take the workspace and the sources map from the environment at call time. The merged map (this
+    # machine's, then the share's keys, then the hub's data home) is rewritten on every rebuild.
+    os.environ["VIBETRACKS_WORKSPACE"] = str(hub.workspace)
+    try:
+        os.environ["VIBETRACKS_SOURCES"] = str(hub.write_sources())
+    except Exception as error:  # noqa: BLE001 - the pages then read this machine's own map
+        print(f"remote sources not written yet: {error}", file=sys.stderr)
     allowed = LOOPBACK | {name.strip().lower() for name in args.allow_host if name.strip()}
     server = ThreadingHTTPServer((args.bind, args.port), make_handler(hub, allowed))
     server.daemon_threads = True

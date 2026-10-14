@@ -9,6 +9,9 @@ card is ``hosts/<host>/sessions/<session_id>.json``; sync.py commits it with the
   for the session (``remoteControlAtStartup``); otherwise null.
 - ``account``: ``CLAUDE_CONFIG_DIR``'s folder name without ``.claude-`` (``~/.claude-bam`` -> ``bam``).
 - ``model``: ``message.model`` of the transcript's last assistant line (only the last 256 KB are read).
+- ``title`` and ``branch`` (r3): the session's newest ``custom-title`` (else ``agent-name``) and the ``gitBranch`` of
+  the newest line that has one, from the same tail. WHY: the home joins another machine's session to a track by the
+  same branch / title rules as a local one (vibetracks/home/remote.py); a card without them still reads.
 - ``track``: ``--track``, else the first ``--tracks-map`` entry ``{track_id: [cwd prefixes]}`` that matches ``cwd``.
   ``--tracks-map`` is the JSON itself or a path to a JSON file.
 
@@ -46,11 +49,9 @@ def account_of(config_dir: str | None) -> str | None:
     return name.lstrip(".") or None
 
 
-def model_of(transcript_path: str | None) -> str | None:
-    """``message.model`` of the last assistant line in the transcript's tail, or None."""
-
+def _tail_lines(transcript_path: str | None) -> list[bytes]:
     if not transcript_path:
-        return None
+        return []
     try:
         with open(transcript_path, "rb") as handle:
             handle.seek(0, os.SEEK_END)
@@ -58,11 +59,39 @@ def model_of(transcript_path: str | None) -> str | None:
             handle.seek(max(0, size - TRANSCRIPT_TAIL_BYTES))
             tail = handle.read()
     except OSError:
-        return None
+        return []
     lines = tail.split(b"\n")
-    if size > TRANSCRIPT_TAIL_BYTES:
-        lines = lines[1:]  # the first line of a mid-file read is torn
-    for raw in reversed(lines):
+    return lines[1:] if size > TRANSCRIPT_TAIL_BYTES else lines  # the first line of a mid-file read is torn
+
+
+def title_and_branch(transcript_path: str | None) -> tuple[str | None, str | None]:
+    """(newest custom-title, else newest agent-name; gitBranch of the newest line carrying one) from the tail."""
+
+    title = agent_name = branch = None
+    for raw in reversed(_tail_lines(transcript_path)):
+        if b'"custom-title"' not in raw and b'"agent-name"' not in raw and b'"gitBranch"' not in raw:
+            continue
+        try:
+            row = json.loads(raw)
+        except ValueError:
+            continue
+        if not isinstance(row, dict):
+            continue
+        if title is None and row.get("type") == "custom-title" and isinstance(row.get("customTitle"), str) and row["customTitle"].strip():
+            title = row["customTitle"].strip()
+        if agent_name is None and row.get("type") == "agent-name" and isinstance(row.get("agentName"), str) and row["agentName"].strip():
+            agent_name = row["agentName"].strip()
+        if branch is None and isinstance(row.get("gitBranch"), str) and row["gitBranch"]:
+            branch = row["gitBranch"]
+        if title is not None and branch is not None:
+            break
+    return title or agent_name, branch
+
+
+def model_of(transcript_path: str | None) -> str | None:
+    """``message.model`` of the last assistant line in the transcript's tail, or None."""
+
+    for raw in reversed(_tail_lines(transcript_path)):
         if b'"assistant"' not in raw:
             continue
         try:
@@ -141,13 +170,17 @@ def main(argv: list[str] | None, stdin_text: str, environ: Mapping[str, str]) ->
         bridge = environ.get("CLAUDE_CODE_BRIDGE_SESSION_ID")
         hook_event = event.get("hook_event_name")
         cwd = event.get("cwd") if isinstance(event.get("cwd"), str) else None
+        transcript = event.get("transcript_path") if isinstance(event.get("transcript_path"), str) else None
+        title, branch = title_and_branch(transcript)
         card: dict[str, Any] = {
             "session_id": session_id,
             "host": args.host,
             "account": account_of(environ.get("CLAUDE_CONFIG_DIR")),
             "agent": environ.get("AI_AGENT") or "claude-code",
-            "model": model_of(event.get("transcript_path") if isinstance(event.get("transcript_path"), str) else None),
+            "model": model_of(transcript),
             "cwd": cwd,
+            "title": title or existing.get("title"),
+            "branch": branch or existing.get("branch"),
             "track": track_of(cwd, args.track, _tracks_map(args.tracks_map)),
             "url": f"{URL_PREFIX}{bridge}" if bridge else None,
             "event": hook_event if isinstance(hook_event, str) else None,

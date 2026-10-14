@@ -17,7 +17,13 @@ Routes (Clank proxies ``/api/plugins/vibetracks/<rest>`` here, clank-workbench C
   application/json``, else 415). Revision-fenced (409 when the note changed since ``revision``), atomic, and it
   edits only the note's ``vibe-title`` value (``registry.rename_title``); ``vibe-id`` never changes. 400 for a bad
   title (empty, whitespace only, or containing a line break; never trimmed: it is stored exactly as typed) or body, 404 for an unknown id. Answers
-  ``{ok, id, title, revision}`` with the note's new revision.
+  ``{ok, id, title, revision}`` with the note's new revision. An id that is not a work track but an activity track
+  (``vibe-track: activity``, the home's tracks with no KPI adapter yet) is renamed the same way
+  (``vibetracks.home.rename.rename_activity_title``; r3, the home's double-click rename).
+- ``POST /projects/<id>/name`` -> rename one project: JSON ``{name, revision}``; the ``name`` of
+  the project's descriptor (``workspace/projects/*.vibetrack``), fenced on that file's revision (409), atomic, one
+  line (``vibetracks.home.rename.rename_project``). 400 for a bad name or one another project already has, 404 for an
+  unknown id. Answers ``{ok, id, name, revision}``; ``id`` is the project's new id (the slug of its new name).
 - ``GET /media/<id>?rev=<media_rev>`` -> one file named by ``media[<id>]`` of the projection that answered with that
   ``media_rev``, streamed with Range support (so a ``<video>`` seeks) and its real content type. Every /projection
   answer carries ``media_rev``; the backend keeps the canonical targets recorded under each of the last
@@ -26,7 +32,7 @@ Routes (Clank proxies ``/api/plugins/vibetracks/<rest>`` here, clank-workbench C
 - ``GET <mount prefix>/...`` -> the callable ``mounts.MOUNTS`` names for that prefix (backend/mounts.py has the
   handler signature), imported lazily; 503 when its import fails, 501 for any method but GET.
 
-The rename is the only write: every other POST, and every PUT, PATCH and DELETE, answers 501. WHY an allowlist built
+The two renames are the only writes: every other POST, and every PUT, PATCH and DELETE, answers 501. WHY an allowlist built
 from the projection and never a path parameter: the page names media by id only, so a crafted URL cannot reach a file
 the projection does not list (BRIEF G3, local-only); and by revision, so a URL reaches only the files listed in the
 projection it came from.
@@ -104,6 +110,7 @@ DEFAULT_HOME = default_home()
 #: "/", "%", "?", "#", whitespace or a leading dot, so an id can never read as a path or a query.
 MEDIA_ID = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._:-]{0,200}$")
 RENAME_ROUTE = re.compile(r"^/tracks/([^/]+)/title$")
+PROJECT_RENAME_ROUTE = re.compile(r"^/projects/([^/]+)/name$")
 #: A rename body is a title and a revision; anything near this size is not one.
 MAX_JSON_BODY = 64 * 1024
 #: Content types the backend will stream; a projection entry of any other suffix is refused.
@@ -490,10 +497,15 @@ def make_handler(projection: Projection, workspace: Path | None = None):
 
         def do_POST(self) -> None:
             path = urlsplit(self.path).path
-            match = RENAME_ROUTE.fullmatch(path)
-            if match is None or find_mount(path) is not None:
+            if find_mount(path) is not None:
                 return self._not_implemented()
-            return self._rename(unquote(match.group(1)))
+            match = RENAME_ROUTE.fullmatch(path)
+            if match is not None:
+                return self._rename(unquote(match.group(1)))
+            match = PROJECT_RENAME_ROUTE.fullmatch(path)
+            if match is not None:
+                return self._rename_project(unquote(match.group(1)))
+            return self._not_implemented()
 
         def _read_json_body(self) -> tuple[Any, None] | tuple[None, tuple[int, str]]:
             """(payload, None) or (None, (status, error)); the body is always consumed or the connection closed."""
@@ -528,7 +540,12 @@ def make_handler(projection: Projection, workspace: Path | None = None):
             if workspace is None or find_registry(workspace) is None:
                 return self._json(404, {"error": "no work-track registry in this workspace"})
             try:
-                title, new_revision = rename_title(workspace, track_id, payload.get("title"), revision.strip())
+                try:
+                    title, new_revision = rename_title(workspace, track_id, payload.get("title"), revision.strip())
+                except UnknownFeature:
+                    # WHY fall through: the home lists activity tracks beside work tracks and renames both alike.
+                    from vibetracks.home.rename import rename_activity_title
+                    title, new_revision = rename_activity_title(workspace, track_id, payload.get("title"), revision.strip())
             except TitleInvalid as error:
                 return self._json(400, {"error": str(error)})
             except UnknownFeature as error:
@@ -544,10 +561,41 @@ def make_handler(projection: Projection, workspace: Path | None = None):
 
             try:
                 from vibetracks.dashboard.registry import read_registry
+                from vibetracks.home.rename import activity_revision
                 track = read_registry(workspace).by_id(track_id) if workspace is not None else None
-                return note_revision(read_note_exact(Path(track.note_path))) if track else None
+                if track is not None:
+                    return note_revision(read_note_exact(Path(track.note_path)))
+                return activity_revision(workspace, track_id) if workspace is not None else None
             except (OSError, VibeTracksError):
                 return None
+
+        def _rename_project(self, project_id: str) -> None:
+            payload, failure = self._read_json_body()
+            if failure is not None:
+                return self._json(failure[0], {"error": failure[1]}, close=self.close_connection)
+            if not isinstance(payload, dict):
+                return self._json(400, {"error": "the body must be a JSON object {name, revision}"})
+            revision = payload.get("revision")
+            if not isinstance(revision, str) or not revision.strip():
+                return self._json(400, {"error": "revision is required: the descriptor revision the name was read at"})
+            if workspace is None:
+                return self._json(404, {"error": "no workspace"})
+            from vibetracks.home.rename import project_id_of, project_revision, rename_project
+            try:
+                name, new_revision = rename_project(workspace, project_id, payload.get("name"), revision.strip())
+            except TitleInvalid as error:
+                return self._json(400, {"error": str(error)})
+            except UnknownFeature as error:
+                return self._json(404, {"error": str(error)})
+            except RevisionConflict as error:
+                try:
+                    current = project_revision(workspace, project_id)
+                except OSError:
+                    current = None
+                return self._json(409, {"error": str(error), "revision": current})
+            except VibeTracksError as error:
+                return self._json(400, {"error": str(error)})
+            return self._json(200, {"ok": True, "id": project_id_of(name), "name": name, "revision": new_revision})
 
         def _route(self, head: bool) -> None:
             url = urlsplit(self.path)

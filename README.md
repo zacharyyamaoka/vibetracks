@@ -50,6 +50,8 @@ Each step prints `✓` (done now) or `·` (already done); a summary to paste bac
 one question, the shared hook line in `~/.claude/settings.json`: **ask Zach before rerunning with `--install-hook`**.
 To update later: `git -C ~/vibetracks pull`, then the same command again. Details and the manual fallback:
 [`docs/remote/WORKER_SETUP.md`](docs/remote/WORKER_SETUP.md); how it works: [`docs/remote/DESIGN.md`](docs/remote/DESIGN.md).
+Once a machine syncs, its sessions appear on the Vibe Tracks home (the hub's `/`, and Stable on the workstation),
+labelled with its name and "as of" its last sync.
 
 ## Quick start
 

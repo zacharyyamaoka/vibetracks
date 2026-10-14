@@ -19,6 +19,12 @@ roots. ``<root>/.claude/worktrees/...`` is under the root by path; a git worktre
 (``/home/bam/vibetracks-home``) counts as its main checkout's folder, read from its ``.git`` file. A folder may sit in
 more than one project: an unpinned session shows under each, until a track's join pins it to that track's project.
 
+A project's id is the slug of its name (B2's contract; tests/test_home_detail.py pins it), so a rename
+(``rename.rename_project``, the home's double-click) gives it a new id. Its tracks stay: a track names its project in
+``vibe-project`` by name, and ``resolve`` matches the name first, then the slug of the name against a descriptor's
+file stem (New project writes ``<slug(name)>.vibetrack``), so a track still naming the old name stays under the
+renamed project and no orphan group appears.
+
 WHY a pointer and never a number for the north star: the home derives, it never claims (docs/peps/0001). A north star
 with no pointer, or one that resolves to nothing measured, reads "unknown" on the project page.
 WHY the descriptors live in this workspace and not inside each root: the roots are other repos (bam_ws, pyblocks);
@@ -38,6 +44,7 @@ from typing import Any
 import yaml
 
 from ..activity.join import _under
+from ..notes import note_revision
 
 PROJECTS_DIR = "projects"
 SUFFIX = ".vibetrack"
@@ -54,10 +61,17 @@ class Project:
     north_star: dict[str, Any] | None
     path: str
     problems: list[str] = field(default_factory=list)
+    #: the descriptor's revision (``notes.note_revision`` of its exact text): the fence a rename is sent with
+    revision: str | None = None
 
     @property
     def id(self) -> str:
         return slug(self.name)
+
+    @property
+    def stem(self) -> str:
+        """The descriptor's file stem: the name it was created under (New project writes <slug(name)>.vibetrack)."""
+        return Path(self.path).stem if self.path else slug(self.name)
 
     def owns(self, cwd: str | None) -> str | None:
         """The root ``cwd`` is under (the longest), also through its git worktree's main checkout; else None."""
@@ -84,6 +98,10 @@ def main_checkout(cwd: str) -> str | None:
     ``<main>/.git/worktrees/<name>``), mapped to the same relative path inside it; None when ``cwd`` is not inside
     such a worktree. Cached per cwd (a worktree does not move its main checkout)."""
 
+    # WHY absolute only: a path that is not absolute here (another machine's "C:/Users/BAM/x", r3) would be read
+    # relative to this process's own working directory, and land in whatever repo the server runs from.
+    if not os.path.isabs(cwd):
+        return None
     if cwd in _MAIN:
         return _MAIN[cwd]
     found = None
@@ -131,8 +149,9 @@ def parse_project(path: Path) -> tuple[Project | None, str | None]:
     """One descriptor file, or (None, why not)."""
 
     try:
-        raw = yaml.safe_load(path.read_text(encoding="utf-8")) or {}
-    except (OSError, yaml.YAMLError) as error:
+        text = path.read_bytes().decode("utf-8")
+        raw = yaml.safe_load(text) or {}
+    except (OSError, UnicodeDecodeError, yaml.YAMLError) as error:
         return None, f"not readable YAML: {error}"
     block = raw.get("vibetracks") if isinstance(raw, dict) else None
     if not isinstance(block, dict) or str(block.get("kind", "")) != "project":
@@ -162,7 +181,8 @@ def parse_project(path: Path) -> tuple[Project | None, str | None]:
             problems.append("north-star needs milestone-of: <track> or kpi: <track>/<kpi>")
     elif star is not None:
         problems.append("north-star must be a mapping")
-    return Project(name=name, roots=roots, north_star=north, path=str(path), problems=problems), None
+    return Project(name=name, roots=roots, north_star=north, path=str(path), problems=problems,
+                   revision=note_revision(text)), None
 
 
 def read_projects(workspace: str | os.PathLike[str]) -> tuple[dict[str, Project], list[dict[str, str]]]:
@@ -188,6 +208,18 @@ def read_projects(workspace: str | os.PathLike[str]) -> tuple[dict[str, Project]
         problems += [{"path": Path(path_s).name, "error": text} for text in project.problems]
     _CACHE[key] = (stamp, (out, problems))
     return out, problems
+
+
+def resolve(descriptors: dict[str, Project], name: str | None) -> Project | None:
+    """The descriptor a track's ``vibe-project`` names: by name, else by the slug of that name equal to a file stem
+    (a project renamed since the track was written)."""
+
+    if not name:
+        return None
+    if name in descriptors:
+        return descriptors[name]
+    wanted = slug(name)
+    return next((project for project in descriptors.values() if project.stem == wanted), None)
 
 
 def render_descriptor(name: str | None, roots: list[str]) -> str:

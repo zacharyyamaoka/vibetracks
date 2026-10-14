@@ -14,6 +14,9 @@ Through Clank the page is ``/api/plugins/vibetracks/home/`` on every channel (St
 as Clank itself, so its links into Clank's track pages and review are plain ``/?vtdash=...#vt?...`` hrefs.
 
 The workspace is ``$VIBETRACKS_WORKSPACE`` (the backend exports its ``--workspace``), else this repo's ``workspace/``.
+Other machines (r3): the share is ``$VIBETRACKS_SHARE`` (``off`` disables), else ``~/vibetracks-share`` when it is a
+share clone (vibetracks/home/remote.py); without one the document is the single-machine one. The hub serves these
+same routes with its own ``Context`` (its workspace, share and projection; no writes, no Clank links).
 The transcript index persists in ``$VIBETRACKS_HOME_CACHE``, else ``~/.local/share/vibetracks/home``, so a restarted
 backend reads only what changed instead of 4.6 GB (~12 s cold).
 
@@ -28,7 +31,7 @@ import threading
 import time
 import traceback
 from pathlib import Path
-from typing import Any, Iterable, Mapping
+from typing import Any, Callable, Iterable, Mapping
 
 from . import detail
 from .compose import LAST, build_home
@@ -51,6 +54,44 @@ def workspace() -> Path:
     return Path(os.environ.get("VIBETRACKS_WORKSPACE") or DEFAULT_WORKSPACE)
 
 
+class Context:
+    """Where a home document comes from. The dashboard backend's default: the environment's workspace and share,
+    the live projection, renames allowed, links into Clank. The hub (vibetracks/remote/hub.py) passes its own."""
+
+    def __init__(self, *, workspace: Path | None = None, share: Path | None | str = "env", own_hosts: Iterable[str] | None = None,
+                 projection: Callable[[], Mapping[str, Any] | None] | None = None, writable: bool = True,
+                 workbench: bool = True, cache_dir: Path | None | str = "env", claude_homes: Iterable[Any] | None = None,
+                 proc_root: str | os.PathLike[str] = "/proc"):
+        self._workspace, self._share, self.own_hosts = workspace, share, own_hosts
+        self.projection, self.writable, self.workbench = projection, writable, workbench
+        self._cache_dir, self.claude_homes, self.proc_root = cache_dir, claude_homes, proc_root
+
+    @property
+    def workspace(self) -> Path:
+        return self._workspace or workspace()
+
+    @property
+    def share(self) -> Path | None:
+        if self._share == "env":
+            from .remote import default_share  # noqa: PLC0415
+
+            return default_share()
+        return Path(self._share) if self._share else None
+
+    @property
+    def cache_dir(self) -> Path | None:
+        return cache_dir() if self._cache_dir == "env" else self._cache_dir
+
+    def build(self) -> dict[str, Any]:
+        projection = self.projection() if self.projection else None
+        return build_home(self.workspace, cache_dir=self.cache_dir, share=self.share, own_hosts=self.own_hosts,
+                          projection=projection, writable=self.writable, workbench=self.workbench,
+                          claude_homes=self.claude_homes, proc_root=self.proc_root)
+
+
+DEFAULT_CONTEXT = Context()
+
+
 def cache_dir() -> Path:
     return Path(os.environ.get("VIBETRACKS_HOME_CACHE") or Path.home() / ".local/share/vibetracks/home").expanduser()
 
@@ -61,10 +102,10 @@ def _json(status: int, payload: Any) -> tuple[int, dict[str, str], list[bytes]]:
                     "Cache-Control": "no-store"}, [body]
 
 
-def document() -> dict[str, Any]:
+def document(context: Context | None = None) -> dict[str, Any]:
     # WHY one request at a time: the transcript index and the caches are shared; a poll every few seconds never queues.
     with _LOCK:
-        doc = build_home(workspace(), cache_dir=cache_dir())
+        doc = (context or DEFAULT_CONTEXT).build()
     _save_later()
     return doc
 
@@ -118,7 +159,8 @@ def _font(name: str) -> tuple[int, dict[str, str], Iterable[bytes]]:
     return _json(404, {"error": f"no local copy of {name}; the page falls back to system-ui"})
 
 
-def handle(method: str, subpath: str, query: Mapping[str, list[str]], headers: Mapping[str, str]):
+def handle(method: str, subpath: str, query: Mapping[str, list[str]], headers: Mapping[str, str],
+           context: Context | None = None):
     if method != "GET":
         return _json(501, {"error": "the home is read-only"})
     if subpath == "" and _wants_html(headers):
@@ -128,7 +170,7 @@ def handle(method: str, subpath: str, query: Mapping[str, list[str]], headers: M
     if subpath in ("", "/doc"):
         started = time.perf_counter()
         try:
-            doc = document()
+            doc = document(context)
         except Exception as error:  # noqa: BLE001 - the page shows the reason, never a stale or made-up document
             traceback.print_exc()
             return _json(500, {"error": "the home could not be built", "detail": f"{type(error).__name__}: {error}"})
@@ -137,8 +179,8 @@ def handle(method: str, subpath: str, query: Mapping[str, list[str]], headers: M
     if subpath in ("/track", "/project"):
         key = (query.get("id") or [""])[0]
         try:
-            doc = document()
-            last = LAST.get(str(workspace().resolve()))
+            doc = document(context)
+            last = LAST.get(str((context or DEFAULT_CONTEXT).workspace.resolve()))
             built = (detail.build_track if subpath == "/track" else detail.build_project)(doc, last, key) if last else None
         except Exception as error:  # noqa: BLE001 - the page shows the reason
             traceback.print_exc()
@@ -147,7 +189,7 @@ def handle(method: str, subpath: str, query: Mapping[str, list[str]], headers: M
             return _json(404, {"error": f"no {subpath[1:]} {key!r}"})
         return _json(200, built)
     if subpath == "/audit":
-        served = detail.serve_audit(document(), (query.get("track") or [""])[0], (query.get("name") or [""])[0])
+        served = detail.serve_audit(document(context), (query.get("track") or [""])[0], (query.get("name") or [""])[0])
         return served if served else _json(404, {"error": "not an audit file of that track"})
     if subpath.startswith("/font/"):
         return _font(subpath[len("/font/"):])
