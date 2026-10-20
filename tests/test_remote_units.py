@@ -535,7 +535,7 @@ class SetupCommands(Temp):
         _, clones = make_share(self.tmp, "win-a")
         home = self.tmp / "home"
         home.mkdir()
-        with mock.patch.dict(os.environ, {"HOME": str(home)}):
+        with mock.patch.dict(os.environ, {"HOME": str(home), "USERPROFILE": str(home)}):
             printed = self.run_main("hook-config", "--share", str(clones["win-a"]), "--host", "win-a",
                                     "--tracks-map", '{"kinsim": ["/home/bam/bam_ws"]}')
         remote = json.loads((home / ".vibetracks/remote.json").read_text())
@@ -558,9 +558,9 @@ class SetupCommands(Temp):
         _, clones = make_share(self.tmp, "win-a")
         home = self.tmp / "home"
         home.mkdir()
-        env = {**os.environ, "HOME": str(home), "PYTHONPATH": str(REPO),
+        env = {**os.environ, "HOME": str(home), "USERPROFILE": str(home), "PYTHONPATH": str(REPO),
                "CLAUDE_CODE_BRIDGE_SESSION_ID": "session_01Shared"}
-        with mock.patch.dict(os.environ, {"HOME": str(home)}):
+        with mock.patch.dict(os.environ, {"HOME": str(home), "USERPROFILE": str(home)}):
             self.run_main("hook-config", "--share", str(clones["win-a"]), "--host", "win-a")
         stdin = json.dumps({"session_id": "5e55e55e-0000-1111-2222-333344445555", "cwd": "/x",
                             "hook_event_name": "Stop"})
@@ -574,14 +574,15 @@ class SetupCommands(Temp):
         bare = self.tmp / "bare-home"
         bare.mkdir()
         done = subprocess.run(["sh", "-c", sync.HOOK_LINE], input=stdin, capture_output=True, text=True,
-                              timeout=30, env={**env, "HOME": str(bare)})
+                              timeout=30, env={**env, "HOME": str(bare), "USERPROFILE": str(bare)})
         self.assertEqual((done.returncode, done.stdout, done.stderr), (0, "", ""))
 
 
 class HookWrapper(Temp):
     def run_hook(self, home: Path, stdin: str, **env: str) -> subprocess.CompletedProcess:
         return subprocess.run([sys.executable, str(sync.HOOK_SCRIPT)], input=stdin, capture_output=True, text=True,
-                              timeout=30, env={**os.environ, "HOME": str(home), "PYTHONPATH": str(REPO), **env})
+                              timeout=30, env={**os.environ, "HOME": str(home), "USERPROFILE": str(home),
+                                               "PYTHONPATH": str(REPO), **env})
 
     def test_without_remote_json_it_does_nothing_and_exits_0(self) -> None:
         home = self.tmp / "home"
