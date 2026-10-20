@@ -597,15 +597,17 @@ def init(args: argparse.Namespace) -> int:
         # WHY the host as the author: the share's history then says which machine wrote each commit.
         if _git(clone, "config", "--local", "--get", key, check=False).returncode != 0:
             _git(clone, "config", "--local", key, value)
+    # WHY -P in the printed commands: a fresh terminal starts in the home folder, which holds the ~/vibetracks clone,
+    # and without it python imports that repo root as an empty namespace package instead of the installed one.
     python = sys.executable
     print(f"wrote {target.as_posix()} (host {args.host}, {len(mirrors)} mirrored "
           f"{'path' if len(mirrors) == 1 else 'paths'}{', no upstream yet: the first push sets it' if not upstream else ''})")
     print("run one round:")
-    print("  " + _command([python, "-m", "vibetracks.remote.sync", "--config", target.as_posix(), "--once"]))
+    print("  " + _command([python, "-P", "-m", "vibetracks.remote.sync", "--config", target.as_posix(), "--once"]))
     print("run it forever:")
-    print("  " + _command([python, "-m", "vibetracks.remote.sync", "--config", target.as_posix()]))
+    print("  " + _command([python, "-P", "-m", "vibetracks.remote.sync", "--config", target.as_posix()]))
     print("install the session hook (writes ~/.vibetracks/remote.json, prints the settings.json line):")
-    print("  " + _command([python, "-m", "vibetracks.remote.sync", "hook-config", "--share", clone.as_posix(),
+    print("  " + _command([python, "-P", "-m", "vibetracks.remote.sync", "hook-config", "--share", clone.as_posix(),
                            "--host", args.host]))
     return 0
 

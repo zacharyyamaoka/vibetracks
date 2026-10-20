@@ -50,6 +50,12 @@ if sys.version_info < (3, 11):
 ROOT = Path(__file__).resolve().parents[1]
 SHARE_URL = "https://github.com/zacharyyamaoka/vibetracks-share"
 SYNC = "vibetracks.remote.sync"
+#: WHY -P (PYTHONSAFEPATH, 3.11+) on every python this script starts, schedules or writes into a unit: the clone lives
+#: at ``~/vibetracks``, so a ``python -c``/``-m`` started from the home folder (this script's cwd, a systemd user
+#: unit's default) puts the repo root first on sys.path and imports it as an empty namespace package. The editable
+#: install's finder is appended after the path finder and never gets asked. Measured on win-a, 2026-10-16: the install
+#: step failed while pip reported success.
+SAFE_PATH = "-P"
 TASK_NAME = "Vibe Tracks sync"
 UNIT_NAME = "vibetracks-sync.service"
 HOOK_EVENTS = ("UserPromptSubmit", "Stop", "SessionEnd")
@@ -218,7 +224,7 @@ class Setup:
         argv = [str(part) for part in argv]
         try:
             # WHY cwd = home and stdin closed: a python -c/-m must not import from the agent's cwd, and nothing may
-            # wait on input that no one will type.
+            # wait on input that no one will type. Home is not clean either (it holds the clone): see SAFE_PATH.
             result = subprocess.run(argv, capture_output=True, text=True, encoding="utf-8", errors="replace",
                                     env=self.env, cwd=self.home, stdin=subprocess.DEVNULL, timeout=timeout)
         except (OSError, subprocess.SubprocessError) as error:
@@ -244,7 +250,7 @@ class Setup:
         write_atomic(path, text)
 
     def sync(self, *args: Any) -> list[Any]:
-        return [self.python, "-m", SYNC, *args]
+        return [self.python, SAFE_PATH, "-m", SYNC, *args]
 
     def git(self, *args: Any) -> list[Any]:
         return ["git", "-C", self.share, *args]
@@ -254,18 +260,19 @@ class Setup:
     def step_venv(self) -> None:
         if self.args.python:
             already("venv", f"skipped (--python {posix(self.python)})")
-            self.run([self.python, "-c", "import vibetracks.remote.sync"], "install")
+            self.run([self.python, SAFE_PATH, "-c", "import vibetracks.remote.sync"], "install")
             already("install", "skipped (--python; this clone is first on its PYTHONPATH for this run)")
             return
         if self.python.exists():
             already("venv", f"already done ({posix(self.venv)})")
         else:
-            self.change([sys.executable, "-m", "venv", self.venv], "venv")
+            self.change([sys.executable, SAFE_PATH, "-m", "venv", self.venv], "venv")
             (planned if self.dry else done)("venv", f"created {posix(self.venv)} with python {sys.version.split()[0]}")
         if self.python.exists() and self.installed_here():
             already("install", f"already done (editable from {posix(ROOT)})")
             return
-        self.change([self.python, "-m", "pip", "install", "-q", "-e", ROOT], "install", timeout=PIP_TIMEOUT_S)
+        self.change([self.python, SAFE_PATH, "-m", "pip", "install", "-q", "-e", ROOT], "install",
+                    timeout=PIP_TIMEOUT_S)
         if self.dry:
             planned("install", f"pip install -e {posix(ROOT)}")
             return
@@ -276,12 +283,12 @@ class Setup:
     def installed_here(self) -> bool:
         """``pip show`` says the editable install is this clone, and the venv's python imports it from here."""
 
-        shown = self.run([self.python, "-m", "pip", "show", "vibetracks"], "install", check=False)
+        shown = self.run([self.python, SAFE_PATH, "-m", "pip", "show", "vibetracks"], "install", check=False)
         location = next((line.partition(":")[2].strip() for line in shown.stdout.splitlines()
                          if line.startswith("Editable project location:")), "")
         if not location or Path(location).resolve() != ROOT:
             return False
-        probe = self.run([self.python, "-c", "import pathlib, vibetracks; "
+        probe = self.run([self.python, SAFE_PATH, "-c", "import pathlib, vibetracks; "
                                              "print(pathlib.Path(vibetracks.__file__).resolve().parents[1])"],
                          "install", check=False)
         return probe.returncode == 0 and Path(probe.stdout.strip()).resolve() == ROOT
@@ -413,8 +420,8 @@ class Setup:
         if self.python.exists() and not pythonw.exists():
             pythonw = self.python
         # WHY an argument list for schtasks: no shell parses it, so Git Bash's MSYS rewriting of /Create never happens.
-        task = subprocess.list2cmdline([str(PureWindowsPath(pythonw)), "-m", SYNC, "--config", posix(self.config),
-                                        "--log", posix(self.log)])
+        task = subprocess.list2cmdline([str(PureWindowsPath(pythonw)), SAFE_PATH, "-m", SYNC, "--config",
+                                        posix(self.config), "--log", posix(self.log)])
         query = ["schtasks", "/Query", "/TN", TASK_NAME, "/V", "/FO", "LIST"]
         current = self.task_fields(self.run(query, "autostart", check=False))
         if current.get("Task To Run") == task and current.get("Status") == "Running":
@@ -454,7 +461,7 @@ class Setup:
 
     def autostart_linux(self) -> None:
         unit = self.home / ".config" / "systemd" / "user" / UNIT_NAME
-        parts = [str(self.python), "-m", SYNC, "--config", posix(self.config), "--log", posix(self.log)]
+        parts = [str(self.python), SAFE_PATH, "-m", SYNC, "--config", posix(self.config), "--log", posix(self.log)]
         command = " ".join(f'"{part}"' if " " in part else part for part in parts)
         environment = f"Environment=PYTHONPATH={ROOT}\n" if self.args.python else ""
         text = UNIT.format(environment=environment, command=command)

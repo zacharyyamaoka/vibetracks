@@ -164,7 +164,7 @@ class SetupMachine(unittest.TestCase):
         module = load_script()
         head = origin_head(self.origin)
         for system, expected in (("windows", ["schtasks /Create /SC ONLOGON /TN", '"Vibe Tracks sync"', "/TR",
-                                              "pythonw.exe -m vibetracks.remote.sync --config", "schtasks /Run"]),
+                                              "pythonw.exe -P -m vibetracks.remote.sync --config", "schtasks /Run"]),
                                  ("linux", ["systemctl --user enable --now vibetracks-sync.service"])):
             out = io.StringIO()
             with mock.patch.dict(os.environ, {"HOME": str(self.home), "USERPROFILE": str(self.home)}), \
@@ -196,6 +196,75 @@ class SetupMachine(unittest.TestCase):
 
     def test_the_hook_line_is_the_one_sync_prints(self) -> None:
         self.assertEqual(load_script().HOOK_LINE, sync.HOOK_LINE)
+
+    def test_minus_p_is_what_stops_the_home_clone_shadowing_an_editable_install(self) -> None:
+        # The win-a failure of 2026-10-16, reduced: the cwd holds the clone root (a `vibetracks/` folder, no
+        # __init__.py), and the real package is reachable only through a finder appended to sys.meta_path, as
+        # setuptools' editable install does. -E -S keep this interpreter's own install and PYTHONPATH out of it, and
+        # the finder points at an empty stand-in so the package's own imports play no part.
+        (self.home / "vibetracks").mkdir()
+        package = self.tmp / "installed" / "vibetracks" / "__init__.py"
+        package.parent.mkdir(parents=True)
+        package.write_text("")
+        probe = ("import importlib.util, sys\n"
+                 "class Editable:\n"
+                 "    @staticmethod\n"
+                 "    def find_spec(name, path=None, target=None):\n"
+                 f"        return importlib.util.spec_from_file_location(name, {str(package)!r}) "
+                 "if name == 'vibetracks' else None\n"
+                 "sys.meta_path.append(Editable)\n"
+                 "import vibetracks\n"
+                 "print(vibetracks.__file__)\n")
+
+        def imported(*flags: str) -> str:
+            return subprocess.run([sys.executable, "-E", "-S", *flags, "-c", probe], capture_output=True, text=True,
+                                  cwd=self.home, timeout=60).stdout.strip()
+
+        self.assertEqual(imported(), "None")
+        self.assertEqual(Path(imported("-P")), package)
+
+    def test_every_python_it_starts_keeps_the_home_folder_off_sys_path(self) -> None:
+        module = load_script()
+        commands: list[list[str]] = []
+        units: list[str] = []
+
+        def fake_run(setup, argv, step, **kwargs):
+            commands.append([str(part) for part in argv])
+            return subprocess.CompletedProcess(argv, 0, f"Editable project location: {module.ROOT}\n", "")
+
+        with mock.patch.dict(os.environ, {"HOME": str(self.home), "USERPROFILE": str(self.home)}), \
+                mock.patch.object(module.Setup, "run", fake_run), \
+                mock.patch.object(module.Setup, "write", lambda setup, path, text: units.append(text)), \
+                mock.patch.object(module, "START_WAIT_S", 0), \
+                contextlib.redirect_stdout(io.StringIO()):
+            for system, autostart in (("windows", "autostart_windows"), ("linux", "autostart_linux")):
+                setup = module.Setup(module.parse_args(["--host", "win-a"]), system)
+                for step in (setup.step_venv, getattr(setup, autostart), setup.step_hook):
+                    with contextlib.suppress(module.StepFailed):
+                        step()
+        pythons = [argv for argv in commands if Path(argv[0]).name.lower().startswith("python")]
+        # venv, pip install, pip show, the import probe and hook-config, once per platform
+        self.assertEqual(len(pythons), 10, commands)
+        for argv in pythons:
+            self.assertEqual(argv[1], "-P", argv)
+        task = next(argv[argv.index("/TR") + 1] for argv in commands if argv[:2] == ["schtasks", "/Create"])
+        self.assertIn("pythonw.exe -P -m vibetracks.remote.sync --config", task)
+        self.assertEqual(len(units), 1, units)
+        self.assertIn(" -P -m vibetracks.remote.sync --config ", units[0])
+
+    def test_the_session_hook_starts_python_with_the_cwd_off_sys_path(self) -> None:
+        spec = importlib.util.spec_from_file_location(
+            "vibetracks_session", REPO / "vibetracks" / "remote" / "hooks" / "vibetracks_session.py")
+        hook = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(hook)
+        (self.home / ".vibetracks").mkdir()
+        (self.home / ".vibetracks" / "remote.json").write_text(
+            json.dumps({"python": sys.executable, "share": str(self.home / "vibetracks-share"), "host": "win-a"}))
+        with mock.patch.dict(os.environ, {"HOME": str(self.home), "USERPROFILE": str(self.home)}), \
+                mock.patch.object(hook.subprocess, "run") as run, \
+                mock.patch.object(hook.sys, "stdin", io.TextIOWrapper(io.BytesIO(b"{}"))):
+            self.assertEqual(hook.main(), 0)
+        self.assertEqual(run.call_args.args[0][:4], [sys.executable, "-P", "-m", "vibetracks.remote.session_hook"])
 
 
 if __name__ == "__main__":

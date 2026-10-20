@@ -41,7 +41,9 @@ def main() -> int:
     python, share, host = config.get("python"), config.get("share"), config.get("host")
     if not all(isinstance(value, str) and value for value in (python, share, host)):
         return 0
-    command = [python, "-m", "vibetracks.remote.session_hook", "--share", share, "--host", host]
+    # WHY -P: the hook runs in the session's cwd, and a session started in the home folder (which holds the
+    # ~/vibetracks clone) would otherwise import the repo root as an empty namespace package and write no card.
+    command = [python, "-P", "-m", "vibetracks.remote.session_hook", "--share", share, "--host", host]
     tracks_map = config.get("tracks_map")
     if isinstance(tracks_map, dict):
         command += ["--tracks-map", json.dumps(tracks_map)]
