@@ -28,9 +28,27 @@ files.
 
 ## Set up this machine (agents: start here)
 
-Two repos, like Obsidian and a vault: **this repo** (`zacharyyamaoka/vibetracks`) is the app, public code;
-**`zacharyyamaoka/vibetracks-share`** is the database, private, small synced files with one folder per machine. One
-command installs the app, clones the database and starts syncing. If `~/vibetracks` is not a clone of this repo yet:
+Like Obsidian and a vault: this repo is the app, and the **Vibe Tracks** Obsidian vault is the data. Obsidian Sync
+carries the vault between machines. Two steps per machine, both Zach's:
+
+1. **In Obsidian:** open the Vibe Tracks folder as a vault, connect it to the "Vibe Tracks" remote vault in Settings →
+   Sync, and keep its window open. A new folder downloads `vibetracks-share.md`; that note's `machines` property
+   names each machine.
+2. **In any Claude Code session:** install the plugin. It writes a card for every session into the vault, with no
+   venv, no clone and no settings edit:
+
+   ```
+   /plugin install vibetracks --marketplace zacharyyamaoka/vibetracks
+   ```
+
+The Vibe Tracks home on the workstation reads the same vault, so every machine's sessions appear under their tracks.
+How it works: "The vault transport" in [`docs/remote/DESIGN.md`](docs/remote/DESIGN.md).
+
+### Legacy: the git share (loop-file mirroring only)
+
+Two repos: **this repo** (`zacharyyamaoka/vibetracks`) is the app;
+**`zacharyyamaoka/vibetracks-share`** is a private git share, with one folder per machine. One command installs the
+app, clones the share and starts syncing. If `~/vibetracks` is not a clone of this repo yet:
 
 ```bash
 git clone https://github.com/zacharyyamaoka/vibetracks ~/vibetracks

@@ -30,6 +30,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Iterable, Mapping
 
+from ..remote import card as vault_card
 from ..remote import share as layout
 from ..remote.hub import SESSION_LIVE_S, host_status, merge_sources
 
@@ -43,20 +44,28 @@ OFF = {"", "0", "off", "none", "false", "no"}
 
 
 def default_share(environ: Mapping[str, str] = os.environ, home: Path | None = None) -> Path | None:
-    """``$VIBETRACKS_SHARE`` (``off`` disables), else ``~/vibetracks-share`` when it is a share clone; else None."""
+    """``$VIBETRACKS_SHARE`` (``off`` disables), else the Vibe Tracks Obsidian vault (``card.find_share``: the
+    registered vault holding ``vibetracks-share.md``), else the legacy git clone ``~/vibetracks-share``; else None."""
 
     value = environ.get("VIBETRACKS_SHARE")
     if value is not None:
         return None if value.strip().lower() in OFF else Path(value).expanduser()
+    vault = vault_card.find_share(environ, home or Path.home())
+    if vault is not None and vault.is_dir():
+        return vault
     candidate = (home or Path.home()) / SHARE_DIR
     return candidate if (candidate / layout.HOSTS).is_dir() or (candidate / ".git").exists() else None
 
 
 def this_host_names(environ: Mapping[str, str] = os.environ, home: Path | None = None) -> set[str]:
-    """Every name this machine may publish under, lower-cased: its hostname, the ``host`` of its worker config
+    """Every name this machine may publish under, lower-cased: its hostname, the name the card hook gives it in the
+    vault (``card.host_name``: the marker note's ``machines`` entry), the ``host`` of a legacy worker config
     (``~/.vibetracks/remote.json``, ``sync.json``) and ``$VIBETRACKS_HOST``."""
 
     names = {socket.gethostname().lower()}
+    vault = vault_card.find_share(environ, home or Path.home())
+    if vault is not None:
+        names.add(vault_card.host_name(vault, environ).lower())
     base = (home or Path.home()) / ".vibetracks"
     for name in ("remote.json", "sync.json"):
         data = layout.read_json(base / name)
@@ -138,17 +147,25 @@ def read_share(share: str | os.PathLike[str], now: float, own: Iterable[str]) ->
             if (folder / layout.HOST_JSON).exists():
                 problems.append({"path": f"hosts/{name}/host.json", "error": "not a JSON object"})
             beat = {}
-        last_sync = layout.parse_iso(beat.get("last_sync"))
-        status = host_status(last_sync, _number(beat.get("interval_s"), 3.0), now, _number(beat.get("heartbeat_s"), 0.0))
-        mine: list[Card] = []
         try:
-            files = sorted((folder / layout.SESSIONS).glob("*.json"))
+            files = sorted((folder / layout.SESSIONS).glob("*.json")) + sorted((folder / layout.SESSIONS).glob("*.md"))
         except OSError:
             files = []
-        for file in files:
-            data = layout.read_json(file)
-            if not isinstance(data, dict) or not isinstance(data.get("session_id"), str) or not layout.NAME.match(data["session_id"]):
-                continue
+        readings = [(file, vault_card.read_card(file) if file.suffix == vault_card.CARD_SUFFIX
+                     else layout.read_json(file)) for file in files]
+        readings = [(file, data) for file, data in readings if isinstance(data, dict)
+                    and isinstance(data.get("session_id"), str) and layout.NAME.match(data["session_id"])]
+        last_sync = layout.parse_iso(beat.get("last_sync"))
+        heartbeat_s = _number(beat.get("heartbeat_s"), 0.0)
+        if not beat:
+            # WHY: a vault host (Obsidian Sync, no sync loop) has no host.json; it reports only through its cards'
+            # hook events, so its newest card is its last report and the session window is its heartbeat.
+            seen_all = [t for t in (layout.parse_iso(data.get("last_seen")) for _, data in readings) if t is not None]
+            last_sync = max(seen_all) if seen_all else None
+            heartbeat_s = float(SESSION_LIVE_S)
+        status = host_status(last_sync, _number(beat.get("interval_s"), 3.0), now, heartbeat_s)
+        mine: list[Card] = []
+        for file, data in readings:
             seen = layout.parse_iso(data.get("last_seen"))
             if seen is not None and now - seen > WINDOW_S:
                 continue
@@ -161,7 +178,8 @@ def read_share(share: str | os.PathLike[str], now: float, own: Iterable[str]) ->
                              last_seen=seen, as_of=as_of, host_status=status, host_last_sync=last_sync, ended=ended,
                              current=current))
         cards += mine
-        hosts.append({"host": name, "status": status, "last_sync": beat.get("last_sync") if last_sync is not None else None,
+        reported = None if last_sync is None else (beat.get("last_sync") if beat else layout.iso_utc(last_sync))
+        hosts.append({"host": name, "status": status, "last_sync": reported,
                       "age_s": None if last_sync is None else max(0, int(now - last_sync)), "platform": beat.get("platform"),
                       "error": beat.get("error"), "sessions_current": sum(1 for c in mine if c.current),
                       "sessions_seen": len(mine)})

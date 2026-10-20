@@ -1,0 +1,14 @@
+{
+  "name": "vibetracks",
+  "owner": {
+    "name": "Zach Yamaoka"
+  },
+  "description": "Vibe Tracks: file-first tracks for agent work, and the plugin that shows every machine's agents on one home.",
+  "plugins": [
+    {
+      "name": "vibetracks",
+      "source": "./",
+      "description": "Session cards for the Vibe Tracks home, carried between machines by Obsidian Sync."
+    }
+  ]
+}

@@ -1,5 +1,29 @@
 # Vibe Tracks remote: agents on several machines, one dashboard
 
+## The vault transport (2026-10-17): Obsidian Sync replaces the git share for session cards
+
+Setting up win-a as a git worker took 11 steps and stopped twice: an editable install shadowed by the clone, then a
+logon task that needs admin. Zach: *"like obsidian sync works without me doing all of these things … it runs
+locally and syncs everywhere."* So session cards now take the swap point named below, without the git share:
+
+- **The share is an Obsidian vault of its own**, "Vibe Tracks", which Obsidian Sync carries between machines. Zach
+  keeps it out of his brain vault. Its root holds `vibetracks-share.md`, whose `machines` property maps a lower-case
+  hostname to the name the home shows (`desktop-ab12cd3: win-a`).
+- **Code reaches each machine as a Claude Code plugin** from this repo (`.claude-plugin/`, `hooks/hooks.json`). Its
+  hook runs `vibetracks/remote/card.py` by path, stdlib only, on UserPromptSubmit, Stop and SessionEnd. It writes
+  `hosts/<host>/sessions/<id>.md`: a note whose properties are the card's fields. There is no venv, no clone, no
+  `setup-machine`, no logon task, and no edit to `settings.json`.
+- **Nothing is configured.** The hook and the home both find the vault in Obsidian's own registry (`obsidian.json`)
+  by its marker note (`card.find_share`). A machine without that vault gets no card and no error.
+- **Liveness reads the card, never file times**: `last_seen` is a field, and a vault host with no `host.json` is
+  judged by its newest card (`home/remote.py read_share`). Obsidian Sync restored creation times on win-a, but
+  forum reports disagree about mtimes.
+- **Per machine:** open the Vibe Tracks folder as a vault, connect it to the remote vault in Sync settings and keep
+  its window open, then install the plugin. A second remote vault needs Sync Plus; Standard includes one.
+- **Not moved yet:** mirrored loop files (`files/<key>/`, `.jsonl`). They would need "Sync other file types" in that
+  vault. The git sections below still describe them, and `sync.py` / `setup-machine` stay until a loop actually
+  runs off the workstation.
+
 ## The problem
 
 The dashboard's adapters read loop files (`status.json`, `loop_events.jsonl`, `runs.jsonl`, …) from paths on **this** workstation (`vibetracks/sources.py`). Agents running on other machines (the Windows box, a laptop, a cloud VM) write the same kind of files there, and the dashboard cannot see them. We want those agents to keep working exactly as they do today, and Zach to see every track, from any machine, on his phone.

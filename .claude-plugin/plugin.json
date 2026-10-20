@@ -1,0 +1,9 @@
+{
+  "name": "vibetracks",
+  "description": "Vibe Tracks across machines: every Claude Code session writes a small card into the Vibe Tracks Obsidian vault, which Obsidian Sync carries to the machine that shows the home.",
+  "author": {
+    "name": "Zach Yamaoka"
+  },
+  "homepage": "https://github.com/zacharyyamaoka/vibetracks",
+  "repository": "https://github.com/zacharyyamaoka/vibetracks"
+}

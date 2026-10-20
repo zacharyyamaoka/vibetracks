@@ -1,5 +1,9 @@
 # Vibe Tracks worker setup (for the Claude Code session on the other machine)
 
+> **Superseded for session cards (2026-10-17).** A machine now needs the Vibe Tracks Obsidian vault (opened and
+> connected to Sync) and the `vibetracks` Claude Code plugin; see "The vault transport" at the top of
+> `docs/remote/DESIGN.md`. The git steps below remain only for mirroring loop files, which nothing does yet.
+
 You are setting this machine up as a **Vibe Tracks worker**: a small sync process copies this machine's session cards
 (and later its loop files) into a git "share" on GitHub, and Zach's hub on his workstation reads them. One command does
 it, and the same command updates the machine later. Run it, read its lines, and stop and tell Zach when a step fails.
